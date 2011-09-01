@@ -52,6 +52,7 @@ static ostream& _prefix(std::ostream *_dout, PG *pg, int whoami, OSDMapRef osdma
 
 
 #include <sstream>
+#include <utility>
 
 #include <errno.h>
 
@@ -293,7 +294,7 @@ void ReplicatedPG::do_pg_op(MOSDOp *op)
 	}
 	if (sentries.size() < p->op.pgls.count &&
 	    !response.handle.in_missing_set) {
-	  // it's a readdir cookie
+	  // it's a filestore cookie
 	  dout(10) << " handle high/missing " << response.handle << dendl;
 	  osr.flush();  // order wrt preceeding writes
 	  result = osd->store->collection_list_partial(coll, snapid,
@@ -309,6 +310,9 @@ void ReplicatedPG::do_pg_op(MOSDOp *op)
 	    // skip snapdir objects
 	    if (iter->snap == CEPH_SNAPDIR)
 	      continue;
+	    bufferlist attr_bl;
+	    osd->store->getattr(coll, *iter, OI_ATTR, attr_bl);
+	    object_info_t oi(attr_bl);
 
 	    if (snapid != CEPH_NOSNAP) {
 	      // skip items not defined for this snapshot
@@ -319,9 +323,6 @@ void ReplicatedPG::do_pg_op(MOSDOp *op)
 		if (snapid <= snapset.seq)
 		  continue;
 	      } else {
-		bufferlist bl;
-		osd->store->getattr(coll, *iter, OI_ATTR, bl);
-		object_info_t oi(bl);
 		bool exists = false;
 		for (vector<snapid_t>::iterator i = oi.snaps.begin(); i != oi.snaps.end(); ++i)
 		  if (*i == snapid) {
@@ -337,7 +338,7 @@ void ReplicatedPG::do_pg_op(MOSDOp *op)
 	      keep = pgls_filter(filter, *iter, filter_out);
 
             if (keep)
-	      response.entries.push_back(iter->oid);
+	      response.entries.push_back(make_pair(iter->oid, oi.oloc.key));
           }
 	  ::encode(response, outdata);
           if (filter)
