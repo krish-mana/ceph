@@ -3035,6 +3035,8 @@ void ReplicatedPG::populate_obc_watchers(ObjectContext *obc)
 
   if (!obc->obs.oi.watchers.empty()) {
     Mutex::Locker l(osd->watch_lock);
+    dout(0) << "Populate_obc_watchers" << dendl;
+    dump_watchers(obc);
     assert(obc->unconnected_watchers.size() == 0);
     assert(obc->watchers.size() == 0);
     // populate unconnected_watchers
@@ -3047,6 +3049,7 @@ void ReplicatedPG::populate_obc_watchers(ObjectContext *obc)
       dout(10) << "  unconnected watcher " << p->first << " will expire " << expire << dendl;
       register_unconnected_watcher(obc, p->first, expire);
     }
+    dump_watchers(obc);
   }
 }
 
