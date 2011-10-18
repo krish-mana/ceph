@@ -143,6 +143,10 @@ public:
     static const int OP_RMATTRS =      28;  // cid, oid
     static const int OP_COLL_RENAME =       29;  // cid, newcid
 
+    static const int OP_TMAP_CLEAR = 30;   // cid
+    static const int OP_TMAP_SETKEYS = 31; // cid, attrset
+    static const int OP_TMAP_RMKEYS = 32;  // cid, keyset
+
   private:
     uint64_t ops;
     uint64_t pad_unused_bytes;
@@ -473,6 +477,40 @@ public:
       ops++;
     }
 
+    /// Remove tmap from hoid
+    void tmap_clear(
+      coll_t cid,           ///< [in] Collection containing hoid
+      const hobject_t &hoid ///< [in] Object from which to remove tmap
+      ) {
+      __u32 op = OP_TMAP_CLEAR;
+      ::encode(op, tbl);
+      ::encode(cid, tbl);
+      ::encode(hoid, tbl);
+    }
+    /// Set keys on hoid tmap.  Replaces duplicate keys.
+    void tmap_setkeys(
+      coll_t cid,                           ///< [in] Collection containing hoid
+      const hobject_t &hoid,                ///< [in] Object to update 
+      const map<string, bufferptr> &attrset ///< [in] Replacement keys and values
+      ) {
+      __u32 op = OP_TMAP_SETKEYS;
+      ::encode(op, tbl);
+      ::encode(cid, tbl);
+      ::encode(hoid, tbl);
+      ::encode(attrset, tbl);
+    }
+    /// Remove keys from hoid tmap
+    void tmap_rmkeys(
+      coll_t cid,             ///< [in] Collection containing hoid
+      const hobject_t &hoid,  ///< [in] Object from which to remove the tmap
+      const set<string> &keys ///< [in] Keys to clear
+      ) {
+      __u32 op = OP_TMAP_RMKEYS;
+      ::encode(op, tbl);
+      ::encode(cid, tbl);
+      ::encode(hoid, tbl);
+      ::encode(keys, tbl);
+    }
 
     // etc.
     Transaction() :
@@ -622,6 +660,30 @@ public:
   virtual bool collection_empty(coll_t c) = 0;
   virtual int collection_list_partial(coll_t c, snapid_t seq, vector<hobject_t>& o, int count, collection_list_handle_t *handle) = 0;
   virtual int collection_list(coll_t c, vector<hobject_t>& o) = 0;
+
+  /// TMAP
+  /// Get tmap contents
+  virtual void tmap_get(
+    coll_t c,                  ///< [in] Collection containing hoid
+    const hobject_t &hoid,     ///< [in] Object containing tmap
+    map<string, string> *out   /// < [out] Key to value map
+    ) {}
+
+  /// Get key values
+  virtual void tmap_get_keys(
+    coll_t c,                    ///< [in] Collection containing hoid
+    const hobject_t &hoid,       ///< [in] Object containing tmap
+    const set<string> &keys,     ///< [in] Keys to get
+    map<string, bufferlist> *out ///< [out] Returned keys and values
+    ) {}
+
+  /// Filters keys into out which are defined on hoid
+  virtual void tmap_check_keys(
+    coll_t c,                ///< [in] Collection containing hoid
+    const hobject_t &hoid,   ///< [in] Object containing tmap
+    const set<string> &keys, ///< [in] Keys to check
+    set<string> *out         ///< [out] Subset of keys defined on hoid
+    ) {}
 
   /*
   virtual int _create_collection(coll_t c) = 0;
