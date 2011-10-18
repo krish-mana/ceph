@@ -143,9 +143,9 @@ public:
     static const int OP_RMATTRS =      28;  // cid, oid
     static const int OP_COLL_RENAME =       29;  // cid, newcid
 
-    static const int OP_TMAP_CLEAR = 30;   // cid
-    static const int OP_TMAP_SETKEYS = 31; // cid, attrset
-    static const int OP_TMAP_RMKEYS = 32;  // cid, keyset
+    static const int OP_TMAP_CLEAR = 31;   // cid
+    static const int OP_TMAP_SETKEYS = 32; // cid, attrset
+    static const int OP_TMAP_RMKEYS = 33;  // cid, keyset
 
   private:
     uint64_t ops;
@@ -270,6 +270,11 @@ public:
       if (p.get_off() == 0)
 	p = tbl.begin();
       ::decode(aset, p);
+    }
+    void get_keyset(set<string> &keys) {
+      if (p.get_off() == 0)
+	p = tbl.begin();
+      ::decode(keys, p);
     }
 
     // -----------------------------
@@ -666,15 +671,15 @@ public:
   virtual int tmap_get(
     coll_t c,                ///< [in] Collection containing hoid
     const hobject_t &hoid,   ///< [in] Object containing tmap
-    map<string, string> *out /// < [out] Key to value map
-    ) { return 0; }
+    map<string, bufferlist> *out /// < [out] Key to value map
+    ) = 0;
 
   /// Get keys defined on hoid 
   virtual int tmap_get_keys(
     coll_t c,              ///< [in] Collection containing hoid
     const hobject_t &hoid, ///< [in] Object containing tmap
     set<string> *keys      ///< [out] Keys defined on hoid
-    ) { return 0; }
+    ) = 0;
 
   /// Get key values
   virtual int tmap_get_values(
@@ -682,7 +687,7 @@ public:
     const hobject_t &hoid,       ///< [in] Object containing tmap
     const set<string> &keys,     ///< [in] Keys to get
     map<string, bufferlist> *out ///< [out] Returned keys and values
-    ) { return 0; }
+    ) = 0;
 
   /// Filters keys into out which are defined on hoid
   virtual int tmap_check_keys(
@@ -690,7 +695,7 @@ public:
     const hobject_t &hoid,   ///< [in] Object containing tmap
     const set<string> &keys, ///< [in] Keys to check
     set<string> *out         ///< [out] Subset of keys defined on hoid
-    ) { return 0; }
+    ) = 0;
 
   /*
   virtual int _create_collection(coll_t c) = 0;

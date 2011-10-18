@@ -361,6 +361,14 @@ public:
   int collection_list_partial(coll_t c, snapid_t seq, vector<hobject_t>& o, int count, collection_list_handle_t *handle);
   int collection_list(coll_t c, vector<hobject_t>& o);
 
+  // tmap (see ObjectStore.h for documentation)
+  int tmap_get(coll_t c, const hobject_t &hoid, map<string, bufferlist> *out);
+  int tmap_get_keys(coll_t c, const hobject_t &hoid, set<string> *keys);
+  int tmap_get_values(coll_t c, const hobject_t &hoid, const set<string> &keys,
+		      map<string, bufferlist> *out);
+  int tmap_check_keys(coll_t c, const hobject_t &hoid, const set<string> &keys,
+		      set<string> *out);
+
   int _create_collection(coll_t c);
   int _destroy_collection(coll_t c);
   int _collection_add(coll_t c, coll_t ocid, const hobject_t& o);
@@ -369,10 +377,16 @@ public:
   void trim_from_cache(coll_t cid, const hobject_t& oid, uint64_t offset, size_t len) {}
   int is_cached(coll_t cid, const hobject_t& oid, uint64_t offset, size_t len) { return -1; }
 
+private:
+  // tmap
+  int _tmap_clear(coll_t cid, const hobject_t &hoid);
+  int _tmap_setkeys(coll_t cid, const hobject_t &hoid,
+		    const map<string, bufferptr> &aset);
+  int _tmap_rmkeys(coll_t cid, const hobject_t &hoid, const set<string> &keys);
+
   virtual const char** get_tracked_conf_keys() const;
   virtual void handle_conf_change(const struct md_config_t *conf,
 			  const std::set <std::string> &changed);
-private:
   bool m_filestore_btrfs_clone_range;
   bool m_filestore_btrfs_snap;
   bool m_filestore_btrfs_trans;

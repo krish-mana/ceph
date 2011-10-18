@@ -32,7 +32,7 @@ public:
   virtual int set_keys(
     const hobject_t &hoid,              ///< [in] object containing tmap
     CollectionIndex::IndexedPath path,  ///< [in] Path to hoid
-    const map<string, bufferlist> &set  ///< [in] key to value map to set
+    const map<string, bufferptr> &set  ///< [in] key to value map to set
     ) { return 0; }
 
   /// Clear all tmap keys and values from hoid

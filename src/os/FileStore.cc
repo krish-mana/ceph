@@ -2392,6 +2392,32 @@ unsigned FileStore::_do_transaction(Transaction& t, uint64_t op_seq)
       }
       break;
 
+    case Transaction::OP_TMAP_CLEAR:
+      {
+	coll_t cid(t.get_cid());
+	hobject_t oid = t.get_oid();
+	r = _tmap_clear(cid, oid);
+      }
+      break;
+    case Transaction::OP_TMAP_SETKEYS:
+      {
+	coll_t cid(t.get_cid());
+	hobject_t oid = t.get_oid();
+	map<string, bufferptr> aset;
+	t.get_attrset(aset);
+	r = _tmap_setkeys(cid, oid, aset);
+      }
+      break;
+    case Transaction::OP_TMAP_RMKEYS:
+      {
+	coll_t cid(t.get_cid());
+	hobject_t oid = t.get_oid();
+	set<string> keys;
+	t.get_keyset(keys);
+	r = _tmap_rmkeys(cid, oid, keys);
+      }
+      break;
+
     default:
       cerr << "bad op " << op << std::endl;
       assert(0);
@@ -3777,6 +3803,47 @@ int FileStore::collection_list(coll_t c, vector<hobject_t>& ls)
   return index->collection_list(&ls);
 }
 
+int FileStore::tmap_get(coll_t c, const hobject_t &hoid,
+			map<string, bufferlist> *out)
+{
+  IndexedPath path;
+  int r = lfn_find(c, hoid, &path);
+  if (r < 0)
+    return r;
+  return key_value_store->get(hoid, path, out);
+}
+
+int FileStore::tmap_get_keys(coll_t c, const hobject_t &hoid, set<string> *keys)
+{
+  IndexedPath path;
+  int r = lfn_find(c, hoid, &path);
+  if (r < 0)
+    return r;
+  return key_value_store->get_keys(hoid, path, keys);
+}
+
+int FileStore::tmap_get_values(coll_t c, const hobject_t &hoid,
+			       const set<string> &keys,
+			       map<string, bufferlist> *out)
+{
+  IndexedPath path;
+  int r = lfn_find(c, hoid, &path);
+  if (r < 0)
+    return r;
+  return key_value_store->get_values(hoid, path, keys, out);
+}
+
+int FileStore::tmap_check_keys(coll_t c, const hobject_t &hoid,
+			       const set<string> &keys,
+			       set<string> *out)
+{
+  IndexedPath path;
+  int r = lfn_find(c, hoid, &path);
+  if (r < 0)
+    return r;
+  return key_value_store->check_keys(hoid, path, keys, out);
+}
+
 int FileStore::_create_collection(coll_t c) 
 {
   if (fake_collections) return collections.create_collection(c);
@@ -3825,6 +3892,32 @@ int FileStore::_collection_remove(coll_t c, const hobject_t& o)
   dout(10) << "collection_remove " << c << "/" << o << " = " << r << dendl;
   return r;
 }
+
+
+int FileStore::_tmap_clear(coll_t cid, const hobject_t &hoid) {
+  IndexedPath path;
+  int r = lfn_find(cid, hoid, &path);
+  if (r < 0)
+    return r;
+  return key_value_store->clear(hoid, path);
+}
+int FileStore::_tmap_setkeys(coll_t cid, const hobject_t &hoid,
+			     const map<string, bufferptr> &aset) {
+  IndexedPath path;
+  int r = lfn_find(cid, hoid, &path);
+  if (r < 0)
+    return r;
+  return key_value_store->set_keys(hoid, path, aset);
+}
+int FileStore::_tmap_rmkeys(coll_t cid, const hobject_t &hoid,
+			   const set<string> &keys) {
+  IndexedPath path;
+  int r = lfn_find(cid, hoid, &path);
+  if (r < 0)
+    return r;
+  return key_value_store->rm_keys(hoid, path, keys);
+}
+
 
 const char** FileStore::get_tracked_conf_keys() const
 {
