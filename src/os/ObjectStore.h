@@ -663,27 +663,34 @@ public:
 
   /// TMAP
   /// Get tmap contents
-  virtual void tmap_get(
-    coll_t c,                  ///< [in] Collection containing hoid
-    const hobject_t &hoid,     ///< [in] Object containing tmap
-    map<string, string> *out   /// < [out] Key to value map
-    ) {}
+  virtual int tmap_get(
+    coll_t c,                ///< [in] Collection containing hoid
+    const hobject_t &hoid,   ///< [in] Object containing tmap
+    map<string, string> *out /// < [out] Key to value map
+    ) { return 0; }
+
+  /// Get keys defined on hoid 
+  virtual int tmap_get_keys(
+    coll_t c,              ///< [in] Collection containing hoid
+    const hobject_t &hoid, ///< [in] Object containing tmap
+    set<string> *keys      ///< [out] Keys defined on hoid
+    ) { return 0; }
 
   /// Get key values
-  virtual void tmap_get_keys(
+  virtual int tmap_get_values(
     coll_t c,                    ///< [in] Collection containing hoid
     const hobject_t &hoid,       ///< [in] Object containing tmap
     const set<string> &keys,     ///< [in] Keys to get
     map<string, bufferlist> *out ///< [out] Returned keys and values
-    ) {}
+    ) { return 0; }
 
   /// Filters keys into out which are defined on hoid
-  virtual void tmap_check_keys(
+  virtual int tmap_check_keys(
     coll_t c,                ///< [in] Collection containing hoid
     const hobject_t &hoid,   ///< [in] Object containing tmap
     const set<string> &keys, ///< [in] Keys to check
     set<string> *out         ///< [out] Subset of keys defined on hoid
-    ) {}
+    ) { return 0; }
 
   /*
   virtual int _create_collection(coll_t c) = 0;

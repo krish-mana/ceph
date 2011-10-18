@@ -25,11 +25,13 @@
 #include "common/Mutex.h"
 #include "HashIndex.h"
 #include "IndexManager.h"
+#include "KeyValueStore.h"
 
 #include "Fake.h"
 
 #include <map>
 #include <deque>
+#include <boost/scoped_ptr.hpp>
 using namespace std;
 
 #include <ext/hash_map>
@@ -74,6 +76,9 @@ class FileStore : public JournalingObjectStore,
   IndexManager index_manager;
   int get_index(coll_t c, Index *index);
   int init_index(coll_t c);
+
+  // KeyValueStore
+  boost::scoped_ptr<KeyValueStore> key_value_store;
   
   Finisher ondisk_finisher;
 
