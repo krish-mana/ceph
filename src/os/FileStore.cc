@@ -64,6 +64,7 @@
 #include "common/perf_counters.h"
 #include "common/sync_filesystem.h"
 #include "HashIndex.h"
+#include "TMap.h"
 
 #include "common/ceph_crypto.h"
 using ceph::crypto::SHA1;
@@ -1386,6 +1387,8 @@ int FileStore::mount()
   char buf[PATH_MAX];
   uint64_t initial_op_seq;
   set<string> cluster_snaps;
+
+  key_value_store.reset(new TMap());
 
   if (!m_filestore_dev.empty()) {
     dout(0) << "mounting" << dendl;

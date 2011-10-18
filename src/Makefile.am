@@ -977,7 +977,8 @@ libos_la_SOURCES = \
 	os/LFNIndex.cc \
 	os/HashIndex.cc \
 	os/IndexManager.cc \
-	os/FlatIndex.cc
+	os/FlatIndex.cc \
+	os/TMap.cc
 libos_la_CXXFLAGS= ${CRYPTO_CXXFLAGS} ${AM_CXXFLAGS}
 libos_la_LIBADD = libglobal.la
 noinst_LTLIBRARIES += libos.la

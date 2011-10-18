@@ -12,73 +12,68 @@
  * 
  */
 
-#ifndef OS_KEYVALUESTORE_H
-#define OS_KEYVALUESTORE_H
+#ifndef OS_TMAP_H
+#define OS_TMAP_H
 
 #include <string>
 #include <vector>
 #include <tr1/memory>
 
+#include "KeyValueStore.h"
 #include "CollectionIndex.h"
 
-/**
- * Encapsulates the FileStore key value store
- * 
- * Implementations of this interface will be used to implement TMAP
- */
-class KeyValueStore {
+/// Original ReplicatedPG functionality
+class TMap : public KeyValueStore {
 public:
   /// Set keys and values from specified map
-  virtual int set_keys(
+  int set_keys(
     const hobject_t &hoid,              ///< [in] object containing tmap
     CollectionIndex::IndexedPath path,  ///< [in] Path to hoid
     const map<string, bufferptr> &set   ///< [in] key to value map to set
-    ) = 0;
+    );
 
   /// Clear all tmap keys and values from hoid
-  virtual int clear(
+  int clear(
     const hobject_t &hoid,              ///< [in] object containing tmap
     CollectionIndex::IndexedPath path   ///< [in] Path to hoid
-    ) = 0;
+    );
 
   /// Clear all tmap keys and values from hoid
-  virtual int rm_keys(
+  int rm_keys(
     const hobject_t &hoid,              ///< [in] object containing tmap
     CollectionIndex::IndexedPath path,  ///< [in] Path to hoid
     const set<string> &to_clear         ///< [in] Keys to clear
-    ) = 0;
+    );
 
   /// Get all keys and values
-  virtual int get(
+  int get(
     const hobject_t &hoid,             ///< [in] object containing tmap
     CollectionIndex::IndexedPath path, ///< [in] Path to hoid
     map<string, bufferlist> *out       ///< [out] Returned keys and values
-    ) = 0;
+    );
 
   /// Get values for supplied keys
-  virtual int get_keys(
+  int get_keys(
     const hobject_t &hoid,             ///< [in] object containing tmap
     CollectionIndex::IndexedPath path, ///< [in] Path to hoid
     set<string> *keys                  ///< [out] Keys defined on hoid
-    ) = 0;
+    );
 
   /// Get values for supplied keys
-  virtual int get_values(
+  int get_values(
     const hobject_t &hoid,             ///< [in] object containing tmap
     CollectionIndex::IndexedPath path, ///< [in] Path to hoid
     const set<string> &keys,           ///< [in] Keys to get
     map<string, bufferlist> *out       ///< [out] Returned keys and values
-    ) = 0;
+    );
 
   /// Check key existence
-  virtual int check_keys(
+  int check_keys(
     const hobject_t &hoid,             ///< [in] object containing tmap
     CollectionIndex::IndexedPath path, ///< [in] Path to hoid
     const set<string> &keys,           ///< [in] Keys to check
     set<string> *out                   ///< [out] Subset of keys defined on hoid
-    ) = 0;
-
-  virtual ~KeyValueStore() {}
+    );
 };
 
 #endif
