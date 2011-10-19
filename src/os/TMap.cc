@@ -72,26 +72,48 @@ int TMap::set_keys(const hobject_t &hoid,
 		   CollectionIndex::IndexedPath path,
 		   const map<string, bufferptr> &set)
 {
-  return 0;
+  bufferlist bl;
+  map<string, bufferlist> attrs;
+  int r = read_tmap(path->path(), &bl, &attrs);
+  if (r < 0 && r != -ENOENT)
+    return r;
+  for (map<string, bufferptr>::const_iterator i = set.begin();
+       i != set.end();
+       ++i) {
+    bufferlist value;
+    value.append(i->second);
+    attrs.insert(pair<string, bufferlist>(i->first, value));
+  }
+  return write_tmap(path->path(), bl, attrs);
 }
 
 int TMap::set_header(const hobject_t &hoid,
 		     CollectionIndex::IndexedPath path,
-		     const bufferlist &bl)
+		     const bufferlist &header)
 {
-  return 0;
+  bufferlist bl;
+  map<string, bufferlist> attrs;
+  int r = read_tmap(path->path(), &bl, &attrs);
+  if (r < 0 && r != -ENOENT)
+    return r;
+  return write_tmap(path->path(), header, attrs);
 }
 
 int TMap::get_header(const hobject_t &hoid,
 		     CollectionIndex::IndexedPath path,
 		     bufferlist *bl)
 {
-  return 0;
+  map<string, bufferlist> attrs;
+  return read_tmap(path->path(), bl, &attrs);
 }
 
 int TMap::clear(const hobject_t &hoid,
 		CollectionIndex::IndexedPath path)
 {
+  int fd = ::open(path->path(), O_TRUNC|O_WRONLY, 0);
+  if (fd < 0)
+    return fd;
+  ::close(fd);
   return 0;
 }
 
@@ -99,7 +121,18 @@ int TMap::rm_keys(const hobject_t &hoid,
 		  CollectionIndex::IndexedPath path,
 		  const set<string> &keys)
 {
-  return 0;
+  bufferlist bl;
+  map<string, bufferlist> attrs;
+  int r = read_tmap(path->path(), &bl, &attrs);
+  if (r < 0 && r != -ENOENT)
+    return r;
+  for (set<string>::const_iterator i = keys.begin();
+       i != keys.end();
+       ++i) {
+    if (attrs.count(*i))
+      attrs.erase(*i);
+  }
+  return write_tmap(path->path(), bl, attrs);
 }
 
 int TMap::get(const hobject_t &hoid,
@@ -107,13 +140,22 @@ int TMap::get(const hobject_t &hoid,
 	      bufferlist *header,
 	      map<string, bufferlist> *out)
 {
-  return 0;
+  return read_tmap(path->path(), header, out);
 }
 
 int TMap::get_keys(const hobject_t &hoid,
 		   CollectionIndex::IndexedPath path,
 		   set<string> *keys)
 {
+  bufferlist bl;
+  map<string, bufferlist> attrs;
+  int r = read_tmap(path->path(), &bl, &attrs);
+  if (r < 0)
+    return r;
+  for (map<string, bufferlist>::iterator i = attrs.begin();
+       i != attrs.end();
+       ++i)
+    keys->insert(i->first);
   return 0;
 }
 
@@ -122,6 +164,18 @@ int TMap::get_values(const hobject_t &hoid,
 		     const set<string> &keys,
 		     map<string, bufferlist> *out)
 {
+  bufferlist bl;
+  int r = read_tmap(path->path(), &bl, out);
+  if (r < 0)
+    return r;
+  for (map<string, bufferlist>::iterator i = out->begin();
+       i != out->end();
+       ) {
+    if (!keys.count(i->first))
+      out->erase(i++);
+    else
+      ++i;
+  }
   return 0;
 }
 
@@ -130,6 +184,17 @@ int TMap::check_keys(const hobject_t &hoid,
 		     const set<string> &keys,
 		     set<string> *out)
 {
+  bufferlist bl;
+  map<string, bufferlist> attrs;
+  int r = read_tmap(path->path(), &bl, &attrs);
+  if (r < 0)
+    return r;
+  for (set<string>::const_iterator i = keys.begin();
+       i != keys.end();
+       ++i) {
+    if (attrs.count(*i))
+      out->insert(*i);
+  }
   return 0;
 }
 
