@@ -362,7 +362,9 @@ public:
   int collection_list(coll_t c, vector<hobject_t>& o);
 
   // tmap (see ObjectStore.h for documentation)
-  int tmap_get(coll_t c, const hobject_t &hoid, map<string, bufferlist> *out);
+  int tmap_get(coll_t c, const hobject_t &hoid, bufferlist *header,
+	       map<string, bufferlist> *out);
+  int tmap_get_header(coll_t c, const hobject_t &hoid, bufferlist *out);
   int tmap_get_keys(coll_t c, const hobject_t &hoid, set<string> *keys);
   int tmap_get_values(coll_t c, const hobject_t &hoid, const set<string> &keys,
 		      map<string, bufferlist> *out);
@@ -383,6 +385,7 @@ private:
   int _tmap_setkeys(coll_t cid, const hobject_t &hoid,
 		    const map<string, bufferptr> &aset);
   int _tmap_rmkeys(coll_t cid, const hobject_t &hoid, const set<string> &keys);
+  int _tmap_setheader(coll_t cid, const hobject_t &hoid, const bufferlist &bl);
 
   virtual const char** get_tracked_conf_keys() const;
   virtual void handle_conf_change(const struct md_config_t *conf,

@@ -146,6 +146,7 @@ public:
     static const int OP_TMAP_CLEAR = 31;   // cid
     static const int OP_TMAP_SETKEYS = 32; // cid, attrset
     static const int OP_TMAP_RMKEYS = 33;  // cid, keyset
+    static const int OP_TMAP_SETHEADER = 34; // cid, header
 
   private:
     uint64_t ops;
@@ -517,6 +518,19 @@ public:
       ::encode(keys, tbl);
     }
 
+    /// Set tmap header
+    void tmap_setheader(
+      coll_t cid,             ///< [in] Collection containing hoid
+      const hobject_t &hoid,  ///< [in] Object from which to remove the tmap
+      const bufferlist &bl    ///< [in] Header value
+      ) {
+      __u32 op = OP_TMAP_SETHEADER;
+      ::encode(op, tbl);
+      ::encode(cid, tbl);
+      ::encode(hoid, tbl);
+      ::encode(bl, tbl);
+    }
+
     // etc.
     Transaction() :
       ops(0), pad_unused_bytes(0), largest_data_len(0), largest_data_off(0), largest_data_off_in_tbl(0),
@@ -671,7 +685,15 @@ public:
   virtual int tmap_get(
     coll_t c,                ///< [in] Collection containing hoid
     const hobject_t &hoid,   ///< [in] Object containing tmap
+    bufferlist *header,      ///< [out] tmap header
     map<string, bufferlist> *out /// < [out] Key to value map
+    ) = 0;
+
+  /// Get tmap header
+  virtual int tmap_get_header(
+    coll_t c,                ///< [in] Collection containing hoid
+    const hobject_t &hoid,   ///< [in] Object containing tmap
+    bufferlist *header       ///< [out] tmap header
     ) = 0;
 
   /// Get keys defined on hoid 

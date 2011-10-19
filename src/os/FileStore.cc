@@ -2420,6 +2420,15 @@ unsigned FileStore::_do_transaction(Transaction& t, uint64_t op_seq)
 	r = _tmap_rmkeys(cid, oid, keys);
       }
       break;
+    case Transaction::OP_TMAP_SETHEADER:
+      {
+	coll_t cid(t.get_cid());
+	hobject_t oid = t.get_oid();
+	bufferlist bl;
+	t.get_bl(bl);
+	r = _tmap_setheader(cid, oid, bl);
+      }
+      break;
 
     default:
       cerr << "bad op " << op << std::endl;
@@ -3807,13 +3816,24 @@ int FileStore::collection_list(coll_t c, vector<hobject_t>& ls)
 }
 
 int FileStore::tmap_get(coll_t c, const hobject_t &hoid,
+			bufferlist *header,
 			map<string, bufferlist> *out)
 {
   IndexedPath path;
   int r = lfn_find(c, hoid, &path);
   if (r < 0)
     return r;
-  return key_value_store->get(hoid, path, out);
+  return key_value_store->get(hoid, path, header, out);
+}
+
+int FileStore::tmap_get_header(coll_t c, const hobject_t &hoid,
+			       bufferlist *bl)
+{
+  IndexedPath path;
+  int r = lfn_find(c, hoid, &path);
+  if (r < 0)
+    return r;
+  return key_value_store->get_header(hoid, path, bl);
 }
 
 int FileStore::tmap_get_keys(coll_t c, const hobject_t &hoid, set<string> *keys)
@@ -3919,6 +3939,15 @@ int FileStore::_tmap_rmkeys(coll_t cid, const hobject_t &hoid,
   if (r < 0)
     return r;
   return key_value_store->rm_keys(hoid, path, keys);
+}
+int FileStore::_tmap_setheader(coll_t cid, const hobject_t &hoid,
+			       const bufferlist &bl)
+{
+  IndexedPath path;
+  int r = lfn_find(cid, hoid, &path);
+  if (r < 0)
+    return r;
+  return key_value_store->set_header(hoid, path, bl);
 }
 
 

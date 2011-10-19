@@ -35,6 +35,20 @@ public:
     const map<string, bufferptr> &set   ///< [in] key to value map to set
     ) = 0;
 
+  /// Set header
+  virtual int set_header(
+    const hobject_t &hoid,              ///< [in] object containing tmap
+    CollectionIndex::IndexedPath path,  ///< [in] Path to hoid
+    const bufferlist &bl                ///< [in] header to set
+    ) = 0;
+
+  /// Retrieve header
+  virtual int get_header(
+    const hobject_t &hoid,              ///< [in] object containing tmap
+    CollectionIndex::IndexedPath path,  ///< [in] Path to hoid
+    bufferlist *bl                      ///< [out] header to set
+    ) = 0;
+
   /// Clear all tmap keys and values from hoid
   virtual int clear(
     const hobject_t &hoid,              ///< [in] object containing tmap
@@ -52,6 +66,7 @@ public:
   virtual int get(
     const hobject_t &hoid,             ///< [in] object containing tmap
     CollectionIndex::IndexedPath path, ///< [in] Path to hoid
+    bufferlist *header,                ///< [out] Returned Header
     map<string, bufferlist> *out       ///< [out] Returned keys and values
     ) = 0;
 
