@@ -177,6 +177,10 @@ test_filestore_idempotent_SOURCES = test/test_filestore_idempotent.cc
 test_filestore_idempotent_LDADD = libos.la $(LIBGLOBAL_LDA)
 bin_DEBUGPROGRAMS += dupstore streamtest test_filestore_idempotent
 
+get_hash_SOURCES = get_hash.cc include/ceph_hash.cc
+get_hash_LDADD = $(LIBGLOBAL_LDA)
+bin_DEBUGPROGRAMS += get_hash
+
 test_trans_SOURCES = test_trans.cc
 test_trans_LDADD = libos.la $(LIBGLOBAL_LDA)
 bin_DEBUGPROGRAMS += test_trans
