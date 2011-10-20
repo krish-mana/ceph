@@ -2411,6 +2411,9 @@ unsigned FileStore::_do_transaction(Transaction& t, uint64_t op_seq)
     else if (r == -ENODATA) {
       // -ENODATA is okay
     }
+    else if (r == -EEXIST) {
+      // -EEXIST is okay
+    }
     else if (r == -ENOSPC) {
       // For now, if we hit _any_ ENOSPC, crash, before we do any damage
       // by partially applying transactions.
