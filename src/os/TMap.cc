@@ -75,8 +75,12 @@ int TMap::set_keys(const hobject_t &hoid,
   bufferlist bl;
   map<string, bufferlist> attrs;
   int r = read_tmap(path->path(), &bl, &attrs);
-  if (r < 0 && r != -ENOENT)
+  if (r == -EINVAL) {
+    bl.clear();
+    attrs.clear();
+  } else if (r < 0 && r != -ENOENT) {
     return r;
+  }
   for (map<string, bufferptr>::const_iterator i = set.begin();
        i != set.end();
        ++i) {
