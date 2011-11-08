@@ -3567,10 +3567,10 @@ void OSD::advance_map(ObjectStore::Transaction& t)
     vector<int> newup, newacting;
     osdmap->pg_to_up_acting_osds(pg->info.pgid, newup, newacting);
 
-    pg->lock();
+    pg->lock_with_map_lock_held();
     dout(10) << "Scanning pg " << *pg << dendl;
     pg->handle_advance_map(osdmap, lastmap, newup, newacting, 0);
-    pg->unlock();
+    pg->unlock_with_map_lock_held();
   }
 }
 
@@ -3593,7 +3593,7 @@ void OSD::activate_map(ObjectStore::Transaction& t, list<Context*>& tfin)
        it != pg_map.end();
        it++) {
     PG *pg = it->second;
-    pg->lock();
+    pg->lock_with_map_lock_held();
 
     if (pg->is_primary())
       num_pg_primary++;
@@ -3615,7 +3615,7 @@ void OSD::activate_map(ObjectStore::Transaction& t, list<Context*>& tfin)
     PG::RecoveryCtx rctx(&query_map, &info_map, &notify_list, &tfin, &t);
     pg->handle_activate_map(&rctx);
     
-    pg->unlock();
+    pg->unlock_with_map_lock_held();
   }  
 
   do_notifies(notify_list, osdmap->get_epoch());  // notify? (residual|replica)
