@@ -13,9 +13,7 @@ public:
     const string &prefix,        ///< [in] Prefix for key
     const set<string> &key,      ///< [in] Keys to retrieve
     map<string, bufferlist> *out ///< [out] Key value retrieved
-    ) {
-    return _get(prefix, 0, key, out);
-  }
+    );
 
   /// Set Keys
   int set(
