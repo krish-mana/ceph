@@ -65,6 +65,7 @@ using namespace std;
 #include "messages/MOSDPGMissing.h"
 #include "messages/MOSDScrub.h"
 #include "messages/MOSDRepScrub.h"
+#include "messages/MOSDPGScan.h"
 
 #include "messages/MRemoveSnaps.h"
 
