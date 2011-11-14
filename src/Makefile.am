@@ -689,6 +689,12 @@ test_stress_watch_LDADD =  librados.la ${UNITTEST_STATIC_LDADD}
 test_stress_watch_CXXFLAGS = ${AM_CXXFLAGS} ${UNITTEST_CXXFLAGS}
 bin_DEBUGPROGRAMS += test_stress_watch
 
+test_cloneable_adapter_SOURCES = test/KeyValueDB/test_cloneable_adapter.cc test/KeyValueDB/KeyValueDBMemory.cc os/CloneableAdapter.cc
+test_cloneable_adapter_LDFLAGS = ${AM_LDFLAGS}
+test_cloneable_adapter_LDADD =  ${UNITTEST_STATIC_LDADD}
+test_cloneable_adapter_CXXFLAGS = ${AM_CXXFLAGS} ${UNITTEST_CXXFLAGS}
+bin_DEBUGPROGRAMS += test_cloneable_adapter
+
 # shell scripts
 editpaths = sed \
 	-e 's|@bindir[@]|$(bindir)|g' \
