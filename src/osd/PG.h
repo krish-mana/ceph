@@ -253,6 +253,8 @@ public:
     bool is_empty() const { return last_update.version == 0; }
     bool dne() const { return history.epoch_created == 0; }
 
+    bool is_incomplete() const { return !incomplete.empty(); }
+
     void encode(bufferlist &bl) const {
       __u8 v = 24;
       ::encode(v, bl);
@@ -994,9 +996,6 @@ public:
 	osdmap(osdmap), lastmap(lastmap), newup(newup), newacting(newacting) {}
     };
 
-    struct BacklogComplete : boost::statechart::event< BacklogComplete > {
-      BacklogComplete() : boost::statechart::event< BacklogComplete >() {}
-    };
     struct ActMap : boost::statechart::event< ActMap > {
       ActMap() : boost::statechart::event< ActMap >() {}
     };
@@ -1161,12 +1160,10 @@ public:
 
       typedef boost::mpl::list <
 	boost::statechart::custom_reaction< ActMap >,
-	boost::statechart::custom_reaction< BacklogComplete >,
 	boost::statechart::custom_reaction< MNotifyRec >,
 	boost::statechart::custom_reaction< AdvMap >,
 	boost::statechart::transition< NeedNewMap, WaitActingChange >
 	> reactions;
-      boost::statechart::result react(const BacklogComplete&);
       boost::statechart::result react(const ActMap&);
       boost::statechart::result react(const AdvMap&);
       boost::statechart::result react(const MNotifyRec&);
@@ -1243,12 +1240,10 @@ public:
 	boost::statechart::custom_reaction< MQuery >,
 	boost::statechart::custom_reaction< MLogRec >,
 	boost::statechart::custom_reaction< MInfoRec >,
-	boost::statechart::custom_reaction< BacklogComplete >,
 	boost::statechart::custom_reaction< ActMap >,
 	boost::statechart::transition< Activate, ReplicaActive >
 	> reactions;
       boost::statechart::result react(const MQuery& query);
-      boost::statechart::result react(const BacklogComplete&);
       boost::statechart::result react(const MLogRec& logevt);
       boost::statechart::result react(const MInfoRec& infoevt);
       boost::statechart::result react(const ActMap&);
@@ -1285,11 +1280,9 @@ public:
 
       typedef boost::mpl::list <
 	boost::statechart::custom_reaction< MLogRec >,
-	boost::statechart::custom_reaction< BacklogComplete >,
 	boost::statechart::custom_reaction< GotLog >
 	> reactions;
       boost::statechart::result react(const MLogRec& logevt);
-      boost::statechart::result react(const BacklogComplete&);
       boost::statechart::result react(const GotLog&);
     };
 
@@ -1457,14 +1450,8 @@ public:
   
   void trim_write_ahead();
 
-  bool calc_acting() const;
-  bool choose_acting();
-  bool recover_master_log(map< int, map<pg_t,Query> >& query_map,
-			  eversion_t &oldest_update);
-  eversion_t calc_oldest_known_update() const;
-  void do_peer(ObjectStore::Transaction& t, list<Context*>& tfin,
-	       map< int, map<pg_t,Query> >& query_map,
-	       map<int, MOSDPGInfo*> *activator_map=0);
+  void calc_acting(int& newest_update_osd, vector<int>& want, set<int>& backfill) const;
+  bool choose_acting(int& newest_update_osd, set<int>& backfill);
   bool choose_log_location(const PriorSet &prior_set,
 			   bool &need_backlog,
 			   bool &wait_on_backlog,
@@ -1564,7 +1551,6 @@ public:
     generate_backlog_epoch(0),
     role(0),
     state(0),
-    have_master_log(true),
     recovery_state(this),
     need_up_thru(false),
     last_peering_reset(0),
@@ -1754,7 +1740,7 @@ inline ostream& operator<<(ostream& out, const PG::Info& pgi)
     out << " (" << pgi.log_tail << "," << pgi.last_update << "]"
         << (pgi.log_backlog ? "+backlog":"");
     if (!pgi.incomplete.empty())
-      << " incomp " << pgi.incomplete;
+      out << " incomp " << pgi.incomplete;
   }
   //out << " c " << pgi.epoch_created;
   out << " n=" << pgi.stats.stats.sum.num_objects;
