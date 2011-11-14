@@ -28,6 +28,7 @@
 #include "messages/MOSDPGInfo.h"
 #include "messages/MOSDPGRemove.h"
 #include "messages/MOSDPGTrim.h"
+#include "messages/MOSDPGScan.h"
 
 #include "messages/MOSDPing.h"
 #include "messages/MWatchNotify.h"
@@ -813,6 +814,11 @@ void ReplicatedPG::do_sub_op_reply(MOSDSubOpReply *r)
   }
 
   sub_op_modify_reply(r);
+}
+
+void ReplicatedPG::do_scan(MOSDPGScan *m)
+{
+  dout(10) << "do_scan " << *m << dendl;
 }
 
 /* Returns head of snap_trimq as snap_to_trim and the relevant objects as 
@@ -4825,6 +4831,9 @@ int ReplicatedPG::start_recovery_ops(int max)
     // second chance to recovery replicas
     started = recover_replicas(max);
   }
+  if (!backfill.empty() && started < max) {
+    started += recover_backfill(max - started);
+  }
 
   dout(10) << " started " << started << dendl;
 
@@ -5117,6 +5126,19 @@ int ReplicatedPG::recover_replicas(int max)
 
   return started;
 }
+
+int ReplicatedPG::recover_backfill(int max)
+{
+  dout(10) << "recover_backfill (" << max << ")" << dendl;
+  assert(!backfill.empty());
+  
+  // initially just backfill one peer at a time.  FIXME.
+  int peer = *backfill.begin();
+
+
+  return 0;
+}
+
 
 void ReplicatedPG::remove_object_with_snap_hardlinks(ObjectStore::Transaction& t, const hobject_t& soid)
 {

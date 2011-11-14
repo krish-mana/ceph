@@ -3806,6 +3806,9 @@ ostream& operator<<(ostream& out, const PG& pg)
   out << " r=" << pg.get_role();
   out << " lpr=" << pg.get_last_peering_reset();
 
+  if (pg.backfill.size())
+    out << " backfill=" << pg.backfill;
+
   if (pg.is_active() &&
       pg.last_update_ondisk != pg.info.last_update)
     out << " luod=" << pg.last_update_ondisk;

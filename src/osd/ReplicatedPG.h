@@ -610,6 +610,7 @@ protected:
   int start_recovery_ops(int max);
   int recover_primary(int max);
   int recover_replicas(int max);
+  int recover_backfill(int max);
 
   void dump_watchers(ObjectContext *obc);
   void remove_watcher(ObjectContext *obc, entity_name_t entity);
@@ -728,6 +729,7 @@ public:
   void do_pg_op(MOSDOp *op);
   void do_sub_op(MOSDSubOp *op);
   void do_sub_op_reply(MOSDSubOpReply *op);
+  void do_scan(MOSDPGScan *op);
   bool get_obs_to_trim(snapid_t &snap_to_trim,
 		       coll_t &col_to_trim,
 		       vector<hobject_t> &obs_to_trim);
