@@ -174,6 +174,8 @@ public:
     eversion_t log_tail;     // oldest log entry.
     bool       log_backlog;    // do we store a complete log?
 
+    interval_set<__u32> incomplete;  // incomplete hash ranges prior to last_complete
+
     interval_set<snapid_t> purged_snaps;
 
     pg_stat_t stats;
@@ -252,7 +254,7 @@ public:
     bool dne() const { return history.epoch_created == 0; }
 
     void encode(bufferlist &bl) const {
-      __u8 v = 23;
+      __u8 v = 24;
       ::encode(v, bl);
 
       ::encode(pgid, bl);
@@ -260,6 +262,7 @@ public:
       ::encode(last_complete, bl);
       ::encode(log_tail, bl);
       ::encode(log_backlog, bl);
+      ::encode(incomplete, bl);
       ::encode(stats, bl);
       history.encode(bl);
       ::encode(purged_snaps, bl);
@@ -279,6 +282,8 @@ public:
       ::decode(last_complete, bl);
       ::decode(log_tail, bl);
       ::decode(log_backlog, bl);
+      if (v >= 24)
+	::decode(incomplete, bl);
       ::decode(stats, bl);
       history.decode(bl);
       if (v >= 22)
@@ -874,12 +879,12 @@ public:
   // primary state
  public:
   vector<int> up, acting;
+  set<int> backfill;      // up - acting
   map<int,eversion_t> peer_last_complete_ondisk;
   eversion_t  min_last_complete_ondisk;  // up: min over last_complete_ondisk, peer_last_complete_ondisk
   eversion_t  pg_trim_to;
 
   // [primary only] content recovery state
-  bool        have_master_log;
  protected:
   bool prior_set_built;
 
@@ -1272,8 +1277,6 @@ public:
 
     struct GetLog : boost::statechart::state< GetLog, Peering >, NamedState {
       int newest_update_osd;
-      bool need_backlog;
-      bool wait_on_backlog;
       MOSDPGLog *msg;
 
       GetLog(my_context ctx);
@@ -1454,7 +1457,8 @@ public:
   
   void trim_write_ahead();
 
-  bool choose_acting(int newest_update_osd) const;
+  bool calc_acting() const;
+  bool choose_acting();
   bool recover_master_log(map< int, map<pg_t,Query> >& query_map,
 			  eversion_t &oldest_update);
   eversion_t calc_oldest_known_update() const;
@@ -1749,6 +1753,8 @@ inline ostream& operator<<(ostream& out, const PG::Info& pgi)
       out << " lc " << pgi.last_complete;
     out << " (" << pgi.log_tail << "," << pgi.last_update << "]"
         << (pgi.log_backlog ? "+backlog":"");
+    if (!pgi.incomplete.empty())
+      << " incomp " << pgi.incomplete;
   }
   //out << " c " << pgi.epoch_created;
   out << " n=" << pgi.stats.stats.sum.num_objects;
