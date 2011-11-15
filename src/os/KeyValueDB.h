@@ -2,6 +2,11 @@
 #ifndef KEY_VALUE_DB_H
 #define KEY_VALUE_DB_H
 
+#include <set>
+#include <map>
+#include <string>
+
+using std::string;
 /**
  * Defines virtual interface to be implemented by key value store
  *
@@ -12,15 +17,15 @@ public:
   /// Retrieve Keys
   virtual int get(
     const string &prefix,        ///< [in] Prefix for key
-    const set<string> &key,      ///< [in] Key to retrieve
-    map<string, bufferlist> *out ///< [out] Key value retrieved
+    const std::set<string> &key,      ///< [in] Key to retrieve
+    std::map<string, bufferlist> *out ///< [out] Key value retrieved
     ) = 0;
 
   /// Filter keys for existence
   virtual int get_keys(
     const string &prefix,   ///< [in] Prefix for key
-    const set<string> &key, ///< [in] Keys to check
-    set<string> *out        ///< [out] Key value retrieved
+    const std::set<string> &key, ///< [in] Keys to check
+    std::set<string> *out        ///< [out] Key value retrieved
     ) = 0;
 
   /// Get Keys by prefix
@@ -28,7 +33,7 @@ public:
     const string &prefix, ///< [in] Prefix to search for
     size_t max,           ///< [in] Max entries to return, 0 for no limit
     const string &start,  ///< [in] Start after start, "" for beginning
-    set<string> *out      ///< [out] Keys prefixed by prefix
+    std::set<string> *out      ///< [out] Keys prefixed by prefix
     ) = 0;
 
   /// Get keys and values by prefix
@@ -36,19 +41,19 @@ public:
     const string &prefix, ///< [in] Prefix to search for
     size_t max,           ///< [in] Max size to return, 0 for no limit
     const string &start,  ///< [in] Start after start, "" for beginning
-    map<string, bufferlist> *out ///< [out] Keys prefixed by prefix
+    std::map<string, bufferlist> *out ///< [out] Keys prefixed by prefix
     ) = 0;
 
   /// Set Keys
   virtual int set(
     const string &prefix,                 ///< [in] Prefix for keys
-    const map<string, bufferlist> &to_set ///< [in] keys/values to set
+    const std::map<string, bufferlist> &to_set ///< [in] keys/values to set
     ) = 0;
 
   /// Removes Keys
   virtual int rmkeys(
     const string &prefix,   ///< [in] Prefix to search for
-    const set<string> &keys ///< [in] Keys to remove
+    const std::set<string> &keys ///< [in] Keys to remove
     ) = 0;
 
   /// Removes keys beginning with prefix

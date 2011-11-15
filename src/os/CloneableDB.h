@@ -11,7 +11,7 @@ class CloneableDB : public KeyValueDB {
   /// Clones keys from one prefix to another
   virtual int clone(
     const string &from_prefix, ///< [in] Source prefix
-    const string &to_prefix,   ///< [in] Dest prefix
+    const string &to_prefix    ///< [in] Dest prefix
     ) = 0;
 
   virtual ~CloneableDB();
