@@ -27,22 +27,6 @@ public:
     std::set<string> *out        ///< [out] Key value retrieved
     );
 
-  /// Get Keys by prefix
-  int get_keys_by_prefix(
-    const string &prefix, ///< [in] Prefix to search for
-    size_t max,           ///< [in] Max entries to return, 0 for no limit
-    const string &start,  ///< [in] Start after start, "" for beginning
-    std::set<string> *out      ///< [out] Keys prefixed by prefix
-    );
-
-  /// Get keys and values by prefix
-  int get_by_prefix(
-    const string &prefix, ///< [in] Prefix to search for
-    size_t max,           ///< [in] Max size to return, 0 for no limit
-    const string &start,  ///< [in] Start after start, "" for beginning
-    std::map<string, bufferlist> *out ///< [out] Keys prefixed by prefix
-    );
-
   /// Set Keys
   int set(
     const string &prefix,                 ///< [in] Prefix for keys
@@ -65,6 +49,8 @@ public:
     const string &from_prefix, ///< [in] Source prefix
     const string &to_prefix    ///< [in] Dest prefix
     );
+
+  Iterator *get_iterator(const string &prefix) { return 0; }
 
   CloneableAdapter(KeyValueDB *kvdb) : db(kvdb) {}
 private:
@@ -89,14 +75,6 @@ private:
   int _get_keys(const string &prefix,
 		const std::set<string> &keys,
 		std::set<string> *out);
-  int _get_keys_by_prefix(const string &prefix,
-			  size_t max,
-			  const string &start,
-			  std::set<string> *out);
-  int _get_by_prefix(const string &prefix,
-		     size_t max,
-		     const string &start,
-		     std::map<string, bufferlist> *out);
 };
 
 #endif

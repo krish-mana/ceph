@@ -121,7 +121,7 @@ int CloneableAdapter::_get(const string &prefix,
       remaining_keys.insert(*i);
   }
 
-  if (!status.ancestor.size())
+  if (!remaining_keys.size() || !status.ancestor.size())
     return 0;
 
   std::set<string> missing_keys;
@@ -178,7 +178,7 @@ int CloneableAdapter::_get_keys(const string &prefix,
       remaining_keys.insert(*i);
   }
 
-  if (!status.ancestor.size())
+  if (!remaining_keys.size() || !status.ancestor.size())
     return 0;
 
   std::set<string> removed_keys;
@@ -207,107 +207,6 @@ int CloneableAdapter::get_keys(const string &prefix,
     return 0;
   else
     return r;
-}
-
-int CloneableAdapter::_get_keys_by_prefix(const string &prefix,
-					  size_t max,
-					  const string &start,
-					  std::set<string> *out)
-{
-  prefix_status status;
-  int r = get_prefix_status(prefix, &status);
-  if (r == -ENOENT)
-    return 0;
-  else if (r < 0)
-    return r;
-
-  string lprefix = leveled_prefix(status.actual_prefix, status.level);
-  if (!status.ancestor.size()) {
-    return db->get_keys_by_prefix(build_user_prefix(lprefix), max, start, out);
-  }
-
-  string ancestor_start = start;
-  string my_start = start;
-  string removed_start = start;
-  std::set<string> cur_out;
-  std::set<string> cur_removed;
-  while (1) {
-    std::set<string> ancestor_out;
-    std::set<string> my_out;
-    std::set<string> removed;
-    // check ancestor first
-    if (ancestor_start.size()) {
-      r = _get_keys_by_prefix(status.ancestor, max, ancestor_start,
-			      &ancestor_out);
-      if (r < 0)
-	return r;
-      if (ancestor_out.size())
-	ancestor_start = *(ancestor_out.rbegin());
-      else
-	ancestor_start = "";
-    }
-
-    if (my_start.size()) {
-      r = db->get_keys_by_prefix(build_user_prefix(lprefix), max, my_start, 
-				 &my_out);
-      if (r < 0)
-	return r;
-      if (my_out.size())
-	my_start = *(my_out.rbegin());
-      else
-	my_start = "";
-    }
-
-    if (removed_start.size()) {
-      r = db->get_keys_by_prefix(build_missing_prefix(lprefix), max, start,
-				 &removed);
-      if (r < 0)
-	return r;
-      if (removed.size())
-	removed_start = *(removed.rbegin());
-      else
-	removed_start = "";
-    }
-
-    //cur_out.insert(ancestor_start.begin(), ancestor_start.end());
-    //cur_out.insert(my_start.begin(), my_start.end());
-    cur_removed.insert(removed.begin(), removed.end());
-    while (cur_out.size() &&
-	   *(cur_out.begin()) <= ancestor_start &&
-	   *(cur_out.begin()) <= my_start) {
-      if (!cur_removed.count(*(cur_out.begin())))
-	out->insert(*cur_out.begin());
-      else {
-	while (*removed.begin() != *cur_out.begin())
-	  removed.erase(removed.begin());
-      }
-      cur_removed.erase(cur_out.begin());
-      cur_out.erase(cur_out.begin());
-    }
-  }
-
-  return 0;
-}
-
-int CloneableAdapter::get_keys_by_prefix(const string &prefix,
-					 size_t max,
-					 const string &start,
-					 std::set<string> *out) {
-  return _get_keys_by_prefix(leveled_prefix(prefix, 0), max, start, out);
-}
-
-int CloneableAdapter::_get_by_prefix(const string &prefix,
-				     size_t max,
-				     const string &start,
-				     map<string, bufferlist> *out) {
-  return 0;
-}
-
-int CloneableAdapter::get_by_prefix(const string &prefix,
-				    size_t max,
-				    const string &start,
-				    map<string, bufferlist> *out) {
-  return 0;
 }
 
 int CloneableAdapter::set(const string &prefix,

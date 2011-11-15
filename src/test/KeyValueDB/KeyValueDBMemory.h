@@ -17,43 +17,25 @@ class KeyValueDBMemory : public KeyValueDB {
     std::map<string, bufferlist> *out
     );
 
-
   int get_keys(
     const string &prefix,
     const std::set<string> &key,
     std::set<string> *out
     );
 
-
-  int get_keys_by_prefix(
-    const string &prefix,
-    size_t max,
-    const string &start,
-    std::set<string> *out
-    );
-
-
-  int get_by_prefix(
-    const string &prefix,
-    size_t max,
-    const string &start,
-    std::map<string, bufferlist> *out
-    );
-
-
   int set(
     const string &prefix,
     const std::map<string, bufferlist> &to_set
     );
-
 
   int rmkeys(
     const string &prefix,
     const std::set<string> &keys
     );
 
-
   int rmkeys_by_prefix(
     const string &prefix
     );
+
+  Iterator *get_iterator(const string &prefix) { return 0; }
 };

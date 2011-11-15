@@ -36,43 +36,6 @@ int KeyValueDBMemory::get_keys(const string &prefix,
   return 0;
 }
 
-int KeyValueDBMemory::get_keys_by_prefix(const string &prefix,
-					 size_t max,
-					 const string &start,
-					 std::set<string> *out) {
-  if (!db.count(prefix))
-    return 0;
-
-  map<string, bufferlist> &pmap = db[prefix];
-  map<string, bufferlist>::iterator i = pmap.lower_bound(start);
-  size_t copied = 0;
-  while (i != pmap.end() && (!max || copied < max)) {
-    out->insert(i->first);
-    ++copied;
-    ++i;
-  }
-  return 0;
-}
-  
-int KeyValueDBMemory::get_by_prefix(const string &prefix,
-				    size_t max,
-				    const string &start,
-				    map<string, bufferlist> *out) {
-  if (!db.count(prefix))
-    return 0;
-  map<string, bufferlist> &pmap = db[prefix];
-  map<string, bufferlist>::iterator i = pmap.lower_bound(start);
-  size_t copied = 0;
-  while (i != pmap.end() && (!max || copied < max)) {
-    copied += i->first.size() + i->second.length();
-    (*out)[i->first] = i->second;
-    ++i;
-  }
-  if (max && copied > max)
-    out->erase((--i)->first);
-  return 0;
-}
-
 int KeyValueDBMemory::set(const string &prefix,
 			  const map<string, bufferlist> &to_set) {
   db[prefix].insert(to_set.begin(), to_set.end());

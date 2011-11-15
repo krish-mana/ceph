@@ -29,22 +29,6 @@ public:
     std::set<string> *out        ///< [out] Key value retrieved
     ) = 0;
 
-  /// Get Keys by prefix
-  virtual int get_keys_by_prefix(
-    const string &prefix, ///< [in] Prefix to search for
-    size_t max,           ///< [in] Max entries to return, 0 for no limit
-    const string &start,  ///< [in] Start after start, "" for beginning
-    std::set<string> *out      ///< [out] Keys prefixed by prefix
-    ) = 0;
-
-  /// Get keys and values by prefix
-  virtual int get_by_prefix(
-    const string &prefix, ///< [in] Prefix to search for
-    size_t max,           ///< [in] Max size to return, 0 for no limit
-    const string &start,  ///< [in] Start after start, "" for beginning
-    std::map<string, bufferlist> *out ///< [out] Keys prefixed by prefix
-    ) = 0;
-
   /// Set Keys
   virtual int set(
     const string &prefix,                 ///< [in] Prefix for keys
@@ -63,6 +47,19 @@ public:
     ) = 0;
 
   virtual ~KeyValueDB() {};
+
+  class Iterator {
+  public:
+    virtual int seek_to_first() = 0;
+    virtual int seek_after(const string &after) = 0;
+    virtual int valid() = 0;
+    virtual int next() = 0;
+    virtual string key() = 0;
+    virtual bufferlist value() = 0;
+    virtual int status() = 0;
+    virtual ~Iterator() {}
+  };
+  virtual Iterator *get_iterator(const string &prefix) = 0;
 };
 
 #endif
