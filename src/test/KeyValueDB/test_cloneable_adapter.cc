@@ -1,4 +1,5 @@
 #include <tr1/memory>
+#include <map>
 
 #include "include/buffer.h"
 #include "test/KeyValueDB/KeyValueDBMemory.h"
@@ -8,6 +9,8 @@
 
 #include "gtest/gtest.h"
 #include "stdlib.h"
+
+using namespace std;
 
 class CloneableDBTest: public ::testing::Test {
 public:
