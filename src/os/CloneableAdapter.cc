@@ -1,6 +1,7 @@
 // -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*- 
 #include "CloneableAdapter.h"
 #include "include/encoding.h"
+#include <errno.h>
 #include <map>
 #include <set>
 #include <string>
@@ -8,7 +9,7 @@ using namespace std;
 
 const string STATUS_KEY = "STATUS";
 
-static string translate_prefix(const string &prefix, size_t level) {
+static string leveled_prefix(const string &prefix, size_t level) {
   char buf[sizeof(level)*3]; // Big enough for size_t!
   snprintf(buf, sizeof(buf), "%u", (unsigned int)level);
   string out_prefix = "";
@@ -38,12 +39,12 @@ static string build_missing_prefix(const string &prefix) {
   return prefix + ".removed";
 }
 
-struct prefix_status {
+struct CloneableAdapter::prefix_status {
   int refs;
   size_t level;
   string ancestor;
   string actual_prefix;
-  set<string> children;
+  std::set<string> children;
 
   void encode(bufferlist &bl) const
   {
@@ -53,7 +54,7 @@ struct prefix_status {
     ::encode(level, bl);
     ::encode(ancestor, bl);
     ::encode(actual_prefix, bl);
-    ::encode(clone_target, bl);
+    ::encode(children, bl);
   }
 
   void decode(bufferlist::iterator &bl)
@@ -64,16 +65,15 @@ struct prefix_status {
     ::decode(level, bl);
     ::decode(ancestor, bl);
     ::decode(actual_prefix, bl);
-    ::decode(clone_target, bl);
+    ::decode(children, bl);
   }
 };
 
 int CloneableAdapter::get_prefix_status(const string &prefix,
-					size_t level,
 					prefix_status *out)
 {
-  string admin_prefix = build_admin_prefix(translate_prefix(prefix, level));
-  set<string> keys_to_get;
+  string admin_prefix = build_admin_prefix(prefix);
+  std::set<string> keys_to_get;
   keys_to_get.insert(STATUS_KEY);
   map<string, bufferlist> result;
   int r = db->get(admin_prefix, keys_to_get, &result);
@@ -91,16 +91,15 @@ int CloneableAdapter::get_prefix_status(const string &prefix,
 int CloneableAdapter::set_prefix_status(const string &prefix,
 					const prefix_status &in)
 {
-  string admin_prefix = build_admin_prefix(prefix, 0);
+  string admin_prefix = build_admin_prefix(leveled_prefix(prefix, 0));
   map<string, bufferlist> to_set;
-  to_set[STATUS_KEY];
   in.encode(to_set[STATUS_KEY]);
   int r = db->set(admin_prefix, to_set);
   return r;
 }
 
 int CloneableAdapter::_get(const string &prefix,
-			   const set<string> &keys,
+			   const std::set<string> &keys,
 			   map<string, bufferlist> *out)
 {
   prefix_status status;
@@ -114,8 +113,8 @@ int CloneableAdapter::_get(const string &prefix,
   if (r < 0)
     return r;
 
-  set<string> remaining_keys;
-  for (set<string>::const_iterator i = keys.begin();
+  std::set<string> remaining_keys;
+  for (std::set<string>::const_iterator i = keys.begin();
        i != keys.end();
        ++i) {
     if (!out->count(*i))
@@ -125,15 +124,15 @@ int CloneableAdapter::_get(const string &prefix,
   if (!status.ancestor.size())
     return 0;
 
-  set<string> missing_keys;
+  std::set<string> missing_keys;
   r = db->get_keys(build_missing_prefix(
 		     leveled_prefix(status.actual_prefix, status.level)),
 		   remaining_keys,
-		   &mising_keys);
+		   &missing_keys);
   if (r < 0)
     return r;
 
-  for (set<string>::iterator i = missing_keys.begin();
+  for (std::set<string>::iterator i = missing_keys.begin();
        i != missing_keys.end();
        ++i) {
     remaining_keys.erase(*i);
@@ -147,10 +146,10 @@ int CloneableAdapter::_get(const string &prefix,
 }
 
 int CloneableAdapter::get(const string &prefix,
-			  const set<string> &keys,
+			  const std::set<string> &keys,
 			  map<string, bufferlist> *out)
 {
-  int r = _get(leveled_prefix(prefix, 0), keys, &found);
+  int r = _get(leveled_prefix(prefix, 0), keys, out);
   if (r == -ENOENT)
     return 0;
   else
@@ -158,11 +157,11 @@ int CloneableAdapter::get(const string &prefix,
 }
 
 int CloneableAdapter::_get_keys(const string &prefix,
-				const set<string> &keys,
-				set<string> *out)
+				const std::set<string> &keys,
+				std::set<string> *out)
 {
   prefix_status status;
-  int r = get_status_prefix(prefix, &status);
+  int r = get_prefix_status(prefix, &status);
   if (r < 0)
     return r;
 
@@ -171,8 +170,8 @@ int CloneableAdapter::_get_keys(const string &prefix,
   if (r < 0)
     return r;
 
-  string remaining_keys;
-  for (set<string>::const_iterator i = keys.begin();
+  std::set<string> remaining_keys;
+  for (std::set<string>::const_iterator i = keys.begin();
        i != keys.end();
        ++i) {
     if (!out->count(*i))
@@ -182,12 +181,12 @@ int CloneableAdapter::_get_keys(const string &prefix,
   if (!status.ancestor.size())
     return 0;
 
-  set<string> removed_keys;
+  std::set<string> removed_keys;
   r = db->get_keys(build_missing_prefix(lprefix), remaining_keys, &removed_keys);
   if (r < 0)
     return r;
 
-  for (set<string>::iterator i = removed_keys.begin();
+  for (std::set<string>::iterator i = removed_keys.begin();
        i != removed_keys.end();
        ++i) {
     remaining_keys.erase(*i);
@@ -200,8 +199,8 @@ int CloneableAdapter::_get_keys(const string &prefix,
 }
 
 int CloneableAdapter::get_keys(const string &prefix,
-			       const set<string> &keys,
-			       set<string> *out)
+			       const std::set<string> &keys,
+			       std::set<string> *out)
 {
   int r = _get_keys(leveled_prefix(prefix, 0), keys, out);
   if (r == -ENOENT)
@@ -213,7 +212,7 @@ int CloneableAdapter::get_keys(const string &prefix,
 int CloneableAdapter::_get_keys_by_prefix(const string &prefix,
 					  size_t max,
 					  const string &start,
-					  set<string> *out)
+					  std::set<string> *out)
 {
   prefix_status status;
   int r = get_prefix_status(prefix, &status);
@@ -229,13 +228,13 @@ int CloneableAdapter::_get_keys_by_prefix(const string &prefix,
 
   string ancestor_start = start;
   string my_start = start;
-  strint removed_start = start;
-  set<string> cur_out;
-  set<string> cur_removed;
+  string removed_start = start;
+  std::set<string> cur_out;
+  std::set<string> cur_removed;
   while (1) {
-    set<string> ancestor_out;
-    set<string> my_out;
-    set<string> removed;
+    std::set<string> ancestor_out;
+    std::set<string> my_out;
+    std::set<string> removed;
     // check ancestor first
     if (ancestor_start.size()) {
       r = _get_keys_by_prefix(status.ancestor, max, ancestor_start,
@@ -265,14 +264,14 @@ int CloneableAdapter::_get_keys_by_prefix(const string &prefix,
       if (r < 0)
 	return r;
       if (removed.size())
-	removed_start = *(removed->rbegin());
+	removed_start = *(removed.rbegin());
       else
 	removed_start = "";
     }
 
-    cur_out.insert(ancestor_start.begin(), ancestor_start.end());
-    cur_out.insert(my_start.begin(), my_start.end());
-    cur_removed.insert(removed.start(), removed.end());
+    //cur_out.insert(ancestor_start.begin(), ancestor_start.end());
+    //cur_out.insert(my_start.begin(), my_start.end());
+    cur_removed.insert(removed.begin(), removed.end());
     while (cur_out.size() &&
 	   *(cur_out.begin()) <= ancestor_start &&
 	   *(cur_out.begin()) <= my_start) {
@@ -290,55 +289,28 @@ int CloneableAdapter::_get_keys_by_prefix(const string &prefix,
   return 0;
 }
 
-int CloneableAdapter::get_keys_by_prefix(
-  const string &prefix,
-  set<string> *out) {
-  return _get_by_prefix(leveled_prefix(prefix, 0), out);
+int CloneableAdapter::get_keys_by_prefix(const string &prefix,
+					 size_t max,
+					 const string &start,
+					 std::set<string> *out) {
+  return _get_keys_by_prefix(leveled_prefix(prefix, 0), max, start, out);
 }
 
 int CloneableAdapter::_get_by_prefix(const string &prefix,
+				     size_t max,
+				     const string &start,
 				     map<string, bufferlist> *out) {
-  prefix_status status;
-  int r = get_prefix_status(prefix, &status);
-  if (r == -ENOENT)
-    return 0;
-  else if (r < 0)
-    return r;
-
-  if (status.ancestor.size()) {
-    // check ancestor first
-    r = _get_by_prefix(status.ancestor, out);
-    if (r < 0)
-      return r;
-
-  }
-
-  string lprefix = leveled_prefix(status.actual_prefix, status.level);
-  r = db->get_by_prefix(build_user_prefix(lprefix), out);
-  if (r < 0)
-    return r;
-  if (!status.ancestor.size())
-    return 0;
-
-  set<string> removed;
-  r = db->get_keys_by_prefix(build_missing_prefix(lprefix), &removed);
-  if (r < 0)
-    return r;
-
-  for (set<string>::iterator i = removed.begin();
-       i != removed.end();
-       ++i) {
-    out->erase(*i);
-  }
   return 0;
 }
 
 int CloneableAdapter::get_by_prefix(const string &prefix,
+				    size_t max,
+				    const string &start,
 				    map<string, bufferlist> *out) {
-  return _get_by_prefix(leveled_prefix(prefix, 0), out);
+  return 0;
 }
 
-int CloneableAdapter::set(string prefix,
+int CloneableAdapter::set(const string &prefix,
 			  const map<string, bufferlist> &to_set) {
   string lprefix = leveled_prefix(prefix, 0);
   prefix_status status;
@@ -353,7 +325,7 @@ int CloneableAdapter::set(string prefix,
   } else if (r < 0) {
     return r;
   } else if (status.ancestor.size()) {
-    set<string> no_longer_removed;
+    std::set<string> no_longer_removed;
     for (map<string, bufferlist>::const_iterator i = to_set.begin();
 	 i != to_set.end();
 	 ++i) {
@@ -368,12 +340,12 @@ int CloneableAdapter::set(string prefix,
 }
 
 int CloneableAdapter::rmkeys(const string &prefix,
-			    const set<string> &keys)
-}
+			    const std::set<string> &keys)
+{
   return 0;
 }
 
-int CloneableAdapter::rmkey_by_prefix(const string &prefix)
+int CloneableAdapter::rmkeys_by_prefix(const string &prefix)
 {
   return 0;
 }

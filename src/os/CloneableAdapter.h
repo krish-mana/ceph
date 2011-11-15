@@ -14,21 +14,21 @@ using std::string;
 class CloneableAdapter : public CloneableDB {
 public:
   /// Retrieve Keys
-  virtual int get(
+  int get(
     const string &prefix,        ///< [in] Prefix for key
     const std::set<string> &key,      ///< [in] Key to retrieve
     std::map<string, bufferlist> *out ///< [out] Key value retrieved
     );
 
   /// Filter keys for existence
-  virtual int get_keys(
+  int get_keys(
     const string &prefix,   ///< [in] Prefix for key
     const std::set<string> &key, ///< [in] Keys to check
     std::set<string> *out        ///< [out] Key value retrieved
     );
 
   /// Get Keys by prefix
-  virtual int get_keys_by_prefix(
+  int get_keys_by_prefix(
     const string &prefix, ///< [in] Prefix to search for
     size_t max,           ///< [in] Max entries to return, 0 for no limit
     const string &start,  ///< [in] Start after start, "" for beginning
@@ -36,7 +36,7 @@ public:
     );
 
   /// Get keys and values by prefix
-  virtual int get_by_prefix(
+  int get_by_prefix(
     const string &prefix, ///< [in] Prefix to search for
     size_t max,           ///< [in] Max size to return, 0 for no limit
     const string &start,  ///< [in] Start after start, "" for beginning
@@ -44,19 +44,19 @@ public:
     );
 
   /// Set Keys
-  virtual int set(
+  int set(
     const string &prefix,                 ///< [in] Prefix for keys
     const std::map<string, bufferlist> &to_set ///< [in] keys/values to set
     );
 
   /// Removes Keys
-  virtual int rmkeys(
+  int rmkeys(
     const string &prefix,   ///< [in] Prefix to search for
     const std::set<string> &keys ///< [in] Keys to remove
     );
 
   /// Removes keys beginning with prefix
-  virtual int rmkeys_by_prefix(
+  int rmkeys_by_prefix(
     const string &prefix ///< [in] Prefix by which to remove keys
     );
 
@@ -72,14 +72,31 @@ private:
   boost::scoped_ptr<KeyValueDB> db;
   /// Constructer, pass KeyValueDB
 
-  int get_prefix_status(const string &prefix, prefix_status *out);
-  int set_prefix_status(const string &prefix, const prefix_status &in);
-
   int _get(
     const string &actual_prefix,
     size_t level,
     const std::set<string> keys,
     std::map<string, bufferlist> *out);
+
+  // Helpers
+  int get_prefix_status(const string &prefix,
+			prefix_status *out);
+  int set_prefix_status(const string &prefix,
+			const prefix_status &in);
+  int _get(const string &prefix,
+	   const std::set<string> &keys,
+	   std::map<string, bufferlist> *out);
+  int _get_keys(const string &prefix,
+		const std::set<string> &keys,
+		std::set<string> *out);
+  int _get_keys_by_prefix(const string &prefix,
+			  size_t max,
+			  const string &start,
+			  std::set<string> *out);
+  int _get_by_prefix(const string &prefix,
+		     size_t max,
+		     const string &start,
+		     std::map<string, bufferlist> *out);
 };
 
 #endif

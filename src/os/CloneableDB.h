@@ -14,6 +14,6 @@ class CloneableDB : public KeyValueDB {
     const string &to_prefix    ///< [in] Dest prefix
     ) = 0;
 
-  virtual ~CloneableDB();
+  virtual ~CloneableDB() {};
 };
 #endif
