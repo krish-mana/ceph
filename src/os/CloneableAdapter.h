@@ -8,6 +8,7 @@
 #include "boost/scoped_ptr.hpp"
 #include "CloneableDB.h"
 #include "KeyValueDB.h"
+#include <tr1/memory>
 
 using std::string;
 
@@ -50,7 +51,7 @@ public:
     const string &to_prefix    ///< [in] Dest prefix
     );
 
-  Iterator *get_iterator(const string &prefix) { return 0; }
+  Iterator get_iterator(const string &prefix) { return std::tr1::shared_ptr<IteratorInterface>(); }
 
   CloneableAdapter(KeyValueDB *kvdb) : db(kvdb) {}
 private:

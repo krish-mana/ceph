@@ -6,6 +6,7 @@
 #include <set>
 #include <map>
 #include <string>
+#include <tr1/memory>
 
 using std::string;
 /**
@@ -48,18 +49,19 @@ public:
 
   virtual ~KeyValueDB() {};
 
-  class Iterator {
+  class IteratorInterface {
   public:
     virtual int seek_to_first() = 0;
     virtual int seek_after(const string &after) = 0;
-    virtual int valid() = 0;
+    virtual bool valid() = 0;
     virtual int next() = 0;
     virtual string key() = 0;
     virtual bufferlist value() = 0;
     virtual int status() = 0;
-    virtual ~Iterator() {}
+    virtual ~IteratorInterface() {}
   };
-  virtual Iterator *get_iterator(const string &prefix) = 0;
+  typedef std::tr1::shared_ptr<IteratorInterface> Iterator;
+  virtual Iterator get_iterator(const string &prefix) = 0;
 };
 
 #endif

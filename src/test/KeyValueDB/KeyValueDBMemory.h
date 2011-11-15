@@ -37,5 +37,6 @@ class KeyValueDBMemory : public KeyValueDB {
     const string &prefix
     );
 
-  Iterator *get_iterator(const string &prefix) { return 0; }
+  friend class MemIterator;
+  Iterator get_iterator(const string &prefix);
 };
