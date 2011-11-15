@@ -1,42 +1,41 @@
 // -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*- 
 #include "CloneableAdapter.h"
+#include "include/encoding.h"
+#include <map>
+#include <set>
+#include <string>
+using namespace std;
 
 const string STATUS_KEY = "STATUS";
 
 static string translate_prefix(const string &prefix, size_t level) {
   char buf[sizeof(level)*3]; // Big enough for size_t!
-  snprintf(buf, sizeof(buf), "%d", level);
+  snprintf(buf, sizeof(buf), "%u", (unsigned int)level);
   string out_prefix = "";
-  for (string::cosnt_iterator i = prefix.begin();
+  for (string::const_iterator i = prefix.begin();
        i != prefix.end();
        ++i) {
     if (*i == '\\') {
-      out_prefix.append('\\\\');
+      out_prefix.append("\\\\");
     } else if (*i == '.') {
-      out_prefix.append('\\d');
+      out_prefix.append("\\d");
     } else {
-      out_prefix.append(*i);
+      out_prefix.push_back(*i);
     }
   }
-  return out_prefix + "." buf;
-}
-
-static string leveled_prefix(const string &prefix, size_t level) {
-  char buf[sizeof(level)*3]; // Big enough for size_t!
-  snprintf(buf, sizeof(buf), ".%d", level);
-  return escape_prefix(prefix) + string(buf);
+  return out_prefix + "." + buf;
 }
 
 static string build_admin_prefix(const string &prefix) {
-  return escape_prefix(prefix) + ".admin";
+  return prefix + ".admin";
 }
 
 static string build_user_prefix(const string &prefix) {
-  return escape_prefix(prefix) + ".user";
+  return prefix + ".user";
 }
 
 static string build_missing_prefix(const string &prefix) {
-  return escape_prefix(prefix) + ".removed";
+  return prefix + ".removed";
 }
 
 struct prefix_status {
@@ -73,7 +72,7 @@ int CloneableAdapter::get_prefix_status(const string &prefix,
 					size_t level,
 					prefix_status *out)
 {
-  string admin_prefix = build_admin_prefix(prefix, level);
+  string admin_prefix = build_admin_prefix(translate_prefix(prefix, level));
   set<string> keys_to_get;
   keys_to_get.insert(STATUS_KEY);
   map<string, bufferlist> result;

@@ -2,6 +2,7 @@
 #ifndef KEY_VALUE_DB_H
 #define KEY_VALUE_DB_H
 
+#include "include/buffer.h"
 #include <set>
 #include <map>
 #include <string>
