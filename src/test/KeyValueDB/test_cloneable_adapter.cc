@@ -21,6 +21,7 @@ public:
 
 TEST_F(CloneableDBTest, CreateOneObject) {
   map<string, bufferlist> to_set;
-  to_set["test"].append(bufferptr("testval"));
+  string val("test_val");
+  to_set["test"].append(bufferptr(val.c_str(), val.length()));
   db->set("prefix", to_set);
 }
