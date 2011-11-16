@@ -282,6 +282,19 @@ class CloneableAdapterIterator : public KeyValueDB::IteratorInterface {
     }
   }
 
+  KeyValueDB::Iterator get_current() {
+    if (!ancestor_iter || !ancestor_iter->valid())
+      return my_iter;
+
+    if (!my_iter || !my_iter->valid())
+      return ancestor_iter;
+
+    if (ancestor_iter->key() < my_iter->key())
+      return ancestor_iter;
+    else
+      return my_iter;
+  }
+
 public:
   CloneableAdapterIterator(CloneableAdapter *parent,
 			   const string &prefix) :
@@ -352,6 +365,18 @@ public:
   bool valid() {
     return (my_iter && my_iter->valid()) || 
       (ancestor_iter && ancestor_iter->valid());
+  }
+
+  int next() {
+    r = get_current()->next();
+    if (r < 0)
+      return r;
+
+    r = settle();
+    if (r < 0)
+      return r;
+
+    return 0;
   }
 };
 
