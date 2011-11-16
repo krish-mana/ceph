@@ -262,6 +262,26 @@ class CloneableAdapterIterator : public KeyValueDB::IteratorInterface {
   CloneableAdapter::prefix_status status;
   int r;
 
+  int settle() {
+    if (!ancestor_iter)
+      return 0;
+    while (ancestor_iter->valid() &&
+	   (!my_iter->valid() || my_iter->key() < ancestor_iter->key()) &&
+	   missing_iter->valid() &&
+	   ancestor_iter->key() >= missing_iter->key()) {
+
+      if (ancestor_iter->key() == missing_iter->key()) {
+	r = ancestor_iter->next();
+	if (r < 0)
+	  return r;
+      }
+
+      r = missing_iter->next();
+      if (r < 0)
+	return r;
+    }
+  }
+
 public:
   CloneableAdapterIterator(CloneableAdapter *parent,
 			   const string &prefix) :
@@ -279,6 +299,9 @@ public:
     if (r < 0)
       return r;
 
+    if (!status.ancestor.size())
+      return 0;
+
     if (!ancestor_iter)
       ancestor_iter = parent->_get_iterator(status.ancestor);
     r = ancestor_iter->seek_to_first();
@@ -291,10 +314,45 @@ public:
     if (r < 0)
       return r;
 
+    r = settle();
+    if (r < 0)
+      return r;
     return 0;
   }
 
-  int seek_after(const string &after);
+  int seek_after(const string &after) {
+    if (!my_iter) {
+      r = seek_to_first();
+      if (r < 0)
+	return r;
+    }
+
+    r = my_iter->seek_after(after);
+    if (r < 0)
+      return r;
+
+    if (!status.ancestor.size())
+      return 0;
+
+    r = ancestor_iter->seek_after(after);
+    if (r < 0)
+      return r;
+
+    r = missing_iter->seek_after(after);
+    if (r < 0)
+      return r;
+
+    r = settle();
+    if (r < 0)
+      return r;
+
+    return 0;
+  }
+
+  bool valid() {
+    return (my_iter && my_iter->valid()) || 
+      (ancestor_iter && ancestor_iter->valid());
+  }
 };
 
 KeyValueDB::Iterator CloneableAdapter::_get_iterator(const string &prefix) {
