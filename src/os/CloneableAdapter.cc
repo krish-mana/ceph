@@ -260,14 +260,14 @@ class CloneableAdapterIterator : public KeyValueDB::IteratorInterface {
   const string &prefix;
   KeyValueDB::Iterator my_iter, ancestor_iter, missing_iter;
   CloneableAdapter::prefix_status status;
+  int r;
 
 public:
   CloneableAdapterIterator(CloneableAdapter *parent,
 			   const string &prefix) :
-    parent(parent), prefix(prefix) {}
+    parent(parent), prefix(prefix), r(0) {}
 
   int seek_to_first() {
-    int r;
     r = parent->get_prefix_status(prefix, &status);
     if (r < 0)
       return r;
@@ -293,6 +293,8 @@ public:
 
     return 0;
   }
+
+  int seek_after(const string &after);
 };
 
 KeyValueDB::Iterator CloneableAdapter::_get_iterator(const string &prefix) {
