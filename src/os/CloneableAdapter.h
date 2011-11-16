@@ -51,10 +51,11 @@ public:
     const string &to_prefix    ///< [in] Dest prefix
     );
 
-  Iterator get_iterator(const string &prefix) { return std::tr1::shared_ptr<IteratorInterface>(); }
+  Iterator get_iterator(const string &prefix);
 
   CloneableAdapter(KeyValueDB *kvdb) : db(kvdb) {}
 private:
+  friend class CloneableAdapterIterator;
   struct prefix_status;
   boost::scoped_ptr<KeyValueDB> db;
   /// Constructer, pass KeyValueDB
@@ -76,6 +77,7 @@ private:
   int _get_keys(const string &prefix,
 		const std::set<string> &keys,
 		std::set<string> *out);
+  Iterator _get_iterator(const string &prefix);
 };
 
 #endif

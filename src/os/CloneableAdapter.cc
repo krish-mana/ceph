@@ -254,3 +254,51 @@ int CloneableAdapter::clone(const string &from_prefix,
 {
   return 0;
 }
+
+class CloneableAdapterIterator : public KeyValueDB::IteratorInterface {
+  CloneableAdapter *parent;
+  const string &prefix;
+  KeyValueDB::Iterator my_iter, ancestor_iter, missing_iter;
+  CloneableAdapter::prefix_status status;
+
+public:
+  CloneableAdapterIterator(CloneableAdapter *parent,
+			   const string &prefix) :
+    parent(parent), prefix(prefix) {}
+
+  int seek_to_first() {
+    int r;
+    r = parent->get_prefix_status(prefix, &status);
+    if (r < 0)
+      return r;
+
+    string lprefix = leveled_prefix(status.actual_prefix, status.level);
+    if (!my_iter)
+      my_iter = parent->db->get_iterator(build_user_prefix(lprefix));
+    r = my_iter->seek_to_first();
+    if (r < 0)
+      return r;
+
+    if (!ancestor_iter)
+      ancestor_iter = parent->_get_iterator(status.ancestor);
+    r = ancestor_iter->seek_to_first();
+    if (r < 0)
+      return r;
+
+    if (!missing_iter)
+      missing_iter = parent->db->get_iterator(build_missing_prefix(lprefix));
+    r = missing_iter->seek_to_first();
+    if (r < 0)
+      return r;
+
+    return 0;
+  }
+};
+
+KeyValueDB::Iterator CloneableAdapter::_get_iterator(const string &prefix) {
+  return Iterator();
+}
+
+KeyValueDB::Iterator CloneableAdapter::get_iterator(const string &prefix) {
+  return _get_iterator(leveled_prefix(prefix, 0));
+}
