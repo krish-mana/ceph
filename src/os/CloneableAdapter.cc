@@ -259,7 +259,7 @@ class CloneableAdapterIterator : public KeyValueDB::IteratorInterface {
   CloneableAdapter *parent;
   const string &prefix;
   KeyValueDB::Iterator my_iter, ancestor_iter, missing_iter;
-  CloneableAdapter::prefix_status status;
+  CloneableAdapter::prefix_status pstatus;
   int r;
 
   int settle() {
@@ -301,22 +301,22 @@ public:
     parent(parent), prefix(prefix), r(0) {}
 
   int seek_to_first() {
-    r = parent->get_prefix_status(prefix, &status);
+    r = parent->get_prefix_status(prefix, &pstatus);
     if (r < 0)
       return r;
 
-    string lprefix = leveled_prefix(status.actual_prefix, status.level);
+    string lprefix = leveled_prefix(pstatus.actual_prefix, pstatus.level);
     if (!my_iter)
       my_iter = parent->db->get_iterator(build_user_prefix(lprefix));
     r = my_iter->seek_to_first();
     if (r < 0)
       return r;
 
-    if (!status.ancestor.size())
+    if (!pstatus.ancestor.size())
       return 0;
 
     if (!ancestor_iter)
-      ancestor_iter = parent->_get_iterator(status.ancestor);
+      ancestor_iter = parent->_get_iterator(pstatus.ancestor);
     r = ancestor_iter->seek_to_first();
     if (r < 0)
       return r;
@@ -344,7 +344,7 @@ public:
     if (r < 0)
       return r;
 
-    if (!status.ancestor.size())
+    if (!pstatus.ancestor.size())
       return 0;
 
     r = ancestor_iter->seek_after(after);
@@ -378,10 +378,26 @@ public:
 
     return 0;
   }
+
+  string key() {
+    if (!valid())
+      return "";
+    return get_current()->key();
+  }
+
+  bufferlist value() {
+    if (!valid())
+      return bufferlist();
+    return get_current()->value();
+  }
+
+  int status() {
+    return r;
+  }
 };
 
 KeyValueDB::Iterator CloneableAdapter::_get_iterator(const string &prefix) {
-  return Iterator();
+  return Iterator(new CloneableAdapterIterator(this, prefix));
 }
 
 KeyValueDB::Iterator CloneableAdapter::get_iterator(const string &prefix) {
