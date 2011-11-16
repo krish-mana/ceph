@@ -239,8 +239,34 @@ int CloneableAdapter::set(const string &prefix,
 }
 
 int CloneableAdapter::rmkeys(const string &prefix,
-			    const std::set<string> &keys)
+			     const std::set<string> &keys)
 {
+  string lprefix = leveled_prefix(prefix, 0);
+  prefix_status status;
+  int r = get_prefix_status(lprefix, &status);
+  if (r == -ENOENT)
+    return 0;
+  else if (r < 0)
+    return r;
+
+  r = db->rmkeys(build_user_prefix(lprefix), keys);
+  if (r < 0)
+    return r;
+
+  if (!status.ancestor.size())
+    return 0;
+
+  map<string, bufferlist> new_missing;
+  for (std::set<string>::const_iterator i = keys.begin();
+       i != keys.end();
+       ++i) {
+    new_missing[*i];
+  }
+
+  r = db->set(build_missing_prefix(lprefix), new_missing);
+  if (r < 0)
+    return r;
+
   return 0;
 }
 
