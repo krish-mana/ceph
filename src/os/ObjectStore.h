@@ -623,6 +623,23 @@ public:
   virtual int collection_list_partial(coll_t c, snapid_t seq, vector<hobject_t>& o, int count, collection_list_handle_t *handle) = 0;
   virtual int collection_list(coll_t c, vector<hobject_t>& o) = 0;
 
+
+  /**
+   * list partial contents of collection
+   *
+   * @c collection
+   * @start list objects with hash >= @start.hash, name >= @start.name, snapid >= @start.snapid
+   * @min return at least this many results, unless we reach the end
+   * @max return no more than this many results
+   * @ls [out] result
+   * @next_hash next item has hash >= this value
+   * @next_name next tiem has name >= this
+   */
+  virtual int collection_list_partial(coll_t c, hobject_t start,
+				      int min, int max,
+				      vector<hobject_t> *ls, __u32 *nexthash, string *nextname);
+
+
   /*
   virtual int _create_collection(coll_t c) = 0;
   virtual int _destroy_collection(coll_t c) = 0;

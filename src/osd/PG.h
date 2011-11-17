@@ -1357,6 +1357,23 @@ protected:
   // primary-only, recovery-only state
   set<int>             might_have_unfound;  // These osds might have objects on them
 					    // which are unfound on the primary
+  struct BackfillInterval {
+    // info about a backfill interval on a peer
+    map<hobject_t,eversion_t> objects;
+    hobject_t begin, end;
+
+    void pop_front() {
+      assert(!objects.empty());
+      objects.erase(objects.begin());
+      if (objects.empty())
+	begin = end;
+      else
+	begin = objects.begin()->first;
+    }
+  };
+  
+  BackfillInterval backfill_info;
+  map<int,BackfillInterval> peer_backfill_info;
 
   epoch_t last_peering_reset;
 

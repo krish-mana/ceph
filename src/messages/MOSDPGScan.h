@@ -35,7 +35,7 @@ public:
   __u32 op;
   epoch_t map_epoch, query_epoch;
   pg_t pgid;
-  __u32 hash_begin, hash_end;
+  hobject_t begin, end;
 
   virtual void decode_payload(CephContext *cct) {
     bufferlist::iterator p = payload.begin();
@@ -43,8 +43,8 @@ public:
     ::decode(map_epoch, p);
     ::decode(query_epoch, p);
     ::decode(pgid, p);
-    ::decode(hash_begin, p);
-    ::decode(hash_end, p);
+    ::decode(begin, p);
+    ::decode(end, p);
   }
 
   virtual void encode_payload(CephContext *cct) {
@@ -52,17 +52,17 @@ public:
     ::encode(map_epoch, payload);
     ::encode(query_epoch, payload);
     ::encode(pgid, payload);
-    ::encode(hash_begin, payload);
-    ::encode(hash_end, payload);
+    ::encode(begin, payload);
+    ::encode(end, payload);
   }
 
   MOSDPGScan() : Message(MSG_OSD_PG_SCAN) {}
-  MOSDPGScan(__u32 o, epoch_t e, epoch_t qe, pg_t p, __u32 hb, __u32 he)
+  MOSDPGScan(__u32 o, epoch_t e, epoch_t qe, pg_t p, hobject_t be, hobject_t en)
     : Message(MSG_OSD_PG_SCAN),
       op(o),
       map_epoch(e), query_epoch(e),
       pgid(p),
-      hash_begin(hb), hash_end(he) {
+      begin(be), end(en) {
   }
 private:
   ~MOSDPGScan() {}
@@ -72,8 +72,8 @@ public:
   void print(ostream& out) {
     out << "pg_scan(" << get_op_name(op)
 	<< " " << pgid
-	<< " " << hash_begin << "-" << hash_end
-	<< " e " << map_epoch
+	<< " " << begin << "-" << end
+	<< " e " << map_epoch << "/" << query_epoch
 	<< ")";
   }
 };

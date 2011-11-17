@@ -5134,9 +5134,72 @@ int ReplicatedPG::recover_backfill(int max)
   
   // initially just backfill one peer at a time.  FIXME.
   int peer = *backfill.begin();
+  BackfillInfo& pbi = peer_backfill[peer];
 
+  int ops = 0;
+  while (ops < max) {
+    if (backfill_info.end <= pbi.start) {
+      scan_range(backfill_info.end, 10, 20, &backfill_info);
+    }
 
+    if (pbi.end <= backfill_info.start) {
+      epoch_t e = get_osdmap()->get_epoch();
+      MOSDPGScan *m = new MOSDPGScan(MOSDPGScan::OP_SCAN_GET_DIGEST, e, e, pbi.end, hobject_t());
+      osd->messenger->send_message(m, get_osdmap()->get_cluster_inst(peer));
+      ops++;
+      return ops;
+    }
+
+    if (backfill_info.objects.empty()) {
+      // remove peer objects <= backfill_info.end
+      if (pbi.objects.empty()) {
+	// hmm, are we done?
+	#warning fixme
+	return ops;
+      } else {
+	hobject_t& pf = pbi.objects.begin()->first;
+	if (pbi.front() <= backfill_info.end()) {
+	  // remove 
+	  dout(20) << " removing peer " << pf << " <= local end " << backfill_info.end << dendl;
+	  // ...
+	  pbi.pop_front();
+	} else {
+	  // ??
+	}
+      }
+    } else {
+      hobject_t& my_first = backfill_info.begin()->first;
+    }
+
+  }
   return 0;
+}
+
+void ReplicatedPG::scan_range(hobject_t begin, int min, int max,
+			      BackfillInterval *bi)
+{
+  dout(10) << "scan_range from " << begin << dendl;
+  bi->begin = begin;
+
+  vector<hobject_t> ls(max);
+  int r = osd->store->collection_list_partial(coll, begin, min, max, &ls, &bi->end);
+
+  for (vector<hobject_t>::iterator p = ls.begin(); p != ls.end(); ++p) {
+    if (is_primary()) {
+      ObjectContext *obc = get_object_context(*p);
+      bi->objects[*p] = obc->obs.oi.version;
+      dout(20) << "  " << *p << " " << obc->ovs.oi.version << dendl;
+      obc->put();
+    } else {
+      bufferlist bl;
+      int r = osd->store->getattr(coll, *p, OI_ATTR, bl);
+      object_info_t oi;
+      bufferlist::iterator bli = bl.begin();
+      ::decode(oi, bli);
+      bi->objects[*p] = oi.version;
+      dout(20) << "  " << *p << " " << oi.version << dendl;
+    }
+  }
 }
 
 
