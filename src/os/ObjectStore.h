@@ -625,19 +625,19 @@ public:
 
 
   /**
-   * list partial contents of collection
+   * list partial contents of collection relative to a hash offset/position
    *
    * @c collection
    * @start list objects with hash >= @start.hash, name >= @start.name, snapid >= @start.snapid
    * @min return at least this many results, unless we reach the end
    * @max return no more than this many results
    * @ls [out] result
-   * @next_hash next item has hash >= this value
-   * @next_name next tiem has name >= this
+   * @next [out] next item sorts >= this value
+   * @return zero on success, or negative error
    */
   virtual int collection_list_partial(coll_t c, hobject_t start,
 				      int min, int max,
-				      vector<hobject_t> *ls, __u32 *nexthash, string *nextname);
+				      vector<hobject_t> *ls, hobject_t *next);
 
 
   /*

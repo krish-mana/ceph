@@ -5134,45 +5134,76 @@ int ReplicatedPG::recover_backfill(int max)
   
   // initially just backfill one peer at a time.  FIXME.
   int peer = *backfill.begin();
-  BackfillInfo& pbi = peer_backfill[peer];
+  BackfillInterval& pbi = peer_backfill_info[peer];
 
   int ops = 0;
   while (ops < max) {
-    if (backfill_info.end <= pbi.start) {
+    if (backfill_info.end <= pbi.start ||
+	(backfill_info.empty() && !backfill_info.at_end())) {
       scan_range(backfill_info.end, 10, 20, &backfill_info);
     }
 
-    if (pbi.end <= backfill_info.start) {
+    if (pbi.end <= backfill_info.start ||
+	(pbi.empty() && !pbi.at_end())) {
       epoch_t e = get_osdmap()->get_epoch();
       MOSDPGScan *m = new MOSDPGScan(MOSDPGScan::OP_SCAN_GET_DIGEST, e, e, pbi.end, hobject_t());
-      osd->messenger->send_message(m, get_osdmap()->get_cluster_inst(peer));
+      osd->cluster_messenger->send_message(m, get_osdmap()->get_cluster_inst(peer));
       ops++;
       return ops;
     }
 
-    if (backfill_info.objects.empty()) {
+    if (backfill_info.empty()) {
       // remove peer objects <= backfill_info.end
-      if (pbi.objects.empty()) {
-	// hmm, are we done?
-	#warning fixme
+      if (pbi.empty()) {
+	dout(10) << " reached end for both local and peer" << dendl;
 	return ops;
       } else {
 	hobject_t& pf = pbi.objects.begin()->first;
-	if (pbi.front() <= backfill_info.end()) {
-	  // remove 
-	  dout(20) << " removing peer " << pf << " <= local end " << backfill_info.end << dendl;
-	  // ...
-	  pbi.pop_front();
-	} else {
-	  // ??
-	}
+	assert(pf < backfill_info.end);
+
+	dout(20) << " removing peer " << pf << " <= local end " << backfill_info.end << dendl;
+	// ...
+	++ops;
+	pbi.pop_front();
       }
     } else {
-      hobject_t& my_first = backfill_info.begin()->first;
+      hobject_t& my_first = backfill_info.objects.begin()->first;
+      eversion_t mv = backfill_info.objects.begin()->second;
+      if (pbi.objects.empty()) {
+	dout(20) << " pushing local " << my_first << " " << backfill_info.objects.begin()->second
+		 << " to peer osd." << peer << dendl;
+	// ...
+	backfill_info.pop_front();
+	++ops;
+      } else {
+	hobject_t& peer_first = pbi.objects.begin()->first;
+	eversion_t pv = pbi.objects.begin()->second;
+	if (peer_first < my_first) {
+	  dout(20) << " removing peer " << peer_first << " <= local " << my_first << dendl;
+	  // ...
+	  pbi.pop_front();
+	} else if (peer_first == my_first) {
+	  if (pv == mv) {
+	    dout(20) << " keeping peer " << peer_first << " " << pv << dendl;
+	  } else {
+	    dout(20) << " replacing peer " << peer_first << " with local " << mv << dendl;
+	    // ...
+	    ++ops;
+	  }
+	  pbi.pop_front();
+	  backfill_info.pop_front();
+	} else {
+	  // peer_first > my_first
+	  dout(20) << " pushing local " << my_first << " " << mv
+		   << " to peer osd." << peer << dendl;
+	  // ...
+	  backfill_info.pop_front();
+	  ++ops;
+	}
+      }
     }
-
   }
-  return 0;
+  return ops;
 }
 
 void ReplicatedPG::scan_range(hobject_t begin, int min, int max,

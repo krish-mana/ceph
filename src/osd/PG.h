@@ -1362,6 +1362,13 @@ protected:
     map<hobject_t,eversion_t> objects;
     hobject_t begin, end;
 
+    bool empty() {
+      return objects.empty();
+    }
+    bool at_end() {
+      return end.hash == hobject_t::HASH_MAX;
+    }
+
     void pop_front() {
       assert(!objects.empty());
       objects.erase(objects.begin());

@@ -262,7 +262,7 @@ namespace __gnu_cxx {
 struct hobject_t {
   object_t oid;
   snapid_t snap;
-  uint32_t hash;
+  uint64_t hash;
 
 private:
   string key;
@@ -271,9 +271,11 @@ public:
   const string &get_key() const {
     return key;
   }
+  
+  static const uint64_t HASH_MAX = 0x100000000;
 
   hobject_t() : snap(0), hash(0) {}
-  hobject_t(object_t oid, const string &key, snapid_t snap, uint32_t hash) : 
+  hobject_t(object_t oid, const string& key, snapid_t snap, uint64_t hash) : 
     oid(oid), snap(snap), hash(hash), 
     key(oid.name == key ? string() : key) {}
 
