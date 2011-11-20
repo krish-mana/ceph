@@ -1365,10 +1365,13 @@ protected:
     bool empty() {
       return objects.empty();
     }
+
+    /// true if interval starts at end of range
     bool at_end() {
-      return end.hash == hobject_t::HASH_MAX;
+      return begin.hash == hobject_t::HASH_MAX;
     }
 
+    /// drop first entry, and adjust @begin accordingly
     void pop_front() {
       assert(!objects.empty());
       objects.erase(objects.begin());

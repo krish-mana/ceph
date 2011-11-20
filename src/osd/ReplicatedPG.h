@@ -504,6 +504,7 @@ protected:
     }
     return NULL;
   }
+  ObjectContext *_lookup_object_context(const hobject_t& oid);
   ObjectContext *get_object_context(const hobject_t& soid, const object_locator_t& oloc,
 				    bool can_create);
   void register_object_context(ObjectContext *obc) {
@@ -611,6 +612,17 @@ protected:
   int recover_primary(int max);
   int recover_replicas(int max);
   int recover_backfill(int max);
+
+  /**
+   * scan a (hash) range of objects in the current pg
+   *
+   * @begin first item should be >= this value
+   * @min return at least this many items, unless we are done
+   * @max return no more than this many items
+   * @bi [out] resulting map of objects to eversion_t's
+   */
+  void scan_range(hobject_t begin, int min, int max, BackfillInterval *bi);
+
 
   void dump_watchers(ObjectContext *obc);
   void remove_watcher(ObjectContext *obc, entity_name_t entity);

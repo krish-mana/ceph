@@ -262,7 +262,11 @@ namespace __gnu_cxx {
 struct hobject_t {
   object_t oid;
   snapid_t snap;
+  /// 32-bit hash value, but we use a 64-bit value here so that we can
+  /// represent the MAX
   uint64_t hash;
+
+  static const uint64_t HASH_MAX = 0x100000000;
 
 private:
   string key;
@@ -272,8 +276,6 @@ public:
     return key;
   }
   
-  static const uint64_t HASH_MAX = 0x100000000;
-
   hobject_t() : snap(0), hash(0) {}
   hobject_t(object_t oid, const string& key, snapid_t snap, uint64_t hash) : 
     oid(oid), snap(snap), hash(hash), 

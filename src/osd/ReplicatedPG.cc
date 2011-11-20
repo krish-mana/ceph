@@ -3087,6 +3087,14 @@ void ReplicatedPG::handle_watch_timeout(void *_obc,
   eval_repop(repop);
 }
 
+ReplicatedPG::ObjectContext *ReplicatedPG::_lookup_object_context(const hobject_t& oid)
+{
+  map<hobject_t, ObjectContext*>::iterator p = object_contexts.find(oid);
+  if (p != object_contexts.end())
+    return p->second;
+  return NULL;
+}
+
 ReplicatedPG::ObjectContext *ReplicatedPG::get_object_context(const hobject_t& soid,
 							      const object_locator_t& oloc,
 							      bool can_create)
@@ -5138,15 +5146,16 @@ int ReplicatedPG::recover_backfill(int max)
 
   int ops = 0;
   while (ops < max) {
-    if (backfill_info.end <= pbi.start ||
+    if (backfill_info.end <= pbi.begin ||
 	(backfill_info.empty() && !backfill_info.at_end())) {
       scan_range(backfill_info.end, 10, 20, &backfill_info);
     }
 
-    if (pbi.end <= backfill_info.start ||
+    if (pbi.end <= backfill_info.begin ||
 	(pbi.empty() && !pbi.at_end())) {
       epoch_t e = get_osdmap()->get_epoch();
-      MOSDPGScan *m = new MOSDPGScan(MOSDPGScan::OP_SCAN_GET_DIGEST, e, e, pbi.end, hobject_t());
+      MOSDPGScan *m = new MOSDPGScan(MOSDPGScan::OP_SCAN_GET_DIGEST, e, e, info.pgid,
+				     pbi.end, hobject_t());
       osd->cluster_messenger->send_message(m, get_osdmap()->get_cluster_inst(peer));
       ops++;
       return ops;
@@ -5158,7 +5167,7 @@ int ReplicatedPG::recover_backfill(int max)
 	dout(10) << " reached end for both local and peer" << dendl;
 	return ops;
       } else {
-	hobject_t& pf = pbi.objects.begin()->first;
+	const hobject_t& pf = pbi.objects.begin()->first;
 	assert(pf < backfill_info.end);
 
 	dout(20) << " removing peer " << pf << " <= local end " << backfill_info.end << dendl;
@@ -5167,7 +5176,7 @@ int ReplicatedPG::recover_backfill(int max)
 	pbi.pop_front();
       }
     } else {
-      hobject_t& my_first = backfill_info.objects.begin()->first;
+      const hobject_t& my_first = backfill_info.objects.begin()->first;
       eversion_t mv = backfill_info.objects.begin()->second;
       if (pbi.objects.empty()) {
 	dout(20) << " pushing local " << my_first << " " << backfill_info.objects.begin()->second
@@ -5176,7 +5185,7 @@ int ReplicatedPG::recover_backfill(int max)
 	backfill_info.pop_front();
 	++ops;
       } else {
-	hobject_t& peer_first = pbi.objects.begin()->first;
+	const hobject_t& peer_first = pbi.objects.begin()->first;
 	eversion_t pv = pbi.objects.begin()->second;
 	if (peer_first < my_first) {
 	  dout(20) << " removing peer " << peer_first << " <= local " << my_first << dendl;
@@ -5206,27 +5215,28 @@ int ReplicatedPG::recover_backfill(int max)
   return ops;
 }
 
-void ReplicatedPG::scan_range(hobject_t begin, int min, int max,
-			      BackfillInterval *bi)
+void ReplicatedPG::scan_range(hobject_t begin, int min, int max, BackfillInterval *bi)
 {
+  assert(lock.is_locked());
   dout(10) << "scan_range from " << begin << dendl;
   bi->begin = begin;
 
   vector<hobject_t> ls(max);
   int r = osd->store->collection_list_partial(coll, begin, min, max, &ls, &bi->end);
+  assert(r >= 0);
 
   for (vector<hobject_t>::iterator p = ls.begin(); p != ls.end(); ++p) {
-    if (is_primary()) {
-      ObjectContext *obc = get_object_context(*p);
+    ObjectContext *obc = NULL;
+    if (is_primary())
+      obc = _lookup_object_context(*p);
+    if (obc) {
       bi->objects[*p] = obc->obs.oi.version;
-      dout(20) << "  " << *p << " " << obc->ovs.oi.version << dendl;
-      obc->put();
+      dout(20) << "  " << *p << " " << obc->obs.oi.version << dendl;
     } else {
       bufferlist bl;
       int r = osd->store->getattr(coll, *p, OI_ATTR, bl);
-      object_info_t oi;
-      bufferlist::iterator bli = bl.begin();
-      ::decode(oi, bli);
+      assert(r >= 0);
+      object_info_t oi(bl);
       bi->objects[*p] = oi.version;
       dout(20) << "  " << *p << " " << oi.version << dendl;
     }
