@@ -1368,7 +1368,7 @@ protected:
 
     /// true if interval starts at end of range
     bool at_end() {
-      return begin.hash == hobject_t::HASH_MAX;
+      return begin == hobject_t::get_max();
     }
 
     /// drop first entry, and adjust @begin accordingly

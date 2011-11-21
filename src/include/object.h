@@ -262,11 +262,8 @@ namespace __gnu_cxx {
 struct hobject_t {
   object_t oid;
   snapid_t snap;
-  /// 32-bit hash value, but we use a 64-bit value here so that we can
-  /// represent the MAX
-  uint64_t hash;
-
-  static const uint64_t HASH_MAX = 0x100000000;
+  uint32_t hash;
+  bool max;
 
 private:
   string key;
@@ -276,14 +273,21 @@ public:
     return key;
   }
   
-  hobject_t() : snap(0), hash(0) {}
+  hobject_t() : snap(0), hash(0), max(false) {}
   hobject_t(object_t oid, const string& key, snapid_t snap, uint64_t hash) : 
-    oid(oid), snap(snap), hash(hash), 
+    oid(oid), snap(snap), hash(hash), max(false),
     key(oid.name == key ? string() : key) {}
 
   hobject_t(const sobject_t &soid, const string &key, uint32_t hash) : 
-    oid(soid.oid), snap(soid.snap), hash(hash),
+    oid(soid.oid), snap(soid.snap), hash(hash), max(false),
     key(soid.oid.name == key ? string() : key) {}
+
+  // maximum sorted value.
+  static hobject_t get_max() {
+    hobject_t h;
+    h.max = true;
+    return h;
+  }
 
   /* Do not use when a particular hash function is needed */
   explicit hobject_t(const sobject_t &o) :
@@ -339,30 +343,34 @@ namespace __gnu_cxx {
 
 // sort hobject_t's by <hash,name,snapid>
 inline bool operator==(const hobject_t &l, const hobject_t &r) {
-  return l.oid == r.oid && l.snap == r.snap && l.hash == r.hash;
+  return l.oid == r.oid && l.snap == r.snap && l.hash == r.hash && l.max == r.max;
 }
 inline bool operator!=(const hobject_t &l, const hobject_t &r) {
-  return l.oid != r.oid || l.snap != r.snap || l.hash != r.hash;
+  return l.oid != r.oid || l.snap != r.snap || l.hash != r.hash || l.max != r.max;
 }
 inline bool operator>(const hobject_t &l, const hobject_t &r) {
-  return l.hash > r.hash ||
-    (l.hash == r.hash && (l.oid > r.oid || 
-			  (l.oid == r.oid && l.snap > r.snap)));
+  return l.max > r.max ||
+    (l.max == r.max && (l.hash > r.hash ||
+			(l.hash == r.hash && (l.oid > r.oid || 
+					      (l.oid == r.oid && l.snap > r.snap)))));
 }
 inline bool operator<(const hobject_t &l, const hobject_t &r) {
-  return l.hash < r.hash ||
-    (l.hash == r.hash && (l.oid < r.oid ||
-			  (l.oid == r.oid && l.snap < r.snap)));
+  return l.max < r.max ||
+    (l.max == r.max && (l.hash < r.hash ||
+			(l.hash == r.hash && (l.oid < r.oid ||
+					      (l.oid == r.oid && l.snap < r.snap)))));
 }
 inline bool operator>=(const hobject_t &l, const hobject_t &r) {
-  return l.hash > r.hash ||
-    (l.hash == r.hash && (l.oid > r.oid ||
-			  (l.oid == r.oid && l.snap >= r.snap)));
+  return l.max > r.max ||
+    (l.max == r.max && (l.hash > r.hash ||
+			(l.hash == r.hash && (l.oid > r.oid ||
+					      (l.oid == r.oid && l.snap >= r.snap)))));
 }
 inline bool operator<=(const hobject_t &l, const hobject_t &r) {
-  return l.hash < r.hash ||
-    (l.hash == r.hash && (l.oid < r.oid ||
-			  (l.oid == r.oid && l.snap <= r.snap)));
+  return l.max < r.max ||
+    (l.max == r.max && (l.hash < r.hash ||
+			(l.hash == r.hash && (l.oid < r.oid ||
+					      (l.oid == r.oid && l.snap <= r.snap)))));
 }
 
 

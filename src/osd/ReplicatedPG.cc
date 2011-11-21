@@ -5217,7 +5217,7 @@ int ReplicatedPG::recover_backfill(int max)
 
 void ReplicatedPG::scan_range(hobject_t begin, int min, int max, BackfillInterval *bi)
 {
-  assert(lock.is_locked());
+  assert(is_locked());
   dout(10) << "scan_range from " << begin << dendl;
   bi->begin = begin;
 
