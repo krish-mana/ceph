@@ -5351,6 +5351,7 @@ int ReplicatedPG::_scrub(ScrubMap& scrubmap, int& errors, int& fixed)
        << cstat.sum.num_object_clones << "/" << info.stats.stats.sum.num_object_clones << " clones, "
        << cstat.sum.num_bytes << "/" << info.stats.stats.sum.num_bytes << " bytes, "
        << cstat.sum.num_kb << "/" << info.stats.stats.sum.num_kb << " kb.\n";
+    assert(0);
     errors++;
 
     if (repair) {
