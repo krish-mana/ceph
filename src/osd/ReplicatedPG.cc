@@ -929,6 +929,7 @@ ReplicatedPG::RepGather *ReplicatedPG::trim_object(const hobject_t &coid,
     delta.num_kb -= SHIFT_ROUND_UP(snapset.clone_size[last], 10);
     info.stats.stats.add(delta, obc->obs.oi.category);
 
+    snapset.total_size += delta.num_bytes;
     snapset.clones.erase(p);
     snapset.clone_overlap.erase(last);
     snapset.clone_size.erase(last);
@@ -1203,6 +1204,8 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops,
     ceph_osd_op& op = osd_op.op; 
 
     dout(10) << "do_osd_op  " << osd_op << dendl;
+    dout(0) << "oi is " << oi << dendl;
+    dout(10) << "num_bytes " << ctx->delta_stats.num_bytes << dendl;
 
     bufferlist::iterator bp = osd_op.data.begin();
 
@@ -2048,9 +2051,13 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops,
     if (result < 0 && (op.flags & CEPH_OSD_OP_FLAG_FAILOK))
       result = 0;
 
+    dout(0) << "oi is " << oi << dendl;
+    dout(10) << "num_bytes " << ctx->delta_stats.num_bytes << dendl;
     if (result < 0)
       break;
   }
+  dout(0) << "oi is " << oi << dendl;
+  dout(10) << "num_bytes " << ctx->delta_stats.num_bytes << dendl;
   return result;
 }
 
@@ -2310,9 +2317,11 @@ void ReplicatedPG::write_update_size_and_usage(object_stat_sum_t& delta_stats, o
   modified.union_of(ch);
   if (length && (offset + length > oi.size)) {
     uint64_t new_size = offset + length;
+    dout(10) << "num_bytes " << delta_stats.num_bytes << dendl;
     delta_stats.num_bytes += new_size - oi.size;
     delta_stats.num_kb += SHIFT_ROUND_UP(new_size, 10) - SHIFT_ROUND_UP(oi.size, 10);
     oi.size = new_size;
+    dout(10) << "num_bytes " << delta_stats.num_bytes << dendl;
   }
   delta_stats.num_wr++;
   if (count_bytes)
@@ -2499,6 +2508,8 @@ int ReplicatedPG::prepare_transaction(OpContext *ctx)
   }
 
   make_writeable(ctx);
+  ctx->new_snapset.total_size += ctx->delta_stats.num_bytes;
+  ctx->new_snapset.head_size = ctx->new_obs.oi.size;
 
   if (ctx->user_modify) {
     /* update the user_version for any modify ops, except for the watch op */
@@ -2583,9 +2594,14 @@ int ReplicatedPG::prepare_transaction(OpContext *ctx)
 
   // apply new object state.
   ctx->obc->obs = ctx->new_obs;
+  std::stringstream ss;
+  if (!ctx->new_snapset.check(&ss)) {
+    dout(0) << ss.str() << dendl;
+    assert(0);
+  }
   ctx->obc->ssc->snapset = ctx->new_snapset;
   info.stats.stats.add(ctx->delta_stats, ctx->obc->obs.oi.category);
-
+  
   return result;
 }
 
@@ -3294,6 +3310,7 @@ ReplicatedPG::SnapSetContext *ReplicatedPG::get_snapset_context(const object_t& 
   assert(ssc);
   dout(10) << "get_snapset_context " << ssc->oid << " "
 	   << ssc->ref << " -> " << (ssc->ref+1) << dendl;
+  dout(0) << "ss is " << ssc->snapset << dendl;
   ssc->ref++;
   return ssc;
 }
@@ -5217,6 +5234,7 @@ int ReplicatedPG::_scrub(ScrubMap& scrubmap, int& errors, int& fixed)
   SnapSet snapset;
   vector<snapid_t>::reverse_iterator curclone;
 
+  uint64_t total_size = 0;
   object_stat_collection_t cstat;
 
   bufferlist last_data;
@@ -5235,12 +5253,14 @@ int ReplicatedPG::_scrub(ScrubMap& scrubmap, int& errors, int& fixed)
       if (p->second.attrs.count(SS_ATTR) == 0) {
 	dout(0) << mode << " no '" << SS_ATTR << "' attr on " << soid << dendl;
 	errors++;
+	assert(0);
 	continue;
       }
       bufferlist bl;
       bl.push_back(p->second.attrs[SS_ATTR]);
       bufferlist::iterator blp = bl.begin();
       ::decode(snapset, blp);
+      total_size += snapset.total_size;
 
       // did we finish the last oid?
       if (head != hobject_t()) {
@@ -5270,6 +5290,8 @@ int ReplicatedPG::_scrub(ScrubMap& scrubmap, int& errors, int& fixed)
     }
     if (soid.snap == CEPH_SNAPDIR) {
       string cat;
+      assert(!snapset.head_exists);
+      assert(snapset.head_size == 0);
       cstat.add(stat, cat);
       continue;
     }
@@ -5278,6 +5300,7 @@ int ReplicatedPG::_scrub(ScrubMap& scrubmap, int& errors, int& fixed)
     if (p->second.attrs.count(OI_ATTR) == 0) {
       dout(0) << mode << " no '" << OI_ATTR << "' attr on " << soid << dendl;
       errors++;
+      assert(0);
       continue;
     }
     bufferlist bv;
@@ -5288,6 +5311,7 @@ int ReplicatedPG::_scrub(ScrubMap& scrubmap, int& errors, int& fixed)
       derr << "on disk size (" << p->second.size
 	   << ") does not match object info size (" << oi.size
 	   << ") for " << soid << dendl;
+      assert(0);
       ++errors;
     }
 
@@ -5302,10 +5326,12 @@ int ReplicatedPG::_scrub(ScrubMap& scrubmap, int& errors, int& fixed)
 
     if (soid.snap == CEPH_NOSNAP) {
       if (!snapset.head_exists) {
+	assert(0);
 	dout(0) << mode << "  snapset.head_exists=false, but " << soid << " exists" << dendl;
 	errors++;
 	continue;
       }
+      assert(snapset.head_size == oi.size);
     } else if (soid.snap) {
       // it's a clone
       assert(head != hobject_t());
@@ -5338,7 +5364,8 @@ int ReplicatedPG::_scrub(ScrubMap& scrubmap, int& errors, int& fixed)
 	   << cstat.sum.num_objects << "/" << info.stats.stats.sum.num_objects << " objects, "
 	   << cstat.sum.num_object_clones << "/" << info.stats.stats.sum.num_object_clones << " clones, "
 	   << cstat.sum.num_bytes << "/" << info.stats.stats.sum.num_bytes << " bytes, "
-	   << cstat.sum.num_kb << "/" << info.stats.stats.sum.num_kb << " kb."
+	   << cstat.sum.num_kb << "/" << info.stats.stats.sum.num_kb << " kb, "
+	   << total_size << " total_size."
 	   << dendl;
 
   if (cstat.sum.num_objects != info.stats.stats.sum.num_objects ||

@@ -1161,13 +1161,16 @@ struct SnapSet {
   vector<snapid_t> clones;   // ascending
   map<snapid_t, interval_set<uint64_t> > clone_overlap;  // overlap w/ next newest
   map<snapid_t, uint64_t> clone_size;
+  uint64_t head_size;
+  uint64_t total_size;
 
-  SnapSet() : head_exists(false) {}
-  SnapSet(bufferlist& bl) {
+  SnapSet() : head_exists(false), head_size(0), total_size(0) {}
+  SnapSet(bufferlist& bl) : head_size(0), total_size(0) {
     bufferlist::iterator p = bl.begin();
     decode(p);
   }
     
+  bool check(ostream *out = NULL) const;
   void encode(bufferlist& bl) const;
   void decode(bufferlist::iterator& bl);
 };

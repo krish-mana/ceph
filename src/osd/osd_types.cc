@@ -13,6 +13,7 @@
  */
 
 #include "osd_types.h"
+#include <sstream>
 
 // -- osd_reqid_t --
 void osd_reqid_t::encode(bufferlist &bl) const
@@ -562,10 +563,39 @@ void OSDSuperblock::decode(bufferlist::iterator &bl)
 
 
 // -- SnapSet --
+bool SnapSet::check(ostream *out) const
+{
+  uint64_t raw_size = 0;
+  uint64_t overlap = 0;
+  for (vector<snapid_t>::const_iterator i = clones.begin();
+       i != clones.end();
+       ++i) {
+    assert(clone_size.count(*i));
+    assert(clone_overlap.count(*i));
+    raw_size += clone_size.find(*i)->second;
+    for (interval_set<uint64_t>::const_iterator j = clone_overlap.find(*i)->second.begin();
+	 j != clone_overlap.find(*i)->second.end();
+	 ++j) {
+      overlap += j.get_len();
+    }
+  }
+  raw_size += head_size;
+  if ((total_size + overlap) != raw_size) {
+    if (out)
+      *out << "total_size is " << total_size
+	   << ", overlap is " << overlap
+	   << ", raw_size is " << raw_size << std::endl;
+    else
+      assert(0);
+    return false;
+  }
+  return true;
+}
 
 void SnapSet::encode(bufferlist& bl) const
 {
   __u8 v = 1;
+  check();
   ::encode(v, bl);
   ::encode(seq, bl);
   ::encode(head_exists, bl);
@@ -573,6 +603,8 @@ void SnapSet::encode(bufferlist& bl) const
   ::encode(clones, bl);
   ::encode(clone_overlap, bl);
   ::encode(clone_size, bl);
+  ::encode(head_size, bl);
+  ::encode(total_size, bl);
 }
 
 void SnapSet::decode(bufferlist::iterator& bl)
@@ -585,13 +617,18 @@ void SnapSet::decode(bufferlist::iterator& bl)
   ::decode(clones, bl);
   ::decode(clone_overlap, bl);
   ::decode(clone_size, bl);
+  ::decode(head_size, bl);
+  ::decode(total_size, bl);
+  check();
 }
 
 ostream& operator<<(ostream& out, const SnapSet& cs)
 {
   return out << cs.seq << "=" << cs.snaps << ":"
 	     << cs.clones
-	     << (cs.head_exists ? "+head":"");
+	     << (cs.head_exists ? "+head":"")
+	     << "total_size: " << cs.total_size
+	     << ", head_size: " << cs.head_size;
 }
 
 
@@ -724,6 +761,7 @@ ostream& operator<<(ostream& out, const object_info_t& oi)
     out << " " << oi.snaps;
   if (oi.lost)
     out << " LOST";
+  out << " size is " << oi.size;
   out << ")";
   return out;
 }
