@@ -163,6 +163,14 @@ int HashIndex::_collection_list(vector<hobject_t> *ls) {
   return list(path, NULL, NULL, NULL, NULL, ls);
 }
 
+int HashIndex::_collection_list_partial(const hobject_t &start,
+					int min_count,
+					int max_count,
+					vector<hobject_t> *ls,
+					hobject_t *next) {
+  return 0;
+}
+
 int HashIndex::start_split(const vector<string> &path) {
   bufferlist bl;
   InProgressOp op_tag(InProgressOp::SPLIT, path);
@@ -371,12 +379,12 @@ int HashIndex::complete_split(const vector<string> &path, subdir_info_s info) {
 void HashIndex::get_path_components(const hobject_t &hoid,
 				    vector<string> *path) {
   char buf[MAX_HASH_LEVEL + 1];
-  snprintf(buf, sizeof(buf), "%.*X", MAX_HASH_LEVEL, hoid.hash);
+  snprintf(buf, sizeof(buf), "%.*X", MAX_HASH_LEVEL, hoid.get_filestore_key());
 
-  // Path components are the hex characters of hoid.hash in, least
+  // Path components are the hex characters of hoid.hash, least
   // significant first
   for (int i = 0; i < MAX_HASH_LEVEL; ++i) {
-    path->push_back(string(&buf[MAX_HASH_LEVEL - 1 - i], 1));
+    path->push_back(string(&buf[i], 1));
   }
 }
 
@@ -392,6 +400,15 @@ string HashIndex::get_hash_str(uint32_t hash) {
 
 string HashIndex::get_path_str(const hobject_t &hoid) {
   return get_hash_str(hoid.hash);
+}
+
+uint32_t HashIndex::hash_prefix_to_hash(string prefix) {
+  while (prefix.size() < sizeof(uint32_t) * 2) {
+    prefix.push_back('0');
+  }
+  uint32_t hash;
+  sscanf(prefix.c_str(), "%.*X", MAX_HASH_LEVEL, &hash);
+  return hash;
 }
 
 int HashIndex::list(const vector<string> &path,

@@ -637,7 +637,7 @@ public:
    */
   virtual int collection_list_partial(coll_t c, hobject_t start,
 				      int min, int max,
-				      vector<hobject_t> *ls, hobject_t *next);
+				      vector<hobject_t> *ls, hobject_t *next) = 0;
 
 
   /*

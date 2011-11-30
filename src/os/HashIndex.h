@@ -167,6 +167,13 @@ protected:
   int _collection_list(
     vector<hobject_t> *ls
     );
+  int _collection_list_partial(
+    const hobject_t &start,
+    int min_count,
+    int max_count,
+    vector<hobject_t> *ls,
+    hobject_t *next
+    );
 private:
   /// Tag root directory at beginning of split
   int start_split(
@@ -245,6 +252,11 @@ private:
   string get_hash_str(
     uint32_t hash ///< [in] Hash to convert to a string.
     ); ///< @return String representation of hash
+
+  /// Get hash from hash prefix string e.g. "FFFFAB" -> 0xFFFFAB00
+  uint32_t hash_prefix_to_hash(
+    string prefix ///< [in] string to convert
+    ); ///< @return Hash
 
   /** 
    * Recursively lists all objects in path.
