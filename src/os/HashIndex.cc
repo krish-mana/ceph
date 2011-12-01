@@ -489,6 +489,10 @@ int HashIndex::list_by_hash(const vector<string> &path,
        ++i) {
     multimap<string, hobject_t>::iterator j = objects.find(*i);
     if (j == objects.end()) {
+      if (out->size() > (unsigned)min_count) {
+	*next = hobject_t("", "", CEPH_NOSNAP, hash_prefix_to_hash(*i));
+	return 0;
+      }
       *(next_path.rbegin()) = *(i->rbegin());
       hobject_t next_recurse = *next;
       r = list_by_hash(next_path,
