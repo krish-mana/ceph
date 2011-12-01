@@ -470,7 +470,10 @@ int HashIndex::list_by_hash(const vector<string> &path,
 			    int max_count,
 			    hobject_t *next,
 			    vector<hobject_t> *out) {
-  int count = 0;
+  assert(next);
+  assert(out);
+  vector<string> next_path = path;
+  next_path.push_back("");
   set<string> hash_prefixes;
   multimap<string, hobject_t> objects;
   int r = get_path_contents_by_hash(path,
@@ -481,6 +484,39 @@ int HashIndex::list_by_hash(const vector<string> &path,
 				    &objects);
   if (r < 0)
     return r;
+  for (set<string>::iterator i = hash_prefixes.begin();
+       i != hash_prefixes.end();
+       ++i) {
+    multimap<string, hobject_t>::iterator j = objects.find(*i);
+    if (j == objects.end()) {
+      *(next_path.rbegin()) = *(i->rbegin());
+      hobject_t next_recurse = *next;
+      r = list_by_hash(next_path,
+		       min_count,
+		       max_count,
+		       &next_recurse,
+		       out);
+      
+      if (r < 0)
+	return r;
+      if (!next_recurse.max) {
+	*next = next_recurse;
+	return 0;
+      }
+    } else {
+      while (j != objects.end() && j->first == *i) {
+	if (out->size() == (unsigned)max_count) {
+	  *next = j->second;
+	  return 0;
+	}
+	if (j->second >= *next) {
+	  out->push_back(j->second);
+	}
+	++j;
+      }
+    }
+  }
+  *next = hobject_t::get_max();
   return 0;
 }
 
