@@ -297,9 +297,11 @@ void ReplicatedPG::do_pg_op(MOSDOp *op)
 	  // it's a filestore cookie
 	  dout(10) << " handle high/missing " << response.handle << dendl;
 	  osr.flush();  // order wrt preceeding writes
+	  /*
 	  result = osd->store->collection_list_partial(coll, snapid,
 						       sentries, p->op.pgls.count - sentries.size(),
 						       &response.handle);
+						       */
 	  response.handle.in_missing_set = false;
 	}
 
@@ -5392,7 +5394,8 @@ void ReplicatedPG::scan_range(hobject_t begin, int min, int max, BackfillInterva
 
   vector<hobject_t> ls;
   ls.reserve(max);
-  int r = osd->store->collection_list_partial(coll, begin, min, max, &ls, &bi->end);
+  int r = osd->store->collection_list_partial(coll, begin, min, max, 0,
+					      &ls, &bi->end);
   assert(r >= 0);
   dout(10) << " got " << ls.size() << " items, next " << bi->end << dendl;
   dout(20) << ls << dendl;
