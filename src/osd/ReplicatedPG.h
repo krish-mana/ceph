@@ -741,6 +741,7 @@ public:
 
 
   void do_op(MOSDOp *op);
+  bool pg_op_must_wait(MOSDOp *op);
   void do_pg_op(MOSDOp *op);
   void do_sub_op(MOSDSubOp *op);
   void do_sub_op_reply(MOSDSubOpReply *op);
@@ -827,6 +828,7 @@ public:
 
   bool is_missing_object(const hobject_t& oid);
   void wait_for_missing_object(const hobject_t& oid, Message *op);
+  void wait_for_all_missing(Message *op);
 
   bool is_degraded_object(const hobject_t& oid);
   void wait_for_degraded_object(const hobject_t& oid, Message *op);
