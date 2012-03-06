@@ -2417,6 +2417,8 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	set<string> out_set;
 
 	if (oi.uses_tmap && g_conf->osd_auto_upgrade_tmap) {
+	  dout(20) << "CEPH_OSD_OP_OMAPGETKEYS: "
+		   << " Reading " << oi.soid << " omap from tmap" << dendl;
 	  map<string, bufferlist> vals;
 	  bufferlist header;
 	  int r = _get_tmap(ctx, &vals, &header);
@@ -2431,6 +2433,7 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	    ::encode(out_set, osd_op.outdata);
 	    break;
 	  }
+	  dout(10) << "failed, reading from omap" << dendl;
 	  // No valid tmap, use omap
 	}
 
@@ -2458,6 +2461,8 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	map<string, bufferlist> out_set;
 
 	if (oi.uses_tmap && g_conf->osd_auto_upgrade_tmap) {
+	  dout(20) << "CEPH_OSD_OP_OMAPGETVALS: "
+		   << " Reading " << oi.soid << " omap from tmap" << dendl;
 	  map<string, bufferlist> vals;
 	  bufferlist header;
 	  int r = _get_tmap(ctx, &vals, &header);
@@ -2472,6 +2477,7 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	    break;
 	  }
 	  // No valid tmap, use omap
+	  dout(10) << "failed, reading from omap" << dendl;
 	}
 
 	{
@@ -2493,6 +2499,8 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
     case CEPH_OSD_OP_OMAPGETHEADER:
       {
 	if (oi.uses_tmap && g_conf->osd_auto_upgrade_tmap) {
+	  dout(20) << "CEPH_OSD_OP_OMAPGETHEADER: "
+		   << " Reading " << oi.soid << " omap from tmap" << dendl;
 	  map<string, bufferlist> vals;
 	  bufferlist header;
 	  int r = _get_tmap(ctx, &vals, &header);
@@ -2501,6 +2509,7 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	    break;
 	  }
 	  // No valid tmap, fall through to omap
+	  dout(10) << "failed, reading from omap" << dendl;
 	}
 	osd->store->omap_get_header(coll, soid, &osd_op.outdata);
       }
@@ -2511,6 +2520,8 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	::decode(keys_to_get, bp);
 	map<string, bufferlist> out;
 	if (oi.uses_tmap && g_conf->osd_auto_upgrade_tmap) {
+	  dout(20) << "CEPH_OSD_OP_OMAPGET: "
+		   << " Reading " << oi.soid << " omap from tmap" << dendl;
 	  map<string, bufferlist> vals;
 	  bufferlist header;
 	  int r = _get_tmap(ctx, &vals, &header);
@@ -2526,6 +2537,7 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	    break;
 	  }
 	  // No valid tmap, use omap
+	  dout(10) << "failed, reading from omap" << dendl;
 	}
 	osd->store->omap_get_values(coll, soid, keys_to_get, &out);
 	::encode(out, osd_op.outdata);
@@ -2633,6 +2645,7 @@ int ReplicatedPG::_get_tmap(OpContext *ctx,
 
 int ReplicatedPG::_copy_up_tmap(OpContext *ctx)
 {
+  dout(20) << "copying up tmap for " << ctx->new_obs.oi.soid << dendl;
   ctx->new_obs.oi.uses_tmap = false;
   map<string, bufferlist> vals;
   bufferlist header;
