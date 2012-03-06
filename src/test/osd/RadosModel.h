@@ -275,7 +275,7 @@ public:
     new_obj.attrs = attrs;
     new_obj.tmap_contents = tmap_contents;
     new_obj.header = header;
-    new_obj.tmap = false;
+    new_obj.tmap = true;
     new_obj.exists = true;
     pool_obj_cont[current_snap].insert(pair<string,ObjectDesc>(oid, new_obj));
   }
@@ -318,7 +318,11 @@ public:
       }
     }
     new_obj.exists = true;
-    new_obj.tmap = false;
+    if (new_obj.tmap) {
+      new_obj.tmap = false;
+      new_obj.attrs.clear();
+      new_obj.header = bufferlist();
+    }
     new_obj.update(contents);
     pool_obj_cont[current_snap].erase(oid);
     pool_obj_cont[current_snap].insert(pair<string,ObjectDesc>(oid, new_obj));
