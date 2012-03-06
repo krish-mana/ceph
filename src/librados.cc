@@ -320,7 +320,7 @@ void librados::ObjectWriteOperation::tmap_put(const bufferlist &bl)
 {
   ::ObjectOperation *o = (::ObjectOperation *)impl;
   bufferlist c = bl;
-  o->tmap_update(c);
+  o->tmap_put(c);
 }
 
 void librados::ObjectWriteOperation::tmap_update(const bufferlist& cmdbl)
