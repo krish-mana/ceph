@@ -243,6 +243,7 @@ public:
 	 ++i) {
       new_obj.attrs.erase(*i);
     }
+    new_obj.tmap = false;
     pool_obj_cont[current_snap].erase(oid);
     pool_obj_cont[current_snap].insert(pair<string,ObjectDesc>(oid, new_obj));
   }
@@ -261,6 +262,7 @@ public:
       }
     }
     new_obj.header = bl;
+    new_obj.tmap = false;
     new_obj.exists = true;
     pool_obj_cont[current_snap].erase(oid);
     pool_obj_cont[current_snap].insert(pair<string,ObjectDesc>(oid, new_obj));
