@@ -2638,8 +2638,12 @@ int ReplicatedPG::_get_tmap(OpContext *ctx,
     ::decode(*header, i);
     ::decode(*out, i);
   } catch (...) {
+    dout(20) << "unsuccessful at decoding tmap for " << ctx->new_obs.oi.soid
+	     << dendl;
     return -EINVAL;
   }
+  dout(20) << "successful at decoding tmap for " << ctx->new_obs.oi.soid
+	   << dendl;
   return 0;  
 }
 

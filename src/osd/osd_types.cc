@@ -1931,6 +1931,7 @@ void object_info_t::copy_user_bits(const object_info_t& other)
   truncate_size = other.truncate_size;
   lost = other.lost;
   category = other.category;
+  uses_tmap = other.uses_tmap;
 }
 
 ps_t object_info_t::legacy_object_locator_to_ps(const object_t &oid, 
