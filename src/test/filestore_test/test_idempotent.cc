@@ -94,7 +94,7 @@ int main(int argc, char **argv) {
 
   while (1) {
     FileStoreTracker::Transaction t;
-    for (unsigned j = 0; j < 5; ++j) {
+    for (unsigned j = 0; j < 20; ++j) {
       int val = rand() % 100;
       if (val < 50) {
 	t.write("coll", *rand_choose(objects));
