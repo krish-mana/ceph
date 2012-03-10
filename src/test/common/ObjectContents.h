@@ -131,11 +131,12 @@ class Deleted : public ObjectContents {
     }
     void seek_to_first() {
       pos = 0;
-      return;
+    }
+    void seek_to(uint64_t _pos) {
+      pos = _pos;
     }
     void next() {
       ++pos;
-      return;
     }
     bool valid() {
       return false;
