@@ -139,7 +139,7 @@ void FileStoreTracker::clone_range(const pair<string, string> &from,
 				   const pair<string, string> &to,
 				   OutTransaction *out) {
   Mutex::Locker l(lock);
-  std::cerr << "Cloning " << from << " to " << to << std::endl;
+  std::cerr << "CloningRange " << from << " to " << to << std::endl;
   assert(from.first == to.first);
   boost::scoped_ptr<ObjectContents> from_contents(get_current_content(from));
   boost::scoped_ptr<ObjectContents> to_contents(get_current_content(to));
@@ -167,6 +167,31 @@ void FileStoreTracker::clone_range(const pair<string, string> &from,
 		      offset);
   out->in_flight->push_back(make_pair(to, set_content(to, *to_contents)));
 }
+
+void FileStoreTracker::clone(const pair<string, string> &from,
+			     const pair<string, string> &to,
+			     OutTransaction *out) {
+  Mutex::Locker l(lock);
+  std::cerr << "Cloning " << from << " to " << to << std::endl;
+  assert(from.first == to.first);
+  if (from.second == to.second) {
+    return;
+  }
+  boost::scoped_ptr<ObjectContents> from_contents(get_current_content(from));
+  boost::scoped_ptr<ObjectContents> to_contents(get_current_content(to));
+  if (!from_contents->exists()) {
+    return;
+  }
+
+  if (to_contents->exists())
+    out->t->remove(coll_t(to.first),
+		   hobject_t(sobject_t(to.second, CEPH_NOSNAP)));
+  out->t->clone(coll_t(from.first),
+		hobject_t(sobject_t(from.second, CEPH_NOSNAP)),
+		hobject_t(sobject_t(to.second, CEPH_NOSNAP)));
+  out->in_flight->push_back(make_pair(to, set_content(to, *from_contents)));
+}
+
 
 string obj_to_prefix(const pair<string, string> &obj) {
   string sep;
