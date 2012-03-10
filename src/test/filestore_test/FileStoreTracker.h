@@ -61,6 +61,19 @@ public:
 			     out);
       }
     };
+    class Remove: public Op {
+    public:
+      string coll;
+      string obj;
+      Remove(const string &coll,
+	     const string &obj)
+	: coll(coll), obj(obj) {}
+      void operator()(FileStoreTracker *harness,
+		      OutTransaction *out) {
+	harness->remove(make_pair(coll, obj),
+			out);
+      }
+    };
   public:
     void write(const string &coll, const string &oid) { 
       ops.push_back(new Write(coll, oid));
@@ -68,6 +81,9 @@ public:
     void clone_range(const string &coll, const string &from,
 		     const string &to) { 
       ops.push_back(new CloneRange(coll, from, to));
+    }
+    void remove(const string &coll, const string &oid) { 
+      ops.push_back(new Remove(coll, oid));
     }
     friend class FileStoreTracker;
   };
@@ -88,6 +104,7 @@ private:
 
   // ObjectContents Operations
   void write(const pair<string, string> &obj, OutTransaction *out);
+  void remove(const pair<string, string> &obj, OutTransaction *out);
   void clone_range(const pair<string, string> &from,
 		   const pair<string, string> &to,
 		   OutTransaction *out);

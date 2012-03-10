@@ -121,6 +121,17 @@ void FileStoreTracker::write(const pair<string, string> &obj,
   out->in_flight->push_back(make_pair(obj, set_content(obj, *contents)));
 }
 
+void FileStoreTracker::remove(const pair<string, string> &obj,
+			      OutTransaction *out)
+{
+  Mutex::Locker l(lock);
+  std::cerr << "Deleting " << obj << std::endl;
+  out->t->remove(coll_t(obj.first),
+		 hobject_t(sobject_t(obj.second, CEPH_NOSNAP)));
+  Deleted content;
+  out->in_flight->push_back(make_pair(obj, set_content(obj, content)));
+}
+
 void FileStoreTracker::clone_range(const pair<string, string> &from,
 				   const pair<string, string> &to,
 				   OutTransaction *out) {

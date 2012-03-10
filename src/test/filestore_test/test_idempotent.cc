@@ -96,6 +96,8 @@ int main(int argc, char **argv) {
       int val = rand() % 100;
       if (val < 50) {
 	t.write("coll", *rand_choose(objects));
+      } else if (val < 80) {
+	t.remove("coll", *rand_choose(objects));
       } else {
 	t.clone_range("coll", *rand_choose(objects),
 		      *rand_choose(objects));
