@@ -12,7 +12,6 @@
 
 enum {
   RANDOMWRITEFULL,
-  EMPTYFILE,
   DELETED,
   CLONERANGE
 };
@@ -122,59 +121,26 @@ public:
   }
 };
 
-class EmptyFile : public ObjectContents {
-  class empty_iterator : public iterator_impl {
-  public:
-    char get() {
-      return '\0';
-    }
-    void seek_to_first() {
-      return;
-    }
-    void next() {
-      return;
-    }
-    bool valid() {
-      return false;
-    }
-    uint64_t get_pos() { return 0; }
-  };
-public:
-  EmptyFile() {};
-  EmptyFile(bufferlist::iterator &bp) {
-    __u8 code;
-    ::decode(code, bp);
-    assert(code == EMPTYFILE);
-  }
-  iterator get_iterator() {
-    return iterator(new empty_iterator);
-  }
-  uint64_t size() const { return 0; }
-  ObjectContents *duplicate() const {
-    return new EmptyFile();
-  }
-  void encode(bufferlist &bl) const {
-    __u8 code = EMPTYFILE;
-    ::encode(code, bl);
-  }
-};
-
 class Deleted : public ObjectContents {
   class deleted_iterator : public iterator_impl {
+    uint64_t pos;
   public:
+    deleted_iterator() : pos(0) {}
     char get() {
       return '\0';
     }
     void seek_to_first() {
+      pos = 0;
       return;
     }
     void next() {
+      ++pos;
       return;
     }
     bool valid() {
       return false;
     }
-    uint64_t get_pos() { return 0; }
+    uint64_t get_pos() { return pos; }
   };
 public:
   Deleted() {};

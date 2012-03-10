@@ -10,9 +10,6 @@ ObjectContents *object_decode(bufferlist::iterator &bp)
   case RANDOMWRITEFULL:
     new_obj = new RandomWriteFull(bp);
     break;
-  case EMPTYFILE:
-    new_obj = new EmptyFile(bp);
-    break;
   case DELETED:
     new_obj = new Deleted(bp);
     break;
