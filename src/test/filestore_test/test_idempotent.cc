@@ -75,10 +75,12 @@ int main(int argc, char **argv) {
     std::cerr << "mkfs" << std::endl;
     assert(!store->mkfs());
     ObjectStore::Transaction t;
+    assert(!store->mount());
     t.create_collection(coll_t("coll"));
     store->apply_transaction(t);
+  } else {
+    assert(!store->mount());
   }
-  assert(!store->mount());
 
   FileStoreTracker tracker(store.get(), db.get());
 
