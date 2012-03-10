@@ -124,6 +124,9 @@ void FileStoreTracker::write(const pair<string, string> &obj,
 void FileStoreTracker::remove(const pair<string, string> &obj,
 			      OutTransaction *out)
 {
+  boost::scoped_ptr<ObjectContents> old_contents(get_current_content(obj));
+  if (!old_contents->exists())
+    return;
   Mutex::Locker l(lock);
   std::cerr << "Deleting " << obj << std::endl;
   out->t->remove(coll_t(obj.first),
