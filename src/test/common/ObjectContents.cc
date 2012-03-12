@@ -9,7 +9,6 @@ bool test_object_contents()
   ObjectContents c, d;
   assert(!c.exists());
   c.write(10, 10, 10);
-  c.write(10, 8, 4);
   assert(c.exists());
   assert(c.size() == 20);
 
@@ -20,6 +19,22 @@ bool test_object_contents()
     bl.append(*iter);
   }
   assert(bl.length() == 20);
+
+  c.write(10, 8, 4);
+  ObjectContents::Iterator iter = c.get_iterator();
+  iter.seek_to(8);
+  for (uint64_t i = 8;
+       i < 12;
+       ++i, ++iter) {
+    bl.[i] = *iter;
+  }
+  assert(bl.length() == 20);
+
+  for (ObjectContents::Iterator iter3 = c.get_iterator();
+       iter.valid();
+       ++iter) {
+    assert(bl[iter.get_pos()] == *iter);
+  }
 
   assert(bl[0] == '\0');
   assert(bl[7] == '\0');
