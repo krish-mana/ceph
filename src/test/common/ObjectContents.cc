@@ -64,12 +64,12 @@ bool test_object_contents()
 }
   
 
-unsigned int ObjectContents::Iterator::get_state(uint64_t pos)
+unsigned int ObjectContents::Iterator::get_state(uint64_t _pos)
 {
-  if (parent->seeds.count(pos)) {
-    return parent->seeds[pos];
+  if (parent->seeds.count(_pos)) {
+    return parent->seeds[_pos];
   }
-  seek_to(pos - 1);
+  seek_to(_pos - 1);
   return current_state;
 }
 
