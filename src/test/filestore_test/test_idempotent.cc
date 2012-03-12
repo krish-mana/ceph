@@ -102,7 +102,7 @@ int main(int argc, char **argv) {
       } else if (val < 60) {
 	t.clone("coll", *rand_choose(objects),
 		*rand_choose(objects));
-      } else if (val < 80) {
+      } else if (val < 65) {
 	t.remove("coll", *rand_choose(objects));
       } else {
 	t.clone_range("coll", *rand_choose(objects),
