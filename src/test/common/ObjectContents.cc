@@ -60,8 +60,8 @@ void ObjectContents::clone_range(ObjectContents &other,
   interval_set<uint64_t> zeroed = intervals;
   zeroed.subtract(written_to_clone);
 
-  other.written.union_of(intervals);
-  other.written.subtract(zeroed);
+  written.union_of(intervals);
+  written.subtract(zeroed);
 
   for (interval_set<uint64_t>::iterator i = written_to_clone.begin();
        i != written_to_clone.end();
