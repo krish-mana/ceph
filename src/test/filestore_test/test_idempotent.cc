@@ -27,7 +27,7 @@
 #include "os/FileStore.h"
 
 void usage(const string &name) {
-  std::cerr << "Usage: " << name << " [-q|-c] store_path store_journal db_path"
+  std::cerr << "Usage: " << name << " [new|continue] store_path store_journal db_path"
 	    << std::endl;
 }
 
@@ -44,7 +44,6 @@ typename T::iterator rand_choose(T &cont) {
 }
 
 int main(int argc, char **argv) {
-  assert(test_object_contents());
   vector<const char*> args;
   argv_to_vec(argc, (const char **)argv, args);
 
@@ -64,7 +63,7 @@ int main(int argc, char **argv) {
   string db_path(args[3]);
 
   bool start_new = false;
-  if (string(args[0]) == string("-q")) start_new = true;
+  if (string(args[0]) == string("new")) start_new = true;
 
   LevelDBStore *_db = new LevelDBStore(db_path);
   assert(!_db->init(std::cerr));
