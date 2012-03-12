@@ -9,7 +9,7 @@ bool test_object_contents()
   ObjectContents c, d;
   assert(!c.exists());
   c.write(10, 10, 10);
-  c.write(10, 12, 6);
+  c.write(10, 8, 4);
   assert(c.exists());
   assert(c.size() == 20);
 
@@ -22,7 +22,7 @@ bool test_object_contents()
   assert(bl.length() == 20);
 
   assert(bl[0] == '\0');
-  assert(bl[9] == '\0');
+  assert(bl[7] == '\0');
 
   interval_set<uint64_t> to_clone;
   to_clone.insert(5, 10);
