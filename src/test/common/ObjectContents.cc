@@ -36,7 +36,7 @@ bool test_object_contents()
   for (ObjectContents::Iterator iter3 = c.get_iterator();
        iter.valid();
        ++iter) {
-    assert(bl2[iter.get_pos()] == *iter);
+    assert(bl2[iter3.get_pos()] == *iter3);
   }
 
   assert(bl2[0] == '\0');
