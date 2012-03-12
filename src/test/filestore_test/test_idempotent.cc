@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
       int val = rand() % 100;
       if (val < 80) {
 	t.write("coll", *rand_choose(objects));
-      } else if (val < 90) {
+      } else if (val < 0) {
 	t.clone("coll", *rand_choose(objects),
 		*rand_choose(objects));
       } else if (val < 101) {
