@@ -64,7 +64,7 @@ bool test_object_contents()
 }
   
 
-unsigned long ObjectContents::Iterator::get_state(uint64_t pos)
+unsigned int ObjectContents::Iterator::get_state(uint64_t pos)
 {
   if (parent->seeds.count(pos)) {
     return parent->seeds[pos];
@@ -105,7 +105,7 @@ void ObjectContents::clone_range(ObjectContents &other,
   return;
 }
 
-void ObjectContents::write(unsigned long seed,
+void ObjectContents::write(unsigned int seed,
 			   uint64_t start,
 			   uint64_t len)
 {

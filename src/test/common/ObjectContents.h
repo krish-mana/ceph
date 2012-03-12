@@ -16,18 +16,18 @@ bool test_object_contents();
 
 class ObjectContents {
   uint64_t _size;
-  map<uint64_t, unsigned long> seeds;
+  map<uint64_t, unsigned int> seeds;
   interval_set<uint64_t> written;
   bool _exists;
 public:
   class Iterator {
     ObjectContents *parent;
-    map<uint64_t, unsigned long>::iterator iter;
+    map<uint64_t, unsigned int>::iterator iter;
     unsigned int current_state;
     int current_val;
     uint64_t pos;
   private:
-    unsigned long get_state(uint64_t pos);
+    unsigned int get_state(uint64_t pos);
   public:
     Iterator(ObjectContents *parent) :
       parent(parent), iter(parent->seeds.end()),
@@ -86,7 +86,7 @@ public:
 
   void clone_range(ObjectContents &other,
 		   interval_set<uint64_t> &intervals);
-  void write(unsigned long seed,
+  void write(unsigned int seed,
 	     uint64_t from,
 	     uint64_t len);
   Iterator get_iterator() {
@@ -100,7 +100,7 @@ public:
   void debug(std::ostream &out) {
     out << "_size is " << _size << std::endl;
     out << "seeds is: (";
-    for (map<uint64_t, unsigned long>::iterator i = seeds.begin();
+    for (map<uint64_t, unsigned int>::iterator i = seeds.begin();
 	 i != seeds.end();
 	 ++i) {
       out << "[" << i->first << "," << i->second << "], ";
