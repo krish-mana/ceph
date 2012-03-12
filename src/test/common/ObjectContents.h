@@ -24,15 +24,13 @@ public:
     unsigned int current_state;
     int current_val;
     uint64_t pos;
-    bool parent_empty;
   private:
     unsigned long get_state(uint64_t pos);
   public:
     Iterator(ObjectContents *parent) :
-      parent(parent), current_state(0), current_val(0), pos(-1),
-      iter(parent->seeds.end()) {
+      parent(parent), iter(parent->seeds.end()),
+      current_state(0), current_val(0), pos(-1) {
       seek_to_first();
-      parent_empty = !parent->seeds.size();
     }
     char operator*() {
       return parent->written.contains(pos) ?
@@ -42,18 +40,14 @@ public:
       return pos;
     }
     void seek_to(uint64_t _pos) {
-      if (parent_empty) {
-	pos = _pos;
-	return;
-      }
       if (pos > _pos ||
 	  iter != parent->seeds.end() && _pos >= iter->first) {
 	iter = parent->seeds.upper_bound(_pos);
 	--iter;
 	current_state = iter->second;
 	current_val = rand_r(&current_state);
+	pos = iter->first;
 	++iter;
-	pos = _pos;
       }
       while (pos < _pos) ++(*this);
     }
@@ -62,12 +56,9 @@ public:
       seek_to(0);
     }
     Iterator &operator++() {
-      if (parent_empty) {
-	++pos;
-	return *this;
-      }
       ++pos;
       if (iter != parent->seeds.end() && pos >= iter->first) {
+	assert(pos == iter->first);
 	current_state = iter->second;
 	++iter;
       }
