@@ -26,9 +26,9 @@ bool test_object_contents()
   assert(d.size() == 15);
 
   ObjectContents::Iterator iter2 = d.get_iterator();
-  iter.seek_to(5);
+  iter2.seek_to(5);
   for (uint64_t i = 5; i < 15; ++i) {
-    assert(*iter == bl[i]);
+    assert(*iter2 == bl[i]);
   }
   return true;
 }
