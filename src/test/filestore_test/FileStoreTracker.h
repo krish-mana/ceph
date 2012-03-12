@@ -11,7 +11,7 @@
 #include "common/Mutex.h"
 
 class FileStoreTracker {
-  const static uint64_t SIZE = 4 * 1024 * 1024;
+  const static uint64_t SIZE = 4 * 1024;
   ObjectStore *store;
   KeyValueDB *db;
   Mutex lock;
