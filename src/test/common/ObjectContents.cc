@@ -113,8 +113,8 @@ void ObjectContents::write(unsigned int seed,
 			   uint64_t len)
 {
   _exists = true;
-  unsigned int seed = get_iterator().get_state(start+len);
-  seeds[start+len] = seed;
+  unsigned int _seed = get_iterator().get_state(start+len);
+  seeds[start+len] = _seed;
   seeds.erase(seeds.lower_bound(start),
 	      seeds.lower_bound(start+len));
   seeds[start] = seed;
