@@ -8,10 +8,12 @@ bool test_object_contents()
 {
   ObjectContents c, d;
   assert(!c.exists());
+  c.debug(std::cerr);
   c.write(10, 10, 10);
   assert(c.exists());
   assert(c.size() == 20);
 
+  c.debug(std::cerr);
   bufferlist bl;
   for (ObjectContents::Iterator iter = c.get_iterator();
        iter.valid();
@@ -23,6 +25,7 @@ bool test_object_contents()
   bufferlist bl2;
   for (unsigned i = 0; i < 8; ++i) bl2.append(bl[i]);
   c.write(10, 8, 4);
+  c.debug(std::cerr);
   ObjectContents::Iterator iter = c.get_iterator();
   iter.seek_to(8);
   for (uint64_t i = 8;
