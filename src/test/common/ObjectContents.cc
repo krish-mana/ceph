@@ -92,7 +92,9 @@ void ObjectContents::clone_range(ObjectContents &other,
     uint64_t start = i.get_start();
     uint64_t len = i.get_len();
 
-    seeds[start+len] = get_iterator().get_state(start+len);
+    unsigned int seed = get_state(start+len);
+
+    seeds[start+len] = seed;
     seeds.erase(seeds.lower_bound(start), seeds.lower_bound(start+len));
 
     seeds[start] = other.get_iterator().get_state(start);
@@ -111,7 +113,8 @@ void ObjectContents::write(unsigned int seed,
 			   uint64_t len)
 {
   _exists = true;
-  seeds[start+len] = get_iterator().get_state(start+len);
+  unsigned int seed = get_iterator().get_state(start+len);
+  seeds[start+len] = seed;
   seeds.erase(seeds.lower_bound(start),
 	      seeds.lower_bound(start+len));
   seeds[start] = seed;
