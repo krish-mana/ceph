@@ -84,16 +84,16 @@ int main(int argc, char **argv) {
   FileStoreTracker tracker(store.get(), db.get());
 
   set<string> objects;
-  for (unsigned i = 0; i < 2; ++i) {
+  for (unsigned i = 0; i < 10; ++i) {
     stringstream stream;
     stream << "Object_" << i;
-    tracker.verify("coll", stream.str());
+    tracker.verify("coll", stream.str(), true);
     objects.insert(stream.str());
   }
 
   while (1) {
     FileStoreTracker::Transaction t;
-    for (unsigned j = 0; j < 20; ++j) {
+    for (unsigned j = 0; j < 100; ++j) {
       int val = rand() % 100;
       if (val < 30) {
 	t.write("coll", *rand_choose(objects));

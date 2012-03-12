@@ -110,7 +110,8 @@ public:
   int init();
   void submit_transaction(Transaction &t);
   void verify(const string &coll,
-	      const string &from);
+	      const string &from,
+	      bool on_start = false);
 
 private:
   ObjectContents get_current_content(const pair<string, string> &obj);

@@ -256,8 +256,24 @@ void set_obj_status(const pair<string, string> &obj,
   t->set(obj_to_meta_prefix(obj), to_set);
 }
 
+void _clean_forward(const pair<string, string> &obj,
+		    uint64_t last_valid,
+		    KeyValueDB *db)
+{
+  KeyValueDB::Transaction t = db->get_transaction();
+  KeyValueDB::Iterator i = db->get_iterator(obj_to_prefix(obj));
+  set<string> to_remove;
+  i->upper_bound(seq_to_key(last_valid));
+  for (; i->valid(); i->next()) {
+    to_remove.insert(i->key());
+  }
+  t->rmkeys(obj_to_prefix(obj), to_remove);
+  db->submit_transaction(t);
+}
+  
 
-void FileStoreTracker::verify(const string &coll, const string &obj) {
+void FileStoreTracker::verify(const string &coll, const string &obj,
+			      bool on_start) {
   Mutex::Locker l(lock);
   std::cerr << "Verifying " << make_pair(coll, obj) << std::endl;
 
@@ -271,6 +287,7 @@ void FileStoreTracker::verify(const string &coll, const string &obj) {
 		      contents);
   std::cerr << "exists: " << r << std::endl;
 
+  
   for (uint64_t i = valid_reads.first;
        i < valid_reads.second;
        ++i) {
@@ -305,8 +322,11 @@ void FileStoreTracker::verify(const string &coll, const string &obj) {
 	break;
       }
     }
-    if (matches)
+    if (matches) {
+      if (on_start)
+	_clean_forward(make_pair(coll, obj), i, db);
       return;
+    }
   }
   std::cerr << "Verifying " << make_pair(coll, obj) << " failed " << std::endl;
   assert(0);
