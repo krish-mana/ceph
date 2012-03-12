@@ -103,7 +103,7 @@ public:
     for (map<uint64_t, unsigned long>::iterator i = seeds.begin();
 	 i != seeds.end();
 	 ++i) {
-      out << *i << ", ";
+      out << "[" << i->first << "," << i->second << "], ";
     }
     out << ")" << std::endl;
     out << "written is " << written << std::endl;
