@@ -99,7 +99,13 @@ public:
 
   void debug(std::ostream &out) {
     out << "_size is " << _size << std::endl;
-    out << "seeds is " << seeds << std::endl;
+    out << "seeds is: (";
+    for (map<uint64_t, unsigned long>::iterator i = seeds.begin();
+	 i != seeds.end();
+	 ++i) {
+      out << *i << ", ";
+    }
+    out << ")" << std::endl;
     out << "written is " << written << std::endl;
     out << "_exists is " << _exists << std::endl;
   }
