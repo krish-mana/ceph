@@ -22,7 +22,7 @@ bool test_object_contents()
   assert(bl[0] == '\0');
   assert(bl[9] == '\0');
 
-  interval_set to_clone;
+  interval_set<uint64_t> to_clone;
   to_clone.insert(5, 10);
   d.clone_range(c, to_clone);
   assert(d.size() == 15);
