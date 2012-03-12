@@ -96,12 +96,12 @@ int main(int argc, char **argv) {
     FileStoreTracker::Transaction t;
     for (unsigned j = 0; j < 20; ++j) {
       int val = rand() % 100;
-      if (val < 80) {
+      if (val < 60) {
 	t.write("coll", *rand_choose(objects));
       } else if (val < 0) {
 	t.clone("coll", *rand_choose(objects),
 		*rand_choose(objects));
-      } else if (val < 101) {
+      } else if (val < 75) {
 	t.remove("coll", *rand_choose(objects));
       } else {
 	t.clone_range("coll", *rand_choose(objects),
