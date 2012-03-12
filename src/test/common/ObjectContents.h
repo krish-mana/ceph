@@ -42,11 +42,13 @@ public:
       return pos;
     }
     void seek_to(uint64_t _pos) {
+      std::cerr << "seek_to " << _pos << std::endl;
       if (pos > _pos ||
 	  iter != parent->seeds.end() && _pos >= iter->first) {
 	iter = parent->seeds.upper_bound(_pos);
 	--iter;
 	current_state = iter->second;
+	std::cerr << "seek_to curent_state is " << current_state << std::endl;
 	current_val = rand_r(&current_state);
 	pos = iter->first;
 	++iter;
