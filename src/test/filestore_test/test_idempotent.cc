@@ -102,15 +102,12 @@ int main(int argc, char **argv) {
       } else if (val < 60) {
 	t.clone("coll", *rand_choose(objects),
 		*rand_choose(objects));
-      } else {//if (val < 80) {
+      } else if (val < 80) {
 	t.remove("coll", *rand_choose(objects));
-      }
-#if 0
       } else {
 	t.clone_range("coll", *rand_choose(objects),
 		      *rand_choose(objects));
       }
-#endif
     }
     tracker.submit_transaction(t);
     tracker.verify("coll", *rand_choose(objects));

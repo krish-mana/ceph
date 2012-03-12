@@ -117,7 +117,7 @@ void FileStoreTracker::remove(const pair<string, string> &obj,
   std::cerr << "Deleting " << obj << std::endl;
   Mutex::Locker l(lock);
   ObjectContents old_contents = get_current_content(obj);
-  if (old_contents.exists())
+  if (!old_contents.exists())
     return;
   out->t->remove(coll_t(obj.first),
 		 hobject_t(sobject_t(obj.second, CEPH_NOSNAP)));
