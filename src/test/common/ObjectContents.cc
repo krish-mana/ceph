@@ -26,7 +26,7 @@ bool test_object_contents()
   for (uint64_t i = 8;
        i < 12;
        ++i, ++iter) {
-    bl.[i] = *iter;
+    bl[i] = *iter;
   }
   assert(bl.length() == 20);
 
