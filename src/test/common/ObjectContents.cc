@@ -29,7 +29,7 @@ bool test_object_contents()
 
   ObjectContents::Iterator iter2 = d.get_iterator();
   iter2.seek_to(5);
-  for (uint64_t i = 5; i < 15; ++i) {
+  for (uint64_t i = 5; i < 15; ++i, ++iter2) {
     assert(*iter2 == bl[i]);
   }
   return true;
