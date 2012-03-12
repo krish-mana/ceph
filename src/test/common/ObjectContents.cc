@@ -28,6 +28,9 @@ bool test_object_contents()
   d.clone_range(c, to_clone);
   assert(d.size() == 15);
 
+  c.debug(std::cerr);
+  d.debug(std::cerr);
+
   ObjectContents::Iterator iter2 = d.get_iterator();
   iter2.seek_to(5);
   for (uint64_t i = 5; i < 15; ++i, ++iter2) {

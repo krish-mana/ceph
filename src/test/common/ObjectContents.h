@@ -97,6 +97,13 @@ public:
 
   bool exists() { return _exists; }
 
+  void debug(std::ostream &out) {
+    out << "_size is " << _size << std::endl;
+    out << "seeds is " << seeds << std::endl;
+    out << "written is " << written << std::endl;
+    out << "_exists is " << _exists << std::endl;
+  }
+
   void encode(bufferlist &bl) const {
     ::encode(_size, bl);
     ::encode(seeds, bl);
