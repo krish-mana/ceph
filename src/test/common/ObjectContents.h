@@ -42,7 +42,6 @@ public:
       return pos;
     }
     void seek_to(uint64_t _pos) {
-      std::cerr << "seek_to " << _pos << std::endl;
       if (pos > _pos ||
 	  iter != parent->seeds.end() && _pos >= iter->first) {
 	iter = parent->seeds.upper_bound(_pos);

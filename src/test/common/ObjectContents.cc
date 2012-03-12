@@ -66,7 +66,6 @@ bool test_object_contents()
 
 unsigned int ObjectContents::Iterator::get_state(uint64_t _pos)
 {
-  std::cerr << "get_state " << _pos << std::endl;
   if (parent->seeds.count(_pos)) {
     return parent->seeds[_pos];
   }
