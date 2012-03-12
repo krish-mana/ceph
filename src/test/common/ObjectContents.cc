@@ -20,24 +20,27 @@ bool test_object_contents()
   }
   assert(bl.length() == 20);
 
+  bufferlist bl2;
+  for (unsigned i = 0; i < 8; ++i) bl2.append(bl[i]);
   c.write(10, 8, 4);
   ObjectContents::Iterator iter = c.get_iterator();
   iter.seek_to(8);
   for (uint64_t i = 8;
        i < 12;
        ++i, ++iter) {
-    bl[i] = *iter;
+    bl2.append(*iter);
   }
-  assert(bl.length() == 20);
+  for (unsigned i = 12; i < 20; ++i) bl2.append(bl[i]);
+  assert(bl2.length() == 20);
 
   for (ObjectContents::Iterator iter3 = c.get_iterator();
        iter.valid();
        ++iter) {
-    assert(bl[iter.get_pos()] == *iter);
+    assert(bl2[iter.get_pos()] == *iter);
   }
 
-  assert(bl[0] == '\0');
-  assert(bl[7] == '\0');
+  assert(bl2[0] == '\0');
+  assert(bl2[7] == '\0');
 
   interval_set<uint64_t> to_clone;
   to_clone.insert(5, 10);
@@ -52,7 +55,7 @@ bool test_object_contents()
   for (uint64_t i = 5; i < 15; ++i, ++iter2) {
     std::cerr << "i is " << i << std::endl;
     assert(iter2.get_pos() == i);
-    assert(*iter2 == bl[i]);
+    assert(*iter2 == bl2[i]);
   }
   return true;
 }
