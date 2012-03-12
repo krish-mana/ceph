@@ -48,7 +48,6 @@ public:
 	iter = parent->seeds.upper_bound(_pos);
 	--iter;
 	current_state = iter->second;
-	std::cerr << "seek_to curent_state is " << current_state << std::endl;
 	current_val = rand_r(&current_state);
 	pos = iter->first;
 	++iter;
@@ -67,7 +66,6 @@ public:
 	++iter;
       }
       current_val = rand_r(&current_state);
-      std::cerr << "current_val is " << current_val << std::endl;
       return *this;
     }
     bool valid() {
