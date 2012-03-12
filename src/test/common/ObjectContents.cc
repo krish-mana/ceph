@@ -3,6 +3,37 @@
 #include "include/buffer.h"
 #include <map>
 
+bool test_object_contents()
+{
+  ObjectContents c, d;
+  assert(!c.exists());
+  c.write(10, 10, 20);
+  assert(c.exists());
+  assert(c.size() == 20);
+
+  bufferlist bl;
+  for (ObjectContents::Iterator iter = c.get_iterator();
+       iter.valid();
+       ++iter) {
+    bl.append(*iter);
+  }
+  assert(bl.length() == 20);
+
+  assert(bl[0] == '\0');
+  assert(bl[9] == '\0');
+
+  d.clone_range(c, 5, 15);
+  assert(d.size() == 15);
+
+  ObjectContents::Iterator iter2 = d.get_iterator();
+  iter.seek_to(5);
+  for (uint64_t i = 5; i < 15; ++i) {
+    assert(*iter == bl[i]);
+  }
+  return true;
+}
+  
+
 unsigned long ObjectContents::Iterator::get_state(uint64_t pos)
 {
   if (parent->seeds.count(pos)) {

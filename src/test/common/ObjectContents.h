@@ -12,6 +12,8 @@ enum {
   CLONERANGE
 };
 
+bool test_object_contents();
+
 class ObjectContents {
   uint64_t _size;
   map<uint64_t, unsigned long> seeds;

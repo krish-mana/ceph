@@ -44,6 +44,7 @@ typename T::iterator rand_choose(T &cont) {
 }
 
 int main(int argc, char **argv) {
+  assert(test_object_contents());
   vector<const char*> args;
   argv_to_vec(argc, (const char **)argv, args);
 
