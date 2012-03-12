@@ -7,7 +7,7 @@ bool test_object_contents()
 {
   ObjectContents c, d;
   assert(!c.exists());
-  c.write(10, 10, 20);
+  c.write(10, 10, 10);
   assert(c.exists());
   assert(c.size() == 20);
 
