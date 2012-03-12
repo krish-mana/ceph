@@ -65,6 +65,7 @@ public:
 	++iter;
       }
       current_val = rand_r(&current_state);
+      std::cerr << "current_val is " << current_val << std::endl;
       return *this;
     }
     bool valid() {
