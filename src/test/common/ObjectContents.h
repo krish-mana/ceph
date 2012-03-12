@@ -80,7 +80,9 @@ public:
     friend class ObjectContents;
   };
 
-  ObjectContents() : _size(0), _exists(false) {}
+  ObjectContents() : _size(0), _exists(false) {
+    seeds[0] = 0;
+  }
 
   ObjectContents(bufferlist::iterator &bp) {
     ::decode(_size, bp);
