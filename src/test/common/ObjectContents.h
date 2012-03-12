@@ -29,7 +29,8 @@ public:
     unsigned long get_state(uint64_t pos);
   public:
     Iterator(ObjectContents *parent) :
-      parent(parent), current_state(0), current_val(0), pos(0) {
+      parent(parent), current_state(0), current_val(0), pos(-1),
+      iter(parent->seeds.end()) {
       seek_to_first();
       parent_empty = !parent->seeds.size();
     }
