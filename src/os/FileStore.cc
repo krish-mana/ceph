@@ -3091,10 +3091,12 @@ int FileStore::_clone(coll_t cid, const hobject_t& oldoid, const hobject_t& newo
   {
     map<string, bufferptr> aset;
     r = _getattrs(cid, oldoid, aset);
-    goto out3;
+    if (r < 0)
+      goto out3;
     
     r = _setattrs(cid, newoid, aset);
-    goto out3;
+    if (r < 0)
+      goto out3;
   }
 
   // clone is non-idempotent; record our work.
