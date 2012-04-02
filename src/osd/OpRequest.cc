@@ -96,7 +96,7 @@ void OpTracker::mark_event(OpRequest *op, const string &dest)
 {
   Mutex::Locker locker(ops_in_flight_lock);
   utime_t now = ceph_clock_now(g_ceph_context);
-  dout(1) << "reqid: " << get_reqid() << ", seq: " << op->seq
+  dout(1) << "reqid: " << op->get_reqid() << ", seq: " << op->seq
 	  << ", time: " << now << ", event: " << dest
 	  << ", request: " << *op->request << dendl;
 }
