@@ -21,6 +21,7 @@
 #include "msg/Message.h"
 #include <tr1/memory>
 #include "common/TrackedOp.h"
+#include "osd/osd_types.h"
 
 class OpRequest;
 typedef std::tr1::shared_ptr<OpRequest> OpRequestRef;
@@ -61,6 +62,7 @@ struct OpRequest : public TrackedOp {
   uint8_t warn_interval_multiplier;
 private:
   OpTracker *tracker;
+  osd_reqid_t reqid;
   uint8_t hit_flag_points;
   uint8_t latest_flag_point;
   uint64_t seq;
@@ -133,6 +135,9 @@ public:
   }
 
   void mark_event(const string &event);
+  osd_reqid_t get_reqid() const {
+    return reqid;
+  }
 };
 
 #endif /* OPREQUEST_H_ */

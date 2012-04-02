@@ -5,6 +5,9 @@
 #include <iostream>
 #include "common/debug.h"
 #include "common/config.h"
+#include "msg/Message.h"
+#include "messages/MOSDOp.h"
+#include "messages/MOSDSubOp.h"
 
 #define DOUT_SUBSYS optracker
 #undef dout_prefix
@@ -93,8 +96,9 @@ void OpTracker::mark_event(OpRequest *op, const string &dest)
 {
   Mutex::Locker locker(ops_in_flight_lock);
   utime_t now = ceph_clock_now(g_ceph_context);
-  dout(1) << "seq: " << op->seq << ", time: " << now << ", event: " << dest
-	  << " " << *op->request << dendl;
+  dout(1) << "reqid: " << get_reqid() << ", seq: " << op->seq
+	  << ", time: " << now << ", event: " << dest
+	  << ", request: " << *op->request << dendl;
 }
 
 void OpTracker::RemoveOnDelete::operator()(OpRequest *op) {
@@ -104,8 +108,15 @@ void OpTracker::RemoveOnDelete::operator()(OpRequest *op) {
 
 OpRequestRef OpTracker::create_request(Message *ref)
 {
-  return OpRequestRef(new OpRequest(ref, this),
+  OpRequestRef retval(new OpRequest(ref, this),
 		      RemoveOnDelete(this));
+
+  if (ref->get_type() == CEPH_MSG_OSD_OP) {
+    retval->reqid = static_cast<MOSDOp*>(ref)->get_reqid();
+  } else if (ref->get_type() == MSG_OSD_SUBOP) {
+    retval->reqid = static_cast<MOSDSubOp*>(ref)->reqid;
+  }
+  return retval;
 }
 
 void OpRequest::mark_event(const string &event)
