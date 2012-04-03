@@ -94,10 +94,16 @@ bool OpTracker::check_ops_in_flight(ostream &out)
 
 void OpTracker::mark_event(OpRequest *op, const string &dest)
 {
-  Mutex::Locker locker(ops_in_flight_lock);
   utime_t now = ceph_clock_now(g_ceph_context);
+  return _mark_event(op, dest, now);
+}
+
+void OpTracker::_mark_event(OpRequest *op, const string &evt,
+			    utime_t time)
+{
+  Mutex::Locker locker(ops_in_flight_lock);
   dout(1) << "reqid: " << op->get_reqid() << ", seq: " << op->seq
-	  << ", time: " << now << ", event: " << dest
+	  << ", time: " << time << ", event: " << evt 
 	  << ", request: " << *op->request << dendl;
 }
 
@@ -116,6 +122,7 @@ OpRequestRef OpTracker::create_request(Message *ref)
   } else if (ref->get_type() == MSG_OSD_SUBOP) {
     retval->reqid = static_cast<MOSDSubOp*>(ref)->reqid;
   }
+  _mark_event(retval.get(), "created", retval->received_time);
   return retval;
 }
 

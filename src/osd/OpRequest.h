@@ -44,6 +44,7 @@ public:
   void unregister_inflight_op(xlist<OpRequest*>::item *i);
   bool check_ops_in_flight(std::ostream &out);
   void mark_event(OpRequest *op, const string &evt);
+  void _mark_event(OpRequest *op, const string &evt, utime_t now);
   OpRequestRef create_request(Message *req);
 };
 
