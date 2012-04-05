@@ -122,7 +122,10 @@ OpRequestRef OpTracker::create_request(Message *ref)
   } else if (ref->get_type() == MSG_OSD_SUBOP) {
     retval->reqid = static_cast<MOSDSubOp*>(ref)->reqid;
   }
-  _mark_event(retval.get(), "created", retval->received_time);
+  _mark_event(retval.get(), "header_read", ref->get_recv_stamp());
+  _mark_event(retval.get(), "throttled", ref->get_throttle_stamp());
+  _mark_event(retval.get(), "all_read", ref->get_recv_complete_stamp());
+  _mark_event(retval.get(), "dispatched", ref->get_dispatch_stamp());
   return retval;
 }
 
