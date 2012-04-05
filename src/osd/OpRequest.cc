@@ -108,7 +108,7 @@ void OpTracker::_mark_event(OpRequest *op, const string &evt,
 }
 
 void OpTracker::RemoveOnDelete::operator()(OpRequest *op) {
-  op->mark_event("done")
+  op->mark_event("done");
   tracker->unregister_inflight_op(&(op->xitem));
   delete op;
 }
