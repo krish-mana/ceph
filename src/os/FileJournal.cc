@@ -1363,8 +1363,32 @@ void FileJournal::check_aio_completion()
 }
 #endif
 
+
+struct DoSubmit : public Context {
+  FileJournal *journal;
+  uint64_t seq;
+  bufferlist e;
+  int alignment;
+  Context *oncommit;
+  TrackedOpRef osd_op;
+  DoSubmit(uint64_t seq, bufferlist& e, int alignment,
+	   Context *oncommit, TrackedOpRef osd_op) :
+    seq(seq), e(e), alignment(alignment), oncommit(oncommit),
+    osd_op(osd_op) {}
+  void finish(int r) {
+    journal->_submit_entry(seq, e, alignment, oncommit, osd_op);
+  }
+};
+
 void FileJournal::submit_entry(uint64_t seq, bufferlist& e, int alignment,
 			       Context *oncommit, TrackedOpRef osd_op)
+{
+  submiter.queue(new DoSubmit(seq, e, alignment, oncommit, osd_op));
+  return;
+}
+
+void FileJournal::_submit_entry(uint64_t seq, bufferlist& e, int alignment,
+				Context *oncommit, TrackedOpRef osd_op)
 {
   Mutex::Locker locker(write_lock);  // ** lock **
 

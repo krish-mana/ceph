@@ -213,6 +213,7 @@ private:
   bool write_stop;
 
   Cond commit_cond;
+  Finisher submiter;
 
   int _open(bool wr, bool create=false);
   int _open_block_device();
@@ -284,6 +285,7 @@ private:
     plug_journal_completions(false),
     write_lock("FileJournal::write_lock"),
     write_stop(false),
+    submiter(g_ceph_context),
     write_thread(this),
     write_finish_thread(this) { }
   ~FileJournal() {
@@ -309,6 +311,8 @@ private:
   // writes
   void submit_entry(uint64_t seq, bufferlist& bl, int alignment, Context *oncommit,
 		    TrackedOpRef osd_op = TrackedOpRef());  // submit an item
+  void _submit_entry(uint64_t seq, bufferlist& bl, int alignment, Context *oncommit,
+		     TrackedOpRef osd_op = TrackedOpRef());  // submit an item
   void commit_start();
   void committed_thru(uint64_t seq);
   bool should_commit_now() {
