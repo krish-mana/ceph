@@ -1373,9 +1373,9 @@ struct DoSubmit : public Context {
   int alignment;
   Context *oncommit;
   TrackedOpRef osd_op;
-  DoSubmit(uint64_t seq, bufferlist& e, int alignment,
+  DoSubmit(FileJournal *journal, uint64_t seq, bufferlist& e, int alignment,
 	   Context *oncommit, TrackedOpRef osd_op) :
-    seq(seq), e(e), alignment(alignment), oncommit(oncommit),
+    journal(journal), seq(seq), e(e), alignment(alignment), oncommit(oncommit),
     osd_op(osd_op) {}
   void finish(int r) {
     journal->_submit_entry(seq, e, alignment, oncommit, osd_op);
@@ -1385,7 +1385,7 @@ struct DoSubmit : public Context {
 void FileJournal::submit_entry(uint64_t seq, bufferlist& e, int alignment,
 			       Context *oncommit, TrackedOpRef osd_op)
 {
-  submiter.queue(new DoSubmit(seq, e, alignment, oncommit, osd_op));
+  submiter.queue(new DoSubmit(this, seq, e, alignment, oncommit, osd_op));
   return;
 }
 
