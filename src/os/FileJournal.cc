@@ -594,6 +594,7 @@ int FileJournal::dump(ostream& out)
 
 void FileJournal::start_writer()
 {
+  submiter.start();
   write_stop = false;
   write_thread.create();
 #ifdef HAVE_LIBAIO
@@ -603,6 +604,7 @@ void FileJournal::start_writer()
 
 void FileJournal::stop_writer()
 {
+  submiter.stop();
   write_lock.Lock();
   {
     write_stop = true;
