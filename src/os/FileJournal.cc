@@ -952,11 +952,6 @@ void FileJournal::do_write(bufferlist& bl)
     hbp = prepare_header();
   }
 
-  {
-    Mutex::Locker locker(flush_lock);
-    writing = true;
-  }
-
   write_lock.Unlock();
 
   dout(15) << "do_write writing " << write_pos << "~" << bl.length() 
@@ -1135,6 +1130,11 @@ void FileJournal::write_thread_entry()
     }
 #endif
 
+    {
+      Mutex::Locker locker(flush_lock);
+      writing = true;
+    }
+
     Mutex::Locker locker(write_lock);
     uint64_t orig_ops = 0;
     uint64_t orig_bytes = 0;
@@ -1176,11 +1176,6 @@ void FileJournal::do_aio_write(bufferlist& bl)
   if (must_write_header) {
     must_write_header = false;
     hbp = prepare_header();
-  }
-
-  {
-    Mutex::Locker locker(flush_lock);
-    writing = true;
   }
 
   // entry
