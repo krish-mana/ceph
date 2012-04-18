@@ -4278,7 +4278,7 @@ void OSD::handle_pg_notify(OpRequestRef op)
     }
 
     PG::RecoveryCtx rctx(&query_map, &info_map, 0, &fin->contexts, t);
-    pg->handle_notify(from, *it, &rctx);
+    pg->handle_notify(m->get_epoch(), m->get_query_epoch(), from, *it, &rctx);
 
     int tr = store->queue_transaction(&pg->osr, t, new ObjectStore::C_DeleteTransaction(t), fin);
     assert(tr == 0);
@@ -4330,7 +4330,7 @@ void OSD::handle_pg_log(OpRequestRef op)
   map< int, map<pg_t,pg_query_t> > query_map;
   map< int, MOSDPGInfo* > info_map;
   PG::RecoveryCtx rctx(&query_map, &info_map, 0, &fin->contexts, t);
-  pg->handle_log(from, m, &rctx);
+  pg->handle_log(m->get_epoch(), m->get_query_epoch(), from, m, &rctx);
   pg->unlock();
   do_queries(query_map);
   do_infos(info_map);
@@ -4384,7 +4384,7 @@ void OSD::handle_pg_info(OpRequestRef op)
 
     PG::RecoveryCtx rctx(0, &info_map, 0, &fin->contexts, t);
 
-    pg->handle_info(from, *p, &rctx);
+    pg->handle_info(m->get_epoch(), m->get_epoch(), from, *p, &rctx);
 
     int tr = store->queue_transaction(&pg->osr, t, new ObjectStore::C_DeleteTransaction(t), fin);
     assert(!tr);
@@ -4675,7 +4675,8 @@ void OSD::handle_pg_query(OpRequestRef op)
 
     // ok, process query!
     PG::RecoveryCtx rctx(0, 0, &notify_list, 0, 0);
-    pg->handle_query(from, it->second, m->get_epoch(), &rctx);
+    pg->handle_query(m->get_epoch(), m->get_epoch(),
+		     from, it->second, &rctx);
     pg->unlock();
   }
   
