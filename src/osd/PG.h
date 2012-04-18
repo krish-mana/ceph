@@ -1396,6 +1396,7 @@ public:
 			      const vector<int>& newacting);
   void set_last_peering_reset();
 
+  void update_history_from_master(pg_history_t new_history);
   void fulfill_info(int from, const pg_query_t &query, 
 		    pair<int, pg_info_t> &notify_info);
   void fulfill_log(int from, const pg_query_t &query, epoch_t query_epoch);
