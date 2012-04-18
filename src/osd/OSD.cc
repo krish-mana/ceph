@@ -4599,23 +4599,6 @@ void OSD::handle_pg_query(OpRequestRef op)
     }
 
     pg = _lookup_lock_pg(pgid);
-    if (m->get_epoch() < pg->info.history.same_interval_since) {
-      dout(10) << *pg << " handle_pg_query changed in "
-	       << pg->info.history.same_interval_since
-	       << " (msg from " << m->get_epoch() << ")" << dendl;
-      pg->unlock();
-      continue;
-    }
-
-    if (pg->old_peering_msg(m->get_epoch(), m->get_epoch())) {
-      dout(10) << "ignoring old peering message " << *m << dendl;
-      pg->unlock();
-      continue;
-    }
-
-    unreg_last_pg_scrub(pg->info.pgid, pg->info.history.last_scrub_stamp);
-    pg->info.history.merge(it->second.history);
-    reg_last_pg_scrub(pg->info.pgid, pg->info.history.last_scrub_stamp);
 
     // ok, process query!
     PG::RecoveryCtx rctx(0, 0, &notify_list, 0, 0);
