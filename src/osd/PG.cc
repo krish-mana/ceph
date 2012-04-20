@@ -40,26 +40,14 @@ static ostream& _prefix(std::ostream *_dout, const PG *pg) {
   return *_dout << pg->gen_prefix();
 }
 
-/*
- * take osd->map_lock to get a valid osdmap reference
- */
 void PG::lock(bool no_lockdep)
 {
-  osd->map_lock.get_read();
-  OSDMapRef map = osd->osdmap;
-  osd->map_lock.put_read();
   _lock.Lock(no_lockdep);
-  osdmap_ref.swap(map);
 }
 
-/*
- * caller holds osd->map_lock, no need to take it to get a valid
- * osdmap reference.
- */
 void PG::lock_with_map_lock_held(bool no_lockdep)
 {
   _lock.Lock(no_lockdep);
-  osdmap_ref = osd->osdmap;
 }
 
 std::string PG::gen_prefix() const
@@ -3871,6 +3859,10 @@ void PG::take_waiters()
 
 void PG::handle_peering_event(CephPeeringEvtRef evt, RecoveryCtx *rctx)
 {
+  if (!require_same_or_newer_map(evt->get_epoch_sent())) {
+    peering_waiters.push_back(evt);
+    return;
+  }
   if (old_peering_evt(evt))
     return;
   assert(!deleting);
@@ -3940,6 +3932,7 @@ void PG::handle_advance_map(OSDMapRef osdmap, OSDMapRef lastmap,
 			    RecoveryCtx *rctx)
 {
   dout(10) << "handle_advance_map " << newup << "/" << newacting << dendl;
+  osdmap_ref = osdmap;
   AdvMap evt(osdmap, lastmap, newup, newacting);
   recovery_state.handle_event(evt, rctx);
 }
