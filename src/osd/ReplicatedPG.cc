@@ -596,10 +596,6 @@ void ReplicatedPG::get_src_oloc(const object_t& oid, const object_locator_t& olo
 void ReplicatedPG::do_op(OpRequestRef op)
 {
   MOSDOp *m = (MOSDOp*)op->request;
-  if (!require_same_or_newer_map(m->get_map_epoch())) {
-    op_waiters.push_back(op);
-    return;
-  }
   assert(m->get_header().type == CEPH_MSG_OSD_OP);
   if ((m->get_rmw_flags() & CEPH_OSD_FLAG_PGOP)) {
     if (pg_op_must_wait(m)) {
@@ -1084,10 +1080,6 @@ void ReplicatedPG::do_sub_op(OpRequestRef op)
 void ReplicatedPG::do_sub_op_reply(OpRequestRef op)
 {
   MOSDSubOpReply *r = (MOSDSubOpReply *)op->request;
-  if (!require_same_or_newer_map(r->map_epoch)) {
-    op_waiters.push_back(op);
-    return;
-  }
   assert(r->get_header().type == MSG_OSD_SUBOPREPLY);
   if (r->ops.size() >= 1) {
     OSDOp& first = r->ops[0];
@@ -1109,12 +1101,6 @@ void ReplicatedPG::do_sub_op_reply(OpRequestRef op)
 void ReplicatedPG::do_scan(OpRequestRef op)
 {
   MOSDPGScan *m = (MOSDPGScan*)op->request;
-  if (!require_same_or_newer_map(m->map_epoch)) {
-    op_waiters.push_back(op);
-    return;
-  }
-  if (old_peering_msg(m->map_epoch, m->query_epoch))
-    return;
   assert(m->get_header().type == MSG_OSD_PG_SCAN);
   dout(10) << "do_scan " << *m << dendl;
 
@@ -1159,12 +1145,6 @@ void ReplicatedPG::do_scan(OpRequestRef op)
 void ReplicatedPG::do_backfill(OpRequestRef op)
 {
   MOSDPGBackfill *m = (MOSDPGBackfill*)op->request;
-  if (!require_same_or_newer_map(m->map_epoch)) {
-    op_waiters.push_back(op);
-    return;
-  }
-  if (old_peering_msg(m->map_epoch, m->query_epoch))
-    return;
   assert(m->get_header().type == MSG_OSD_PG_BACKFILL);
   dout(10) << "do_backfill " << *m << dendl;
 
