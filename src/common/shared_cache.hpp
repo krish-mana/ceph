@@ -27,13 +27,20 @@ class SharedLRU {
   typedef std::tr1::shared_ptr<V> VPtr;
   typedef std::tr1::weak_ptr<V> WeakVPtr;
   Mutex lock;
-  const size_t max_size;
+  size_t max_size;
   Cond cond;
 
   map<K, typename list<pair<K, VPtr> >::iterator > contents;
   list<pair<K, VPtr> > lru;
 
   map<K, WeakVPtr> weak_refs;
+
+  void trim_cache(list<VPtr> *to_release) {
+    while (lru.size() > max_size) {
+      to_release->push_back(lru.back().second);
+      lru_remove(lru.back().first);
+    }
+  }
 
   void lru_remove(K key) {
     if (!contents.count(key))
@@ -48,10 +55,7 @@ class SharedLRU {
     } else {
       lru.push_front(make_pair(key, val));
       contents[key] = lru.begin();
-      while (lru.size() > max_size) {
-	to_release->push_back(lru.back().second);
-	lru_remove(lru.back().first);
-      }
+      trim_cache(to_release);
     }
   }
 
@@ -74,6 +78,16 @@ class SharedLRU {
 
 public:
   SharedLRU(size_t max_size = 20) : lock("SharedLRU::lock"), max_size(max_size) {}
+
+  void set_size(size_t new_size) {
+    list<VPtr> to_release;
+    {
+      Mutex::Locker l(lock);
+      max_size = new_size;
+      trim_cache(to_release);
+    }
+  }
+
   VPtr lookup(K key) {
     VPtr val;
     list<VPtr> to_release;

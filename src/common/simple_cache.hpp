@@ -24,12 +24,25 @@
 template <class K, class V>
 class SimpleLRU {
   Mutex lock;
-  const size_t max_size;
+  size_t max_size;
   map<K, typename list<pair<K, V> >::iterator> contents;
   list<pair<K, V> > lru;
 
+  void trim_cache() {
+    while (lru.size() > max_size) {
+      contents.erase(lru.back().first);
+      lru.pop_back();
+    }
+  }
+
 public:
-  SimpleLRU(size_t max_size = 20) : lock("SimpleLRU::lock"), max_size(max_size) {}
+  SimpleLRU(size_t max_size) : lock("SimpleLRU::lock"), max_size(max_size) {}
+
+  void set_size(size_t new_size) {
+    Mutex::Locker l(lock);
+    max_size = new_size;
+    trim_cache();
+  }
 
   bool lookup(K key, V *out) {
     Mutex::Locker l(lock);
@@ -47,10 +60,7 @@ public:
     Mutex::Locker l(lock);
     lru.push_front(make_pair(key, value));
     contents[key] = lru.begin();
-    while (lru.size() > max_size) {
-      contents.erase(lru.back().first);
-      lru.pop_back();
-    }
+    trim_cache();
   }
 };
 
