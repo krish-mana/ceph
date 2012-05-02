@@ -1026,6 +1026,7 @@ struct pg_notify_t {
   epoch_t query_epoch;
   epoch_t epoch_sent;
   pg_info_t info;
+  pg_notify_t() : query_epoch(0), epoch_sent(0) {}
   pg_notify_t(epoch_t query_epoch,
 	      epoch_t epoch_sent,
 	      const pg_info_t &info)
@@ -1037,6 +1038,7 @@ struct pg_notify_t {
   void dump(Formatter *f) const;
   static void generate_test_instances(list<pg_notify_t*> &o);
 };
+WRITE_CLASS_ENCODER(pg_notify_t)
 ostream &operator<<(ostream &lhs, const pg_notify_t notify);
 
 
