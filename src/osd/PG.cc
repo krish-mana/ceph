@@ -605,7 +605,7 @@ void PG::discover_all_missing(map< int, map<pg_t,pg_query_t> > &query_map)
 	     << dendl;
     peer_missing_requested.insert(peer);
     query_map[peer][info.pgid] =
-      pg_query_t(pg_query_t::MISSING, info.history);
+      pg_query_t(pg_query_t::MISSING, info.history, get_osdmap()->get_epoch());
   }
 }
 
@@ -4647,7 +4647,10 @@ void PG::RecoveryState::GetInfo::get_infos()
       dout(10) << " not querying info from down osd." << peer << dendl;
     } else {
       dout(10) << " querying info from osd." << peer << dendl;
-      context< RecoveryMachine >().send_query(peer, pg_query_t(pg_query_t::INFO, pg->info.history));
+      context< RecoveryMachine >().send_query(
+	peer, pg_query_t(pg_query_t::INFO,
+			 pg->info.history,
+			 pg->get_osdmap()->get_epoch()));
       peer_info_requested.insert(peer);
     }
   }
@@ -4812,8 +4815,10 @@ PG::RecoveryState::GetLog::GetLog(my_context ctx) :
 
   // how much?
   dout(10) << " requesting log from osd." << newest_update_osd << dendl;
-  context<RecoveryMachine>().send_query(newest_update_osd,
-					pg_query_t(pg_query_t::LOG, request_log_from, pg->info.history));
+  context<RecoveryMachine>().send_query(
+    newest_update_osd,
+    pg_query_t(pg_query_t::LOG, request_log_from, pg->info.history,
+	       pg->get_osdmap()->get_epoch()));
 }
 
 boost::statechart::result PG::RecoveryState::GetLog::react(const MLogRec& logevt)
@@ -4990,12 +4995,17 @@ PG::RecoveryState::GetMissing::GetMissing(my_context ctx)
     assert(pi.last_update >= pg->info.log_tail);  // or else choose_acting() did a bad thing
     if (pi.log_tail <= since) {
       dout(10) << " requesting log+missing since " << since << " from osd." << *i << dendl;
-      context< RecoveryMachine >().send_query(*i, pg_query_t(pg_query_t::LOG, since, pg->info.history));
+      context< RecoveryMachine >().send_query(
+	*i,
+	pg_query_t(pg_query_t::LOG, since, pg->info.history,
+		   pg->get_osdmap()->get_epoch()));
     } else {
       dout(10) << " requesting fulllog+missing from osd." << *i
 	       << " (want since " << since << " < log.tail " << pi.log_tail << ")"
 	       << dendl;
-      context< RecoveryMachine >().send_query(*i, pg_query_t(pg_query_t::FULLLOG, pg->info.history));
+      context< RecoveryMachine >().send_query(
+	*i, pg_query_t(pg_query_t::FULLLOG,
+		       pg->info.history, pg->get_osdmap()->get_epoch()));
     }
     peer_missing_requested.insert(*i);
   }

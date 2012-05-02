@@ -1022,6 +1022,23 @@ inline ostream& operator<<(ostream& out, const pg_info_t& pgi)
   return out;
 }
 
+struct pg_notify_t {
+  epoch_t query_epoch;
+  epoch_t epoch_sent;
+  pg_info_t info;
+  pg_notify_t(epoch_t query_epoch,
+	      epoch_t epoch_sent,
+	      const pg_info_t &info)
+    : query_epoch(query_epoch),
+      epoch_sent(epoch_sent),
+      info(info) {}
+  void encode(bufferlist &bl) const;
+  void decode(bufferlist::iterator &p);
+  void dump(Formatter *f) const;
+  static void generate_test_instances(list<pg_notify_t*> &o);
+};
+ostream &operator<<(ostream &lhs, const pg_notify_t notify);
+
 
 /** 
  * pg_query_t - used to ask a peer for information about a pg.
@@ -1048,25 +1065,32 @@ struct pg_query_t {
   __s32 type;
   eversion_t since;
   pg_history_t history;
+  epoch_t epoch_sent;
 
   pg_query_t() : type(-1) {}
-  pg_query_t(int t, const pg_history_t& h)
-    : type(t), history(h) {
+  pg_query_t(int t, const pg_history_t& h,
+	     epoch_t epoch_sent)
+    : type(t), history(h),
+      epoch_sent(epoch_sent) {
     assert(t != LOG);
   }
-  pg_query_t(int t, eversion_t s, const pg_history_t& h)
-    : type(t), since(s), history(h) {
+  pg_query_t(int t, eversion_t s, const pg_history_t& h,
+	     epoch_t epoch_sent)
+    : type(t), since(s), history(h),
+      epoch_sent(epoch_sent) {
     assert(t == LOG);
   }
   
   void encode(bufferlist &bl) const {
     ::encode(type, bl);
     ::encode(since, bl);
+    ::encode(epoch_sent, bl);
     history.encode(bl);
   }
   void decode(bufferlist::iterator &bl) {
     ::decode(type, bl);
     ::decode(since, bl);
+    ::decode(epoch_sent, bl);
     history.decode(bl);
   }
   void dump(Formatter *f) const;

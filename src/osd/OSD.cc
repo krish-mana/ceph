@@ -4081,7 +4081,8 @@ void OSD::handle_pg_create(OpRequestRef op)
 	     << " : querying priors " << pset << dendl;
     for (set<int>::iterator p = pset.begin(); p != pset.end(); p++) 
       if (osdmap->is_up(*p))
-	query_map[*p][pgid] = pg_query_t(pg_query_t::INFO, history);
+	query_map[*p][pgid] = pg_query_t(pg_query_t::INFO, history,
+					 osdmap->get_epoch());
     
     if (can_create_pg(pgid)) {
       ObjectStore::Transaction *t = new ObjectStore::Transaction;
