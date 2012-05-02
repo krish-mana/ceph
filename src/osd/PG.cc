@@ -55,7 +55,7 @@ std::string PG::gen_prefix() const
   stringstream out;
   OSDMapRef mapref = osdmap_ref;
   out << "osd." << osd->whoami 
-      << " " << (mapref ? mapref->get_epoch():0)
+      << " pg_epoch: " << (mapref ? mapref->get_epoch():0)
       << " " << *this << " ";
   return out.str();
 }
@@ -605,7 +605,7 @@ void PG::discover_all_missing(map< int, map<pg_t,pg_query_t> > &query_map)
 	     << dendl;
     peer_missing_requested.insert(peer);
     query_map[peer][info.pgid] =
-      pg_query_t(pg_query_t::MISSING, info.history);
+      pg_query_t(pg_query_t::MISSING, info.history, get_osdmap()->get_epoch());
   }
 }
 
@@ -3844,7 +3844,7 @@ bool PG::must_delay_request(OpRequestRef op)
 
 void PG::queue_op(OpRequestRef op)
 {
-  if (can_discard_op(op))
+  if (can_discard_request(op))
     return;
   // TODO: deal with osd queueing
   op_queue.push_back(op);
@@ -3852,15 +3852,18 @@ void PG::queue_op(OpRequestRef op)
 
 void PG::take_waiters()
 {
-  list<OpRequestRef> ls;
-  ls.swap(op_waiters);
-  ls.splice(ls.end(), op_queue);
+  dout(10) << "take_waiters" << dendl;
+  op_queue.splice(op_queue.begin(), op_waiters,
+		  op_waiters.begin(), op_waiters.end());
+  peering_queue.splice(peering_queue.begin(), peering_waiters,
+		       peering_waiters.begin(), peering_waiters.end());
 }
 
 void PG::handle_peering_event(CephPeeringEvtRef evt, RecoveryCtx *rctx)
 {
   dout(10) << "handle_peering_event: " << evt->get_desc() << dendl;
   if (!require_same_or_newer_map(evt->get_epoch_sent())) {
+    dout(10) << "deferring event " << evt->get_desc() << dendl;
     peering_waiters.push_back(evt);
     return;
   }
@@ -3880,7 +3883,7 @@ void PG::queue_peering_event(CephPeeringEvtRef evt)
 
 void PG::queue_notify(epoch_t msg_epoch,
 		      epoch_t query_epoch,
-		      int from, pg_info_t& i)
+		      int from, pg_notify_t& i)
 {
   dout(10) << "handle_notify " << i << " from osd." << from << dendl;
   queue_peering_event(
@@ -3932,6 +3935,9 @@ void PG::handle_advance_map(OSDMapRef osdmap, OSDMapRef lastmap,
 			    vector<int>& newup, vector<int>& newacting,
 			    RecoveryCtx *rctx)
 {
+  assert(osdmap->get_epoch() == (lastmap->get_epoch() + 1));
+  assert(lastmap->get_epoch() == osdmap_ref->get_epoch());
+  assert(lastmap == osdmap_ref);
   dout(10) << "handle_advance_map " << newup << "/" << newacting << dendl;
   osdmap_ref = osdmap;
   AdvMap evt(osdmap, lastmap, newup, newacting);
@@ -4012,7 +4018,7 @@ PG::RecoveryState::Initial::Initial(my_context ctx)
 boost::statechart::result PG::RecoveryState::Initial::react(const MNotifyRec& notify)
 {
   PG *pg = context< RecoveryMachine >().pg;
-  pg->proc_replica_info(notify.from, notify.info);
+  pg->proc_replica_info(notify.from, notify.notify.info);
   pg->update_heartbeat_peers();
   return transit< Primary >();
 }
@@ -4102,8 +4108,11 @@ boost::statechart::result PG::RecoveryState::Reset::react(const ActMap&)
 {
   PG *pg = context< RecoveryMachine >().pg;
   if (pg->is_stray() && pg->get_primary() >= 0) {
-    context< RecoveryMachine >().send_notify(pg->get_primary(),
-					     pg->info);
+    context< RecoveryMachine >().send_notify(
+      pg->get_primary(),
+      pg_notify_t(pg->get_osdmap()->get_epoch(),
+		  pg->get_osdmap()->get_epoch(),
+		  pg->info));
   }
 
   pg->update_heartbeat_peers();
@@ -4161,11 +4170,11 @@ boost::statechart::result PG::RecoveryState::Primary::react(const MNotifyRec& no
   dout(7) << "handle_pg_notify from osd." << notevt.from << dendl;
   PG *pg = context< RecoveryMachine >().pg;
   if (pg->peer_info.count(notevt.from) &&
-      pg->peer_info[notevt.from].last_update == notevt.info.last_update) {
-    dout(10) << *pg << " got dup osd." << notevt.from << " info " << notevt.info
+      pg->peer_info[notevt.from].last_update == notevt.notify.info.last_update) {
+    dout(10) << *pg << " got dup osd." << notevt.from << " info " << notevt.notify.info
 	     << ", identical to ours" << dendl;
   } else {
-    pg->proc_replica_info(notevt.from, notevt.info);
+    pg->proc_replica_info(notevt.from, notevt.notify.info);
   }
   return discard_event();
 }
@@ -4334,7 +4343,7 @@ boost::statechart::result PG::RecoveryState::Active::react(const MNotifyRec& not
     dout(10) << "Active: got notify from " << notevt.from 
 	     << ", calling proc_replica_info and discover_all_missing"
 	     << dendl;
-    pg->proc_replica_info(notevt.from, notevt.info);
+    pg->proc_replica_info(notevt.from, notevt.notify.info);
     if (pg->have_unfound()) {
       pg->discover_all_missing(*context< RecoveryMachine >().get_query_map());
     }
@@ -4476,10 +4485,9 @@ boost::statechart::result PG::RecoveryState::ReplicaActive::react(const MInfoRec
 boost::statechart::result PG::RecoveryState::ReplicaActive::react(const MLogRec& logevt)
 {
   PG *pg = context< RecoveryMachine >().pg;
-  MOSDPGLog *msg = logevt.msg;
   dout(10) << "received log from " << logevt.from << dendl;
   pg->merge_log(*context<RecoveryMachine>().get_cur_transaction(),
-		msg->info, msg->log, logevt.from);
+		logevt.msg->info, logevt.msg->log, logevt.from);
 
   assert(pg->log.tail <= pg->info.last_complete);
   assert(pg->log.head == pg->info.last_update);
@@ -4491,8 +4499,11 @@ boost::statechart::result PG::RecoveryState::ReplicaActive::react(const ActMap&)
 {
   PG *pg = context< RecoveryMachine >().pg;
   if (pg->is_stray() && pg->get_primary() >= 0) {
-    context< RecoveryMachine >().send_notify(pg->get_primary(),
-					     pg->info);
+    context< RecoveryMachine >().send_notify(
+      pg->get_primary(),
+      pg_notify_t(pg->get_osdmap()->get_epoch(),
+		  pg->get_osdmap()->get_epoch(),
+		  pg->info));
   }
   return discard_event();
 }
@@ -4535,7 +4546,7 @@ PG::RecoveryState::Stray::Stray(my_context ctx)
 boost::statechart::result PG::RecoveryState::Stray::react(const MLogRec& logevt)
 {
   PG *pg = context< RecoveryMachine >().pg;
-  MOSDPGLog *msg = logevt.msg;
+  MOSDPGLog *msg = logevt.msg.get();
   dout(10) << "got info+log from osd." << logevt.from << " " << msg->info << " " << msg->log << dendl;
 
   if (msg->info.last_backfill == hobject_t()) {
@@ -4581,7 +4592,11 @@ boost::statechart::result PG::RecoveryState::Stray::react(const MQuery& query)
     pair<int, pg_info_t> notify_info;
     pg->update_history_from_master(query.query.history);
     pg->fulfill_info(query.from, query.query, notify_info);
-    context< RecoveryMachine >().send_notify(notify_info.first, notify_info.second);
+    context< RecoveryMachine >().send_notify(
+      notify_info.first,
+      pg_notify_t(query.query_epoch,
+		  pg->get_osdmap()->get_epoch(),
+		  notify_info.second));
   } else {
     pg->fulfill_log(query.from, query.query, query.query_epoch);
   }
@@ -4592,8 +4607,11 @@ boost::statechart::result PG::RecoveryState::Stray::react(const ActMap&)
 {
   PG *pg = context< RecoveryMachine >().pg;
   if (pg->is_stray() && pg->get_primary() >= 0) {
-    context< RecoveryMachine >().send_notify(pg->get_primary(),
-					     pg->info);
+    context< RecoveryMachine >().send_notify(
+      pg->get_primary(),
+      pg_notify_t(pg->get_osdmap()->get_epoch(),
+		  pg->get_osdmap()->get_epoch(),
+		  pg->info));
   }
   return discard_event();
 }
@@ -4650,7 +4668,10 @@ void PG::RecoveryState::GetInfo::get_infos()
       dout(10) << " not querying info from down osd." << peer << dendl;
     } else {
       dout(10) << " querying info from osd." << peer << dendl;
-      context< RecoveryMachine >().send_query(peer, pg_query_t(pg_query_t::INFO, pg->info.history));
+      context< RecoveryMachine >().send_query(
+	peer, pg_query_t(pg_query_t::INFO,
+			 pg->info.history,
+			 pg->get_osdmap()->get_epoch()));
       peer_info_requested.insert(peer);
     }
   }
@@ -4664,7 +4685,7 @@ boost::statechart::result PG::RecoveryState::GetInfo::react(const MNotifyRec& in
 
   PG *pg = context< RecoveryMachine >().pg;
   epoch_t old_start = pg->info.history.last_epoch_started;
-  if (pg->proc_replica_info(infoevt.from, infoevt.info)) {
+  if (pg->proc_replica_info(infoevt.from, infoevt.notify.info)) {
     // we got something new ...
     auto_ptr<PriorSet> &prior_set = context< Peering >().prior_set;
     if (old_start < pg->info.history.last_epoch_started) {
@@ -4815,8 +4836,10 @@ PG::RecoveryState::GetLog::GetLog(my_context ctx) :
 
   // how much?
   dout(10) << " requesting log from osd." << newest_update_osd << dendl;
-  context<RecoveryMachine>().send_query(newest_update_osd,
-					pg_query_t(pg_query_t::LOG, request_log_from, pg->info.history));
+  context<RecoveryMachine>().send_query(
+    newest_update_osd,
+    pg_query_t(pg_query_t::LOG, request_log_from, pg->info.history,
+	       pg->get_osdmap()->get_epoch()));
 }
 
 boost::statechart::result PG::RecoveryState::GetLog::react(const MLogRec& logevt)
@@ -4830,7 +4853,6 @@ boost::statechart::result PG::RecoveryState::GetLog::react(const MLogRec& logevt
   dout(10) << "GetLog: recieved master log from osd" 
 	   << logevt.from << dendl;
   msg = logevt.msg;
-  msg->get();
   post_event(GotLog());
   return discard_event();
 }
@@ -4861,12 +4883,6 @@ boost::statechart::result PG::RecoveryState::GetLog::react(const QueryState& q)
 void PG::RecoveryState::GetLog::exit()
 {
   context< RecoveryMachine >().log_exit(state_name, enter_time);
-}
-
-PG::RecoveryState::GetLog::~GetLog()
-{
-  if (msg)
-    msg->put();
 }
 
 /*------WaitActingChange--------*/
@@ -4993,12 +5009,17 @@ PG::RecoveryState::GetMissing::GetMissing(my_context ctx)
     assert(pi.last_update >= pg->info.log_tail);  // or else choose_acting() did a bad thing
     if (pi.log_tail <= since) {
       dout(10) << " requesting log+missing since " << since << " from osd." << *i << dendl;
-      context< RecoveryMachine >().send_query(*i, pg_query_t(pg_query_t::LOG, since, pg->info.history));
+      context< RecoveryMachine >().send_query(
+	*i,
+	pg_query_t(pg_query_t::LOG, since, pg->info.history,
+		   pg->get_osdmap()->get_epoch()));
     } else {
       dout(10) << " requesting fulllog+missing from osd." << *i
 	       << " (want since " << since << " < log.tail " << pi.log_tail << ")"
 	       << dendl;
-      context< RecoveryMachine >().send_query(*i, pg_query_t(pg_query_t::FULLLOG, pg->info.history));
+      context< RecoveryMachine >().send_query(
+	*i, pg_query_t(pg_query_t::FULLLOG,
+		       pg->info.history, pg->get_osdmap()->get_epoch()));
     }
     peer_missing_requested.insert(*i);
   }
@@ -5018,11 +5039,10 @@ PG::RecoveryState::GetMissing::GetMissing(my_context ctx)
 boost::statechart::result PG::RecoveryState::GetMissing::react(const MLogRec& logevt)
 {
   PG *pg = context< RecoveryMachine >().pg;
-  MOSDPGLog *msg = logevt.msg;
 
   peer_missing_requested.erase(logevt.from);
   pg->proc_replica_log(*context<RecoveryMachine>().get_cur_transaction(),
-		       msg->info, msg->log, msg->missing, logevt.from);
+		       logevt.msg->info, logevt.msg->log, logevt.msg->missing, logevt.from);
   
   if (peer_missing_requested.empty()) {
     post_event(Activate());
