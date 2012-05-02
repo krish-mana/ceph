@@ -40,6 +40,7 @@
 #include "os/ObjectStore.h"
 #include "msg/Messenger.h"
 #include "messages/MOSDRepScrub.h"
+#include "messages/MOSDPGLog.h"
 
 #include "common/DecayCounter.h"
 
@@ -63,7 +64,6 @@ class MOSDSubOpReply;
 class MOSDPGScan;
 class MOSDPGBackfill;
 class MOSDPGInfo;
-class MOSDPGLog;
 
 
 struct PGRecoveryStats {
@@ -528,14 +528,14 @@ public:
     utime_t start_time;
     map< int, map<pg_t, pg_query_t> > *query_map;
     map< int, MOSDPGInfo* > *info_map;
-    map< int, vector<pg_info_t> > *notify_list;
+    map< int, vector<pg_notify_t> > *notify_list;
     list< Context* > *context_list;
     ObjectStore::Transaction *transaction;
     RecoveryCtx() : query_map(0), info_map(0), notify_list(0),
 		    context_list(0), transaction(0) {}
     RecoveryCtx(map< int, map<pg_t, pg_query_t> > *query_map,
 		map< int, MOSDPGInfo* > *info_map,
-		map< int, vector<pg_info_t> > *notify_list,
+		map< int, vector<pg_notify_t> > *notify_list,
 		list< Context* > *context_list,
 		ObjectStore::Transaction *transaction)
       : query_map(query_map), info_map(info_map), 
@@ -885,7 +885,7 @@ public:
 
   struct MLogRec : CephEvent< MLogRec > {
     int from;
-    MOSDPGLog *msg;
+    boost::intrusive_ptr<MOSDPGLog> msg;
     MLogRec(int from, MOSDPGLog *msg) :
       from(from), msg(msg) {}
     void print(std::ostream *out) const {
@@ -896,12 +896,12 @@ public:
 
   struct MNotifyRec : CephEvent< MNotifyRec > {
     int from;
-    pg_info_t info;
-    MNotifyRec(int from, pg_info_t &info) :
-      from(from), info(info) {}
+    pg_notify_t notify;
+    MNotifyRec(int from, pg_notify_t &notify) :
+      from(from), notify(notify) {}
     void print(std::ostream *out) const {
       *out << "MNotifyRec from " << from
-	   << " info: " << info
+	   << " notify: " << notify
 	   << std::endl;
     }
   };
@@ -1044,7 +1044,7 @@ public:
 	return state->rctx->context_list;
       }
 
-      void send_notify(int to, const pg_info_t &info) {
+      void send_notify(int to, const pg_notify_t &info) {
 	assert(state->rctx->notify_list);
 	(*state->rctx->notify_list)[to].push_back(info);
       }
@@ -1296,10 +1296,9 @@ public:
 
     struct GetLog : boost::statechart::state< GetLog, Peering >, NamedState {
       int newest_update_osd;
-      MOSDPGLog *msg;
+      boost::intrusive_ptr<MOSDPGLog> msg;
 
       GetLog(my_context ctx);
-      ~GetLog();
       void exit();
 
       typedef boost::mpl::list <
@@ -1512,7 +1511,7 @@ public:
   void queue_peering_event(CephPeeringEvtRef evt);
   void handle_peering_event(CephPeeringEvtRef evt, RecoveryCtx *rctx);
   void queue_notify(epoch_t msg_epoch, epoch_t query_epoch,
-		    int from, pg_info_t& i);
+		    int from, pg_notify_t& i);
   void queue_info(epoch_t msg_epoch, epoch_t query_epoch,
 		  int from, pg_info_t& i);
   void queue_log(epoch_t msg_epoch, epoch_t query_epoch, int from,

@@ -21,15 +21,21 @@
 
 class MOSDPGInfo : public Message {
   epoch_t epoch;
+  static const int HEAD_VERSION = 2;
+  static const int COMPAT_VERSION = 1;
 
 public:
   vector<pg_info_t> pg_info;
 
   epoch_t get_epoch() { return epoch; }
 
-  MOSDPGInfo() : Message(MSG_OSD_PG_INFO) {}
+  MOSDPGInfo() : Message(MSG_OSD_PG_INFO,
+			 HEAD_VERSION,
+			 COMPAT_VERSION) {}
   MOSDPGInfo(version_t mv) :
-    Message(MSG_OSD_PG_INFO),
+    Message(MSG_OSD_PG_INFO,
+	    HEAD_VERSION,
+	    COMPAT_VERSION),
     epoch(mv) { }
 private:
   ~MOSDPGInfo() {}
@@ -47,7 +53,17 @@ public:
   void decode_payload() {
     bufferlist::iterator p = payload.begin();
     ::decode(epoch, p);
-    ::decode(pg_info, p);
+    if (header.version < 2) {
+      vector<pg_info_t> infos;
+      ::decode(infos, p);
+      for (vector<pg_info_t>::iterator i = infos.begin();
+	   i != infos.end();
+	   ++i) {
+	pg_info.push_back(pg_notify_t(epoch, epoch, *i));
+      }
+    } else {
+      ::decode(pg_info, p);
+    }
   }
 };
 
