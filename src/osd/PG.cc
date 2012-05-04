@@ -1395,10 +1395,13 @@ void PG::do_request(OpRequestRef op)
 {
   // do any pending flush
   do_pending_flush();
-  if (can_discard_op(op)) {
+  if (can_discard_request(op)) {
     return;
   } else if (must_delay_request(op)) {
     op_waiters.push_back(op);
+    return;
+  } else if (!is_active()) {
+    waiting_for_active.push_back(op);
     return;
   }
 
