@@ -5133,6 +5133,7 @@ PG::RecoveryState::WaitFlushedPeering::WaitFlushedPeering(my_context ctx)
 boost::statechart::result
 PG::RecoveryState::WaitFlushedPeering::react(const FlushedEvt &evt)
 {
+  context< Peering >().flushed = true;
   return transit< WaitFlushedPeering >();
 }
 
