@@ -3697,7 +3697,8 @@ void ReplicatedPG::repop_ack(RepGather *repop, int result, int ack_type,
     repop->waitfor_ack.erase(fromosd);
   }
 
-  eval_repop(repop);
+  if (!repop->aborted)
+    eval_repop(repop);
 }
 
 
