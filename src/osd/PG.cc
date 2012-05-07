@@ -1403,6 +1403,8 @@ void PG::do_request(OpRequestRef op)
   } else if (!is_active()) {
     waiting_for_active.push_back(op);
     return;
+  } else if (is_replay()) {
+    waiting_for_active.push_back(op);
   }
 
   switch (op->request->get_type()) {
@@ -3746,11 +3748,8 @@ bool PG::can_discard_op(OpRequestRef op)
 	      << " for " << *m << dendl;
       replay_queue[m->get_version()] = op;
       op->mark_delayed();
-    } else {
-      dout(7) << " waiting until after replay for " << *m << dendl;
-      waiting_for_active.push_back(op);
+      return true;
     }
-    return true;
   }
   return false;
 }
