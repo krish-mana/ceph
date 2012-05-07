@@ -142,10 +142,6 @@ protected:
   PerfCounters      *logger;
   ObjectStore *store;
 
-  // cover OSDMap update data when using multiple msgrs
-  Cond *map_in_progress_cond;
-  bool map_in_progress;
-
   LogClient clog;
 
   int whoami;

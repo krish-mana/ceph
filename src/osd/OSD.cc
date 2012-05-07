@@ -531,7 +531,6 @@ OSD::OSD(int id, Messenger *internal_messenger, Messenger *external_messenger,
   monc(mc),
   logger(NULL),
   store(NULL),
-  map_in_progress(false),
   clog(external_messenger->cct, client_messenger, &mc->monmap, mc, LogClient::NO_FLAGS),
   whoami(id),
   dev_path(dev), journal_path(jdev),
@@ -584,15 +583,11 @@ OSD::OSD(int id, Messenger *internal_messenger, Messenger *external_messenger,
   watch_timer(external_messenger->cct, watch_lock)
 {
   monc->set_messenger(client_messenger);
-
-  map_in_progress_cond = new Cond();
-  
 }
 
 OSD::~OSD()
 {
   delete authorize_handler_registry;
-  delete map_in_progress_cond;
   delete class_handler;
   g_ceph_context->get_perfcounters_collection()->remove(logger);
   delete logger;
@@ -2778,14 +2773,6 @@ void OSD::_dispatch(Message *m)
   dout(20) << "_dispatch " << m << " " << *m << dendl;
   Session *session = NULL;
 
-  if (map_in_progress_cond) { //can't dispatch while map is being updated!
-    if (map_in_progress) {
-      dout(25) << "waiting for handle_osd_map to complete before dispatching" << dendl;
-      while (map_in_progress)
-        map_in_progress_cond->Wait(osd_lock);
-    }
-  }
-
   logger->set(l_osd_buf, buffer::get_total_alloc());
 
   switch (m->get_type()) {
@@ -3125,17 +3112,6 @@ void OSD::handle_osd_map(MOSDMap *m)
     skip_maps = true;
   }
 
-  if (map_in_progress_cond) {
-    if (map_in_progress) {
-      dout(15) << "waiting for prior handle_osd_map to complete" << dendl;
-      while (map_in_progress) {
-        map_in_progress_cond->Wait(osd_lock);
-      }
-    }
-    dout(10) << "locking handle_osd_map permissions" << dendl;
-    map_in_progress = true;
-  }
-
   ObjectStore::Transaction t;
 
   // store new maps: queue for disk and put in the osdmap cache
@@ -3353,24 +3329,6 @@ void OSD::handle_osd_map(MOSDMap *m)
   clear_map_bl_cache_pins();
   map_lock.put_write();
 
-  /*
-   * wait for this to be stable.
-   *
-   * NOTE: This is almost certainly overkill.  The important things
-   * that need to be stable to make the peering/recovery stuff correct
-   * include:
-   *
-   *   - last_epoch_started, since that bounds how far back in time we
-   *     check old peers
-   *   - ???
-   */
-  osd_lock.Unlock();
-  ulock.Lock();
-  while (!udone)
-    ucond.Wait(ulock);
-  ulock.Unlock();
-  osd_lock.Lock();
-
   if (m->newest_map && m->newest_map > last) {
     dout(10) << " msg say newest map is " << m->newest_map << ", requesting more" << dendl;
     monc->sub_want("osdmap", osdmap->get_epoch()+1, CEPH_SUBSCRIBE_ONETIME);
@@ -3386,12 +3344,6 @@ void OSD::handle_osd_map(MOSDMap *m)
     shutdown();
 
   m->put();
-
-  if (map_in_progress_cond) {
-    map_in_progress = false;
-    dout(15) << "unlocking map_in_progress" << dendl;
-    map_in_progress_cond->Signal();
-  }
 }
 
 void OSD::advance_pg(epoch_t osd_epoch, PG *pg, PG::RecoveryCtx *rctx)
