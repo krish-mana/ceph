@@ -5000,12 +5000,15 @@ void OSD::handle_op(OpRequestRef op)
 	     (!pg->is_primary() ||
 	      !pg->same_for_modify_since(m->get_map_epoch()))) {
     handle_misdirected_op(pg, op);
+    pg->unlock();
     return;
   } else if (m->may_read() &&
 	     !pg->same_for_read_since(m->get_map_epoch())) {
     handle_misdirected_op(pg, op);
+    pg->unlock();
     return;
   } else if (!op_has_sufficient_caps(pg, m)) {
+    pg->unlock();
     return;
   }
 	     
