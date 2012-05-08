@@ -23,7 +23,7 @@ class MOSDPGInfo : public Message {
   epoch_t epoch;
 
 public:
-  vector<pg_info_t> pg_info;
+  vector<pg_notify_t> pg_info;
 
   epoch_t get_epoch() { return epoch; }
 
