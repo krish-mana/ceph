@@ -5120,7 +5120,7 @@ void OSD::process_peering_event(PG *pg)
   map< int, vector<pg_notify_t> > notify_list;
   map<int,MOSDPGInfo*> info_map;  // peer -> message
   bool need_up_thru = false;
-  epoch_t same_epoch_since;
+  epoch_t same_interval_since;
   OSDMapRef curmap;
   {
     map_lock.get_read();
@@ -5151,7 +5151,7 @@ void OSD::process_peering_event(PG *pg)
       delete pfin;
     }
     need_up_thru = pg->need_up_thru;
-    same_epoch_since = pg->info.history.same_interval_since;
+    same_interval_since = pg->info.history.same_interval_since;
     pg->unlock();
   }
   {
