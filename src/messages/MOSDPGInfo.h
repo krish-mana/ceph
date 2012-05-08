@@ -25,7 +25,7 @@ class MOSDPGInfo : public Message {
   static const int COMPAT_VERSION = 1;
 
 public:
-  vector<pg_info_t> pg_info;
+  vector<pg_notify_t> pg_info;
 
   epoch_t get_epoch() { return epoch; }
 

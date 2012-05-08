@@ -527,14 +527,14 @@ public:
   struct RecoveryCtx {
     utime_t start_time;
     map< int, map<pg_t, pg_query_t> > *query_map;
-    map< int, MOSDPGInfo* > *info_map;
+    map< int, vector<pg_notify_t> > *info_map;
     map< int, vector<pg_notify_t> > *notify_list;
     list< Context* > *context_list;
     ObjectStore::Transaction *transaction;
     RecoveryCtx() : query_map(0), info_map(0), notify_list(0),
 		    context_list(0), transaction(0) {}
     RecoveryCtx(map< int, map<pg_t, pg_query_t> > *query_map,
-		map< int, MOSDPGInfo* > *info_map,
+		map< int, vector<pg_notify_t> > *info_map,
 		map< int, vector<pg_notify_t> > *notify_list,
 		list< Context* > *context_list,
 		ObjectStore::Transaction *transaction)
@@ -743,7 +743,7 @@ public:
   void replay_queued_ops();
   void activate(ObjectStore::Transaction& t, list<Context*>& tfin,
 		map< int, map<pg_t,pg_query_t> >& query_map,
-		map<int, MOSDPGInfo*> *activator_map=0);
+		map<int, vector<pg_notify_t> > *activator_map=0);
   void _activate_committed(epoch_t e, entity_inst_t& primary);
   void all_activated_and_committed();
 
@@ -1046,7 +1046,7 @@ public:
 	return state->rctx->query_map;
       }
 
-      map<int, MOSDPGInfo*> *get_info_map() {
+      map<int, vector<pg_notify_t> > *get_info_map() {
 	assert(state->rctx->info_map);
 	return state->rctx->info_map;
       }
