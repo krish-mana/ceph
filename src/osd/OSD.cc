@@ -4140,7 +4140,7 @@ void OSD::handle_pg_notify(OpRequestRef op)
     PG *pg = 0;
 
     int created = 0;
-    pg = get_or_create_pg(it->info, m->get_epoch(), from, created, true);
+    pg = get_or_create_pg(it->info, it->query_epoch, from, created, true);
     if (!pg)
       continue;
     pg->queue_notify(it->epoch_sent, it->query_epoch, from, *it);
@@ -4362,7 +4362,7 @@ void OSD::handle_pg_query(OpRequestRef op)
       pg_history_t history = it->second.history;
       project_pg_history(pgid, history, m->get_epoch(), up, acting);
 
-      if (m->get_epoch() < history.same_interval_since) {
+      if (it->second.epoch_sent < history.same_interval_since) {
         dout(10) << " pg " << pgid << " dne, and pg has changed in "
                  << history.same_interval_since << " (msg from " << m->get_epoch() << ")" << dendl;
         continue;
