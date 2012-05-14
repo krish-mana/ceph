@@ -4384,44 +4384,48 @@ void OSD::handle_pg_query(OpRequestRef op)
 
     PG *pg = 0;
 
-    if (pg_map.count(pgid) == 0) {
-      // get active crush mapping
-      vector<int> up, acting;
-      osdmap->pg_to_up_acting_osds(pgid, up, acting);
-      int role = osdmap->calc_pg_role(whoami, acting, acting.size());
-
-      // same primary?
-      pg_history_t history = it->second.history;
-      project_pg_history(pgid, history, m->get_epoch(), up, acting);
-
-      if (it->second.epoch_sent < history.same_interval_since) {
-        dout(10) << " pg " << pgid << " dne, and pg has changed in "
-                 << history.same_interval_since << " (msg from " << m->get_epoch() << ")" << dendl;
-        continue;
-      }
-
-      assert(role != 0);
-      dout(10) << " pg " << pgid << " dne" << dendl;
-      pg_info_t empty(pgid);
-      if (it->second.type == pg_query_t::LOG ||
-	  it->second.type == pg_query_t::FULLLOG) {
-	MOSDPGLog *mlog = new MOSDPGLog(osdmap->get_epoch(), empty,
-					m->get_epoch());
-	_share_map_outgoing(osdmap->get_cluster_inst(from));
-	cluster_messenger->send_message(mlog,
-					osdmap->get_cluster_inst(from));
+    if (pg_map.count(pgid)) {
+      pg = _lookup_lock_pg(pgid);
+      if (!pg->deleting) {
+	pg->queue_query(it->second.epoch_sent, it->second.epoch_sent,
+			from, it->second);
+	pg->unlock();
+	continue;
       } else {
-	notify_list[from].push_back(pg_notify_t(it->second.epoch_sent,
-						osdmap->get_epoch(),
-						empty));
+	pg->unlock();
       }
-      continue;
     }
 
-    pg = _lookup_lock_pg(pgid);
-    pg->queue_query(it->second.epoch_sent, it->second.epoch_sent,
-		    from, it->second);
-    pg->unlock();
+    // get active crush mapping
+    vector<int> up, acting;
+    osdmap->pg_to_up_acting_osds(pgid, up, acting);
+    int role = osdmap->calc_pg_role(whoami, acting, acting.size());
+    
+    // same primary?
+    pg_history_t history = it->second.history;
+    project_pg_history(pgid, history, m->get_epoch(), up, acting);
+    
+    if (it->second.epoch_sent < history.same_interval_since) {
+      dout(10) << " pg " << pgid << " dne, and pg has changed in "
+	       << history.same_interval_since << " (msg from " << m->get_epoch() << ")" << dendl;
+      continue;
+    }
+    
+    assert(role != 0);
+    dout(10) << " pg " << pgid << " dne" << dendl;
+    pg_info_t empty(pgid);
+    if (it->second.type == pg_query_t::LOG ||
+	it->second.type == pg_query_t::FULLLOG) {
+      MOSDPGLog *mlog = new MOSDPGLog(osdmap->get_epoch(), empty,
+				      m->get_epoch());
+      _share_map_outgoing(osdmap->get_cluster_inst(from));
+      cluster_messenger->send_message(mlog,
+				      osdmap->get_cluster_inst(from));
+    } else {
+      notify_list[from].push_back(pg_notify_t(it->second.epoch_sent,
+					      osdmap->get_epoch(),
+					      empty));
+    }
   }
   do_notifies(notify_list);
 }
