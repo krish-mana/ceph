@@ -49,6 +49,7 @@ using namespace __gnu_cxx;
 #include "OpRequest.h"
 #include "common/shared_cache.hpp"
 #include "common/simple_cache.hpp"
+#include "common/sharedptr_registry.hpp"
 
 #define CEPH_OSD_PROTOCOL    10 /* cluster internal */
 
@@ -132,6 +133,7 @@ class OSD;
 class OSDService {
 public:
   OSD *osd;
+  SharedPtrRegistry<pg_t, ObjectStore::Sequencer> osr_registry;
   const int whoami;
   ObjectStore *&store;
   LogClient &clog;

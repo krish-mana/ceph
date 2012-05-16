@@ -40,6 +40,36 @@ static ostream& _prefix(std::ostream *_dout, const PG *pg) {
   return *_dout << pg->gen_prefix();
 }
 
+PG::PG(OSDService *o, OSDMapRef curmap,
+       PGPool *_pool, pg_t p, const hobject_t& loid, const hobject_t& ioid) : 
+  osd(o), osdmap_ref(curmap), pool(_pool),
+  _lock("PG::_lock"),
+  ref(0), deleting(false), dirty_info(false), dirty_log(false),
+  info(p), coll(p), log_oid(loid), biginfo_oid(ioid),
+  recovery_item(this), scrub_item(this), scrub_finalize_item(this), snap_trim_item(this), remove_item(this), stat_queue_item(this),
+  recovery_ops_active(0),
+  waiting_on_backfill(0),
+  role(0),
+  state(0),
+  need_up_thru(false),
+  need_flush(false),
+  last_peering_reset(0),
+  heartbeat_peer_lock("PG::heartbeat_peer_lock"),
+  backfill_target(-1),
+  pg_stats_lock("PG::pg_stats_lock"),
+  pg_stats_valid(false),
+  osr_ref(osd->osr_registry.lookup(p, (stringify(p)))),
+  osr(*osr_ref),
+  finish_sync_event(NULL),
+  finalizing_scrub(false),
+  scrub_reserved(false), scrub_reserve_failed(false),
+  scrub_waiting_on(0),
+  active_rep_scrub(0),
+  recovery_state(this)
+{
+  pool->get();
+}
+
 void PG::lock(bool no_lockdep)
 {
   _lock.Lock(no_lockdep);
