@@ -46,7 +46,7 @@ PG::PG(OSDService *o, OSDMapRef curmap,
   _lock("PG::_lock"),
   ref(0), deleting(false), dirty_info(false), dirty_log(false),
   info(p), coll(p), log_oid(loid), biginfo_oid(ioid),
-  recovery_item(this), scrub_item(this), scrub_finalize_item(this), snap_trim_item(this), remove_item(this), stat_queue_item(this),
+  recovery_item(this), scrub_item(this), scrub_finalize_item(this), snap_trim_item(this), stat_queue_item(this),
   recovery_ops_active(0),
   waiting_on_backfill(0),
   role(0),
@@ -2955,6 +2955,11 @@ void PG::scrub()
 {
 
   lock();
+  if (deleting) {
+    unlock();
+    put();
+    return;
+  }
 
   if (!is_primary() || !is_active() || !is_clean() || !is_scrubbing()) {
     dout(10) << "scrub -- not primary or active or not clean" << dendl;
@@ -3180,6 +3185,11 @@ void PG::_compare_scrubmaps(const map<int,ScrubMap*> &maps,
 
 void PG::scrub_finalize() {
   lock();
+  if (deleting) {
+    unlock();
+    return;
+  }
+    
   assert(last_update_applied == info.last_update);
 
   if (scrub_epoch_start != info.history.same_interval_since) {
@@ -3519,7 +3529,6 @@ void PG::on_removal()
   osd->scrub_wq.dequeue(this);
   osd->scrub_finalize_wq.dequeue(this);
   osd->snap_trim_wq.dequeue(this);
-  osd->remove_wq.dequeue(this);
   osd->pg_stat_queue_dequeue(this);
 
   remove_watchers_and_notifies();
@@ -3621,12 +3630,6 @@ void PG::start_peering_interval(const OSDMapRef lastmap,
   // pg->on_*
   on_change();
 
-  if (deleting) {
-    dout(10) << *this << " canceling deletion!" << dendl;
-    deleting = false;
-    osd->remove_wq.dequeue(this);
-  }
-    
   if (role != oldrole) {
     // old primary?
     if (oldrole == 0) {
@@ -3777,8 +3780,6 @@ ostream& operator<<(ostream& out, const PG& pg)
   if (pg.snap_trimq.size())
     out << " snaptrimq=" << pg.snap_trimq;
 
-  if (pg.deleting)
-    out << " DELETING";
   out << "]";
 
 
@@ -3931,7 +3932,6 @@ void PG::handle_peering_event(CephPeeringEvtRef evt, RecoveryCtx *rctx)
   }
   if (old_peering_evt(evt))
     return;
-  assert(!deleting);
   recovery_state.handle_event(evt, rctx);
 }
 

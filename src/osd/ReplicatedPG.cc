@@ -1366,9 +1366,14 @@ ReplicatedPG::RepGather *ReplicatedPG::trim_object(const hobject_t &coid,
   return repop;
 }
 
-bool ReplicatedPG::snap_trimmer()
+void ReplicatedPG::snap_trimmer()
 {
   lock();
+  if (deleting) {
+    unlock();
+    put();
+    return;
+  }
   dout(10) << "snap_trimmer entry" << dendl;
   if (is_primary()) {
     entity_inst_t nobody;
@@ -1377,7 +1382,7 @@ bool ReplicatedPG::snap_trimmer()
       queue_snap_trim();
       unlock();
       put();
-      return true;
+      return;
     }
     if (!finalizing_scrub) {
       dout(10) << "snap_trimmer posting" << dendl;
@@ -1400,7 +1405,7 @@ bool ReplicatedPG::snap_trimmer()
   }
   unlock();
   put();
-  return true;
+  return;
 }
 
 int ReplicatedPG::do_xattr_cmp_u64(int op, __u64 v1, bufferlist& xattr)

@@ -322,6 +322,10 @@ public:
     return coll_t(pg_to_tmp_str(pgid));
   }
 
+  static coll_t make_removal_coll(uint64_t seq) {
+    return coll_t(seq_to_removal_str(seq));
+  }
+
   const std::string& to_str() const {
     return str;
   }
@@ -336,6 +340,7 @@ public:
 
   bool is_pg(pg_t& pgid, snapid_t& snap) const;
   bool is_temp(pg_t& pgid) const;
+  bool is_removal(uint64_t *seq) const;
   void encode(bufferlist& bl) const;
   void decode(bufferlist::iterator& bl);
   inline bool operator==(const coll_t& rhs) const {
@@ -357,6 +362,11 @@ private:
   static std::string pg_to_tmp_str(pg_t p) {
     std::ostringstream oss;
     oss << p << "_TEMP";
+    return oss.str();
+  }
+  static std::string seq_to_removal_str(uint64_t seq) {
+    std::ostringstream oss;
+    oss << "FORREMOVAL_" << seq;
     return oss.str();
   }
 
