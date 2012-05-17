@@ -1442,8 +1442,6 @@ void PG::do_request(OpRequestRef op)
     return;
   }
 
-  assert(!waiting_for_active.size());
-
   switch (op->request->get_type()) {
   case CEPH_MSG_OSD_OP:
     do_op(op); // do it now
