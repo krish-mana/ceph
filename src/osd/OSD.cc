@@ -4443,11 +4443,12 @@ void OSD::handle_pg_query(OpRequestRef op)
     
     // same primary?
     pg_history_t history = it->second.history;
-    project_pg_history(pgid, history, m->get_epoch(), up, acting);
+    project_pg_history(pgid, history, it->second.epoch_sent, up, acting);
     
     if (it->second.epoch_sent < history.same_interval_since) {
       dout(10) << " pg " << pgid << " dne, and pg has changed in "
-	       << history.same_interval_since << " (msg from " << m->get_epoch() << ")" << dendl;
+	       << history.same_interval_since
+	       << " (msg from " << it->second.epoch_sent << ")" << dendl;
       continue;
     }
     
@@ -4457,7 +4458,7 @@ void OSD::handle_pg_query(OpRequestRef op)
     if (it->second.type == pg_query_t::LOG ||
 	it->second.type == pg_query_t::FULLLOG) {
       MOSDPGLog *mlog = new MOSDPGLog(osdmap->get_epoch(), empty,
-				      m->get_epoch());
+				      it->second.epoch_sent);
       _share_map_outgoing(osdmap->get_cluster_inst(from));
       cluster_messenger->send_message(mlog,
 				      osdmap->get_cluster_inst(from));
