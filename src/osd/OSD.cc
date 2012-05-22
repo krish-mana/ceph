@@ -1119,7 +1119,9 @@ void OSD::_put_pool(PGPool *p)
   }
 }
 
-PG *OSD::_open_lock_pg(pg_t pgid, bool no_lockdep_check, bool hold_map_lock)
+PG *OSD::_open_lock_pg(
+  OSDMapRef createmap,
+  pg_t pgid, bool no_lockdep_check, bool hold_map_lock)
 {
   assert(osd_lock.is_locked());
 
@@ -1132,7 +1134,7 @@ PG *OSD::_open_lock_pg(pg_t pgid, bool no_lockdep_check, bool hold_map_lock)
   hobject_t logoid = make_pg_log_oid(pgid);
   hobject_t infooid = make_pg_biginfo_oid(pgid);
   if (osdmap->get_pg_type(pgid) == pg_pool_t::TYPE_REP)
-    pg = new ReplicatedPG(&service, osdmap, pool, pgid, logoid, infooid);
+    pg = new ReplicatedPG(&service, createmap, pool, pgid, logoid, infooid);
   else 
     assert(0);
 
@@ -1147,14 +1149,16 @@ PG *OSD::_open_lock_pg(pg_t pgid, bool no_lockdep_check, bool hold_map_lock)
   return pg;
 }
 
-PG *OSD::_create_lock_pg(pg_t pgid, bool newly_created, bool hold_map_lock,
-			 int role, vector<int>& up, vector<int>& acting, pg_history_t history,
-			 ObjectStore::Transaction& t)
+PG *OSD::_create_lock_pg(
+  OSDMapRef createmap,
+  pg_t pgid, bool newly_created, bool hold_map_lock,
+  int role, vector<int>& up, vector<int>& acting, pg_history_t history,
+  ObjectStore::Transaction& t)
 {
   assert(osd_lock.is_locked());
   dout(20) << "_create_lock_pg pgid " << pgid << dendl;
 
-  PG *pg = _open_lock_pg(pgid, true, hold_map_lock);
+  PG *pg = _open_lock_pg(createmap, pgid, true, hold_map_lock);
 
   t.create_collection(coll_t(pgid));
 
@@ -1240,6 +1244,7 @@ void OSD::load_pgs()
       if (it->is_removal(&seq)) {
 	if (seq >= next_removal_seq)
 	  next_removal_seq = seq + 1;
+	dout(10) << "queueing coll " << *it << " for removal, seq is " << seq << dendl;
 	pair<coll_t, SequencerRef> *to_queue = new pair<coll_t, SequencerRef>;
 	to_queue->first = *it;
 	remove_wq.queue(to_queue);
@@ -1265,7 +1270,7 @@ void OSD::load_pgs()
       continue;
     }
 
-    PG *pg = _open_lock_pg(pgid);
+    PG *pg = _open_lock_pg(osdmap, pgid);
 
     // read pg state, log
     pg->read_state(store);
@@ -1345,7 +1350,9 @@ PG *OSD::get_or_create_pg(const pg_info_t& info, epoch_t epoch, int from, int& c
     map< int, map<pg_t,pg_query_t> > query_map;    // peer -> PG -> get_summary_since
     map<int,vector<pg_notify_t> > info_map;  // peer -> message
     PG::RecoveryCtx rctx(&query_map, &info_map, &notify_list, &fin->contexts, t);
-    pg = _create_lock_pg(info.pgid, create, false, role, up, acting, history, *t);
+    pg = _create_lock_pg(
+      get_map(epoch),
+      info.pgid, create, false, role, up, acting, history, *t);
     pg->handle_create(&rctx);
     do_notifies(notify_list);
     do_queries(query_map);
@@ -3837,7 +3844,7 @@ void OSD::do_split(PG *parent, set<pg_t>& childpgids, ObjectStore::Transaction& 
     history.epoch_created = history.same_up_since =
       history.same_interval_since = history.same_primary_since =
       osdmap->get_epoch();
-    PG *pg = _create_lock_pg(*q, true, true,
+    PG *pg = _create_lock_pg(service.get_osdmap(), *q, true, true,
 			     parent->get_role(), parent->up, parent->acting, history, t);
     children[*q] = pg;
     dout(10) << "  child " << *pg << dendl;
@@ -4077,9 +4084,10 @@ void OSD::handle_pg_create(OpRequestRef op)
       ObjectStore::Transaction *t = new ObjectStore::Transaction;
       C_Contexts *fin = new C_Contexts(g_ceph_context);
 
-      PG *pg = _create_lock_pg(pgid, true, false,
-			       0, creating_pgs[pgid].acting, creating_pgs[pgid].acting, history,
-			       *t);
+      PG *pg = _create_lock_pg(
+	osdmap, pgid, true, false,
+	0, creating_pgs[pgid].acting, creating_pgs[pgid].acting, history,
+	*t);
       creating_pgs.erase(pgid);
 
       wake_pg_waiters(pg->info.pgid);
