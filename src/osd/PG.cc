@@ -211,7 +211,7 @@ void PG::proc_replica_log(ObjectStore::Transaction& t,
   peer_missing[from].swap(omissing);
 }
 
-bool PG::proc_replica_info(int from, pg_info_t &oinfo)
+bool PG::proc_replica_info(int from, const pg_info_t &oinfo)
 {
   map<int,pg_info_t>::iterator p = peer_info.find(from);
   if (p != peer_info.end() && p->second.last_update == oinfo.last_update) {
