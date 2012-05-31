@@ -1246,9 +1246,7 @@ void OSD::load_pgs()
  * hasn't changed since the given epoch and we are the primary.
  */
 PG *OSD::get_or_create_pg(const pg_info_t& info, epoch_t epoch, int from, int& created,
-			  bool primary,
-			  ObjectStore::Transaction **pt,
-			  C_Contexts **pfin)
+			  bool primary)
 {
   PG *pg;
   ObjectStore::Transaction *t = 0;
@@ -1297,7 +1295,15 @@ PG *OSD::get_or_create_pg(const pg_info_t& info, epoch_t epoch, int from, int& c
     // ok, create PG locally using provided Info and History
     t = new ObjectStore::Transaction;
     fin = new C_Contexts(g_ceph_context);
+    map< int, vector<pg_info_t> >  notify_list;  // primary -> list
+    map< int, map<pg_t,pg_query_t> > query_map;    // peer -> PG -> get_summary_since
+    map<int,MOSDPGInfo*> info_map;  // peer -> message
+    PG::RecoveryCtx rctx(&query_map, &info_map, &notify_list, &fin->contexts, t);
     pg = _create_lock_pg(info.pgid, create, false, role, up, acting, history, *t);
+    pg->handle_create(&rctx);
+    do_notifies(notify_list, osdmap->get_epoch());
+    do_queries(query_map);
+    do_infos(info_map);
       
     created++;
     dout(10) << *pg << " is new" << dendl;
@@ -1318,14 +1324,10 @@ PG *OSD::get_or_create_pg(const pg_info_t& info, epoch_t epoch, int from, int& c
     t = new ObjectStore::Transaction;
     fin = new C_Contexts(g_ceph_context);
   }
-  if (pt) {
-    assert(pfin);
-    *pt = t;
-    *pfin = fin;
-  } else if (t && t->empty()) {
+  if (t && t->empty()) {
     delete t;
     delete fin;
-  } else {
+  } else if (t) {
     int tr = store->queue_transaction(
       &pg->osr,
       t, new ObjectStore::C_DeleteTransaction(t), fin);
