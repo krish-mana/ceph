@@ -3746,7 +3746,7 @@ void PG::handle_notify(epoch_t msg_epoch,
   dout(10) << "handle_notify " << i << " from osd." << from << dendl;
   handle_peering_event(
     CephPeeringEvtRef(new CephPeeringEvt(msg_epoch, query_epoch,
-					 new MNotifyRec(from, i))),
+					 MNotifyRec(from, i))),
     rctx);
 }
 
@@ -3758,7 +3758,7 @@ void PG::handle_info(epoch_t msg_epoch,
   dout(10) << "handle_info " << i << " from osd." << from << dendl;
   handle_peering_event(
     CephPeeringEvtRef(new CephPeeringEvt(msg_epoch, query_epoch,
-					 new MInfoRec(from, i))),
+					 MInfoRec(from, i))),
     rctx);
 }
 
@@ -3771,7 +3771,7 @@ void PG::handle_log(epoch_t msg_epoch,
   dout(10) << "handle_log " << *msg << " from osd." << from << dendl;
   handle_peering_event(
     CephPeeringEvtRef(new CephPeeringEvt(msg_epoch, query_epoch,
-					 new MLogRec(from, msg))),
+					 MLogRec(from, msg))),
     rctx);
 }
 
@@ -3783,7 +3783,7 @@ void PG::handle_query(epoch_t msg_epoch,
   dout(10) << "handle_query " << q << " from osd." << from << dendl;
   handle_peering_event(
     CephPeeringEvtRef(new CephPeeringEvt(msg_epoch, query_epoch,
-					 new MQuery(from, q, query_epoch))),
+					 MQuery(from, q, query_epoch))),
     rctx);
 }
 
