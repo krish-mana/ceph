@@ -3246,9 +3246,6 @@ void OSD::handle_osd_map(MOSDMap *m)
       dout(1) << "state: booting -> active" << dendl;
       state = STATE_ACTIVE;
     }
-      
-    // yay!
-    activate_map(t, fin->contexts);
   }
 
   bool do_shutdown = false;
@@ -3300,9 +3297,7 @@ void OSD::handle_osd_map(MOSDMap *m)
     }
   }
 
-  // process waiters
-  take_waiters(waiting_for_osdmap);
-
+      
   // note in the superblock that we were clean thru the prior epoch
   if (boot_epoch && boot_epoch >= superblock.mounted) {
     superblock.mounted = boot_epoch;
@@ -3328,6 +3323,9 @@ void OSD::handle_osd_map(MOSDMap *m)
 
   clear_map_bl_cache_pins();
   map_lock.put_write();
+
+  // yay!
+  activate_map(t, fin->contexts);
 
   if (m->newest_map && m->newest_map > last) {
     dout(10) << " msg say newest map is " << m->newest_map << ", requesting more" << dendl;
@@ -3491,7 +3489,7 @@ void OSD::activate_map(ObjectStore::Transaction& t, list<Context*>& tfin)
        it != pg_map.end();
        it++) {
     PG *pg = it->second;
-    pg->lock_with_map_lock_held();
+    pg->lock();
     if (pg->is_primary())
       num_pg_primary++;
     else if (pg->is_replica())
@@ -3520,16 +3518,15 @@ void OSD::activate_map(ObjectStore::Transaction& t, list<Context*>& tfin)
 
   wake_all_pg_waiters();   // the pg mapping may have shifted
   maybe_update_heartbeat_peers();
-/*
-  // TODOSAM: solve map_cache trimming problem
-  trim_map_cache(oldest_last_clean);
-  */ 
 
   if (osdmap->test_flag(CEPH_OSDMAP_FULL)) {
     dout(10) << " osdmap flagged full, doing onetime osdmap subscribe" << dendl;
     monc->sub_want("osdmap", osdmap->get_epoch() + 1, CEPH_SUBSCRIBE_ONETIME);
     monc->renew_subs();
   }
+
+  // process waiters
+  take_waiters(waiting_for_osdmap);
 }
 
 
@@ -5159,11 +5156,11 @@ void OSD::process_peering_event(PG *pg)
     }
     pg->unlock();
   }
-  do_notifies(notify_list);
-  do_queries(query_map);
-  do_infos(info_map);
   {
     Mutex::Locker l(osd_lock);
+    do_notifies(notify_list);
+    do_queries(query_map);
+    do_infos(info_map);
     send_pg_temp();
   }
 }
