@@ -2459,7 +2459,10 @@ void FileStore::_transaction_finish(int fd)
   TEMP_FAILURE_RETRY(::close(fd));
 }
 
-void FileStore::_set_replay_guard(int fd, const SequencerPosition& spos, bool in_progress)
+void FileStore::_set_replay_guard(int fd,
+				  const SequencerPosition& spos,
+				  const hobject_t *hoid,
+				  bool in_progress)
 {
   if (btrfs_stable_commits)
     return;
@@ -2474,7 +2477,7 @@ void FileStore::_set_replay_guard(int fd, const SequencerPosition& spos, bool in
   // sync object_map too.  even if this object has a header or keys,
   // it have had them in the past and then removed them, so always
   // sync.
-  object_map->sync();
+  object_map->sync(hoid, &spos);
 
   _inject_failure();
 
@@ -3267,7 +3270,7 @@ int FileStore::_clone(coll_t cid, const hobject_t& oldoid, const hobject_t& newo
   }
 
   // clone is non-idempotent; record our work.
-  _set_replay_guard(n, spos);
+  _set_replay_guard(n, spos, &newoid);
 
  out3:
   TEMP_FAILURE_RETRY(::close(n));
@@ -3434,7 +3437,7 @@ int FileStore::_clone_range(coll_t cid, const hobject_t& oldoid, const hobject_t
   r = _do_clone_range(o, n, srcoff, len, dstoff);
 
   // clone is non-idempotent; record our work.
-  _set_replay_guard(n, spos);
+  _set_replay_guard(n, spos, &newoid);
 
   TEMP_FAILURE_RETRY(::close(n));
  out:
@@ -4617,7 +4620,7 @@ int FileStore::_collection_add(coll_t c, coll_t oldcid, const hobject_t& o,
   }
   assert(fd >= 0);
   if (dstcmp > 0) {      // if dstcmp == 0 the guard already says "in-progress"
-    _set_replay_guard(fd, spos, true);
+    _set_replay_guard(fd, spos, &o, true);
   }
 
   int r = lfn_link(oldcid, c, o);

@@ -328,7 +328,10 @@ public:
    * @param fd open file descriptor for the file/object
    * @param spos sequencer position of the last operation we should not replay
    */
-  void _set_replay_guard(int fd, const SequencerPosition& spos, bool in_progress=false);
+  void _set_replay_guard(int fd,
+			 const SequencerPosition& spos,
+			 const hobject_t *hoid=0,
+			 bool in_progress=false);
 
   /// close a replay guard opened with in_progress=true
   void _close_replay_guard(int fd, const SequencerPosition& spos);

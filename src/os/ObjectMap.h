@@ -124,7 +124,10 @@ public:
     ) { return 0; }
 
   /// Ensure all previous writes are durable
-  virtual int sync() { return 0; }
+  virtual int sync(
+    const hobject_t *hoid=0,          ///< [in] object
+    const SequencerPosition *spos=0   ///< [in] Sequencer
+    ) { return 0; }
 
   virtual bool check(std::ostream &out) { return true; }
 

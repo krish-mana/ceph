@@ -163,7 +163,7 @@ public:
   bool check(std::ostream &out);
 
   /// Ensure that all previous operations are durable
-  int sync();
+  int sync(const hobject_t *hoid=0, const SequencerPosition *spos=0);
 
   ObjectMapIterator get_iterator(const hobject_t &hoid);
 
@@ -374,10 +374,9 @@ private:
 		      KeyValueDB::Transaction t);
 
   /// Set leaf node for c and hoid to the value of header
-  bool check_update_spos(const hobject_t &hoid,
-			 Header header,
-			 const SequencerPosition *spos,
-			 KeyValueDB::Transaction t);
+  bool check_spos(const hobject_t &hoid,
+		  Header header,
+		  const SequencerPosition *spos);
 
   /// Lookup or create header for c hoid
   Header lookup_create_map_header(const hobject_t &hoid,
@@ -424,7 +423,8 @@ private:
 			 KeyValueDB::Transaction t);
 
   /// Writes out State (mainly next_seq)
-  int write_state(bool sync = false);
+  int write_state(KeyValueDB::Transaction _t =
+		  KeyValueDB::Transaction());
 
   /// 0 if the complete set now contains all of key space, < 0 on error, 1 else
   int need_parent(DBObjectMapIterator iter);
