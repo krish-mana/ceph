@@ -42,7 +42,8 @@ class DeterministicOpSequence : public TestFileStoreState {
     DSOP_COLL_MOVE = 5,
     DSOP_COLL_RENAME = 6,
     DSOP_COLL_ADD = 7,
-    DSOP_SET_ATTRS = 8,
+    DSOP_ATTR_SEQ = 8,
+    DSOP_SET_ATTRS = 9,
 
     DSOP_FIRST = DSOP_TOUCH,
     DSOP_LAST = DSOP_SET_ATTRS,
@@ -68,6 +69,7 @@ class DeterministicOpSequence : public TestFileStoreState {
   void do_coll_rename(rngen_t& gen);
   void do_coll_add(rngen_t& gen);
   void do_set_attrs(rngen_t& gen);
+  void do_attr_sequence(rngen_t& gen);
 
   virtual void _do_touch(coll_t coll, hobject_t& obj);
   virtual void _do_remove(coll_t coll, hobject_t& obj);

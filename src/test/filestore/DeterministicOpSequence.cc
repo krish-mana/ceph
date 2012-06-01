@@ -79,6 +79,9 @@ void DeterministicOpSequence::run_one_op(int op, rngen_t& gen)
   case DSOP_COLL_RENAME:
     //do_coll_rename(gen);
     break;
+  case DSOP_ATTR_SEQ:
+    do_attr_sequence(gen);
+    break;
   case DSOP_SET_ATTRS:
     do_set_attrs(gen);
     break;
@@ -223,6 +226,47 @@ void DeterministicOpSequence::do_set_attrs(rngen_t& gen) {
 
   dout(0) << "do_set_attrs " << out.size() << " entries" << dendl;
   return _do_set_attrs(entry->m_coll, *obj, out);
+}
+
+void DeterministicOpSequence::do_attr_sequence(rngen_t& gen) {
+  int coll_id = _gen_coll_id(gen);
+  int coll_id2 = _gen_coll_id(gen);
+  int obj_id = _gen_obj_id(gen);
+  int obj_id2 = _gen_obj_id(gen);
+  if (obj_id == obj_id2 || coll_id == coll_id2)
+    return;
+
+  coll_entry_t *entry = get_coll_at(coll_id);
+  if (!entry) {
+    dout(0) << "do_set_attrs coll id " << coll_id << " non-existent" << dendl;
+    return;
+  }
+
+  coll_entry_t *entry2 = get_coll_at(coll_id2);
+  if (!entry) {
+    dout(0) << "do_set_attrs coll id " << coll_id2 << " non-existent" << dendl;
+    return;
+  }
+
+  hobject_t *obj1_coll1 = entry->touch_obj(obj_id);
+  hobject_t *obj1_coll2 = entry2->touch_obj(obj_id);
+  hobject_t *obj2_coll2 = entry2->touch_obj(obj_id2);
+
+  map<string, bufferlist> out;
+  gen_attrs(gen, &out);
+
+  dout(0) << "do_attr_seq" << out.size() << " entries" << dendl;
+
+  ObjectStore::Transaction t;
+  note_txn(&t);
+  t.touch(entry->m_coll, *obj1_coll1);
+  t.remove(entry2->m_coll, *obj1_coll2);
+  t.collection_add(entry2->m_coll, entry->m_coll, *obj1_coll1);
+  t.remove(entry->m_coll, *obj1_coll1);
+  t.omap_setkeys(entry2->m_coll, *obj1_coll2, out);
+  t.remove(entry2->m_coll, *obj2_coll2);
+  t.clone(entry2->m_coll, *obj1_coll2, *obj2_coll2);
+  return;
 }
 
 void DeterministicOpSequence::do_write(rngen_t& gen)
