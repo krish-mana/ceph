@@ -440,7 +440,9 @@ void ReplicatedPG::do_pg_op(OpRequestRef op)
         dout(10) << " pgls pg=" << m->get_pg() << " != " << info.pgid << dendl;
 	result = 0; // hmm?
       } else {
-        dout(10) << " pgls pg=" << m->get_pg() << " count " << p->op.pgls.count << dendl;
+	unsigned list_size = MIN(g_conf->osd_max_pgls, p->op.pgls.count);
+
+        dout(10) << " pgls pg=" << m->get_pg() << " count " << list_size << dendl;
 	// read into a buffer
         vector<hobject_t> sentries;
         pg_ls_response_t response;
@@ -457,8 +459,8 @@ void ReplicatedPG::do_pg_op(OpRequestRef op)
 	hobject_t current = response.handle;
 	osr.flush();
 	int r = osd->store->collection_list_partial(coll, current,
-						    p->op.pgls.count,
-						    p->op.pgls.count,
+						    list_size,
+						    list_size,
 						    snapid,
 						    &sentries,
 						    &next);
@@ -472,7 +474,8 @@ void ReplicatedPG::do_pg_op(OpRequestRef op)
 	  missing.missing.lower_bound(current);
 	vector<hobject_t>::iterator ls_iter = sentries.begin();
 	while (1) {
-	  if (ls_iter == sentries.end()) {
+	  if (ls_iter == sentries.end() ||
+	      response.entries.size() == list_size) {
 	    break;
 	  }
 
@@ -484,7 +487,7 @@ void ReplicatedPG::do_pg_op(OpRequestRef op)
 	    candidate = (missing_iter++)->first;
 	  }
 
-	  if (response.entries.size() == p->op.pgls.count) {
+	  if (response.entries.size() == list_size) {
 	    next = candidate;
 	  }
 
@@ -520,6 +523,8 @@ void ReplicatedPG::do_pg_op(OpRequestRef op)
 	  response.entries.push_back(make_pair(candidate.oid,
 					       candidate.get_key()));
 	}
+	if (response.entries.size() < list_size)
+	  result = 1;
 	response.handle = next;
 	::encode(response, outdata);
 	if (filter)
