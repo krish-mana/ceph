@@ -1405,6 +1405,7 @@ void PG::do_request(OpRequestRef op)
     return;
   } else if (is_replay()) {
     waiting_for_active.push_back(op);
+    return;
   }
 
   switch (op->request->get_type()) {
