@@ -5192,6 +5192,10 @@ void OSD::process_peering_event(PG *pg)
     pg->lock();
     curmap = osdmap;
     map_lock.put_read();
+    if (pg->deleting) {
+      pg->unlock();
+      return;
+    }
     ObjectStore::Transaction *t = new ObjectStore::Transaction;
     C_Contexts *pfin = new C_Contexts(g_ceph_context);
     PG::RecoveryCtx rctx(&query_map, &info_map, &notify_list,
