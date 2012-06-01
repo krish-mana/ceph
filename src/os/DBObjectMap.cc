@@ -1187,7 +1187,7 @@ bool DBObjectMap::check_update_spos(const hobject_t &hoid,
     return false;
   if (*spos <= header->spos) {
     dout(10) << "skipping op, passed spos " << *spos
-	     << " <= header.spos " << header.spos << dendl;
+	     << " <= header.spos " << header->spos << dendl;
     return true;
   } else {
     header->spos = *spos;
