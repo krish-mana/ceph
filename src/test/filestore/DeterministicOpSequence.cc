@@ -263,6 +263,7 @@ void DeterministicOpSequence::do_attr_sequence(rngen_t& gen) {
   t.remove(entry2->m_coll, *obj1_coll2);
   t.collection_add(entry2->m_coll, entry->m_coll, *obj1_coll1);
   t.remove(entry->m_coll, *obj1_coll1);
+  t.touch(entry->m_coll, *obj1_coll1);
   t.omap_setkeys(entry2->m_coll, *obj1_coll2, out);
   t.remove(entry2->m_coll, *obj2_coll2);
   t.clone(entry2->m_coll, *obj1_coll2, *obj2_coll2);
