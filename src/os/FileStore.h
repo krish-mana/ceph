@@ -403,9 +403,12 @@ public:
   int _getattr(const char *fn, const char *name, bufferptr& bp);
   int _getattrs(const char *fn, map<string,bufferptr>& aset, bool user_only = false);
 
-  int _setattrs(coll_t cid, const hobject_t& oid, map<string,bufferptr>& aset);
-  int _rmattr(coll_t cid, const hobject_t& oid, const char *name);
-  int _rmattrs(coll_t cid, const hobject_t& oid);
+  int _setattrs(coll_t cid, const hobject_t& oid, map<string,bufferptr>& aset,
+		const SequencerPosition &spos);
+  int _rmattr(coll_t cid, const hobject_t& oid, const char *name,
+	      const SequencerPosition &spos);
+  int _rmattrs(coll_t cid, const hobject_t& oid,
+	       const SequencerPosition &spos);
 
   int collection_getattr(coll_t c, const char *name, void *value, size_t size);
   int collection_getattr(coll_t c, const char *name, bufferlist& bl);
@@ -453,11 +456,15 @@ private:
   void _inject_failure();
 
   // omap
-  int _omap_clear(coll_t cid, const hobject_t &hoid);
+  int _omap_clear(coll_t cid, const hobject_t &hoid,
+		  const SequencerPosition &spos);
   int _omap_setkeys(coll_t cid, const hobject_t &hoid,
-		    const map<string, bufferlist> &aset);
-  int _omap_rmkeys(coll_t cid, const hobject_t &hoid, const set<string> &keys);
-  int _omap_setheader(coll_t cid, const hobject_t &hoid, const bufferlist &bl);
+		    const map<string, bufferlist> &aset,
+		    const SequencerPosition &spos);
+  int _omap_rmkeys(coll_t cid, const hobject_t &hoid, const set<string> &keys,
+		   const SequencerPosition &spos);
+  int _omap_setheader(coll_t cid, const hobject_t &hoid, const bufferlist &bl,
+		      const SequencerPosition &spos);
 
   virtual const char** get_tracked_conf_keys() const;
   virtual void handle_conf_change(const struct md_config_t *conf,

@@ -498,12 +498,15 @@ int DBObjectMap::DBObjectMapIteratorImpl::status()
 }
 
 int DBObjectMap::set_keys(const hobject_t &hoid,
-			  const map<string, bufferlist> &set)
+			  const map<string, bufferlist> &set,
+			  const SequencerPosition *spos)
 {
   KeyValueDB::Transaction t = db->get_transaction();
   Header header = lookup_create_map_header(hoid, t);
   if (!header)
     return -EINVAL;
+  if (check_update_spos(hoid, header, spos, t))
+    return 0;
 
   t->set(user_prefix(header), set);
 
@@ -511,12 +514,15 @@ int DBObjectMap::set_keys(const hobject_t &hoid,
 }
 
 int DBObjectMap::set_header(const hobject_t &hoid,
-			    const bufferlist &bl)
+			    const bufferlist &bl,
+			    const SequencerPosition *spos)
 {
   KeyValueDB::Transaction t = db->get_transaction();
   Header header = lookup_create_map_header(hoid, t);
   if (!header)
     return -EINVAL;
+  if (check_update_spos(hoid, header, spos, t))
+    return 0;
   _set_header(header, bl, t);
   return db->submit_transaction(t);
 }
@@ -564,12 +570,15 @@ int DBObjectMap::_get_header(Header header,
   return 0;
 }
 
-int DBObjectMap::clear(const hobject_t &hoid)
+int DBObjectMap::clear(const hobject_t &hoid,
+		       const SequencerPosition *spos)
 {
   KeyValueDB::Transaction t = db->get_transaction();
   Header header = lookup_map_header(hoid);
   if (!header)
     return -ENOENT;
+  if (check_update_spos(hoid, header, spos, t))
+    return 0;
   remove_map_header(hoid, header, t);
   assert(header->num_children > 0);
   header->num_children--;
@@ -683,12 +692,15 @@ int DBObjectMap::need_parent(DBObjectMapIterator iter)
 }
 
 int DBObjectMap::rm_keys(const hobject_t &hoid,
-			 const set<string> &to_clear)
+			 const set<string> &to_clear,
+			 const SequencerPosition *spos)
 {
   Header header = lookup_map_header(hoid);
   if (!header)
     return -ENOENT;
   KeyValueDB::Transaction t = db->get_transaction();
+  if (check_update_spos(hoid, header, spos, t))
+    return 0;
   t->rmkeys(user_prefix(header), to_clear);
   if (!header->parent) {
     return db->submit_transaction(t);
@@ -853,29 +865,36 @@ int DBObjectMap::get_all_xattrs(const hobject_t &hoid,
 }
 
 int DBObjectMap::set_xattrs(const hobject_t &hoid,
-			    const map<string, bufferlist> &to_set)
+			    const map<string, bufferlist> &to_set,
+			    const SequencerPosition *spos)
 {
   KeyValueDB::Transaction t = db->get_transaction();
   Header header = lookup_create_map_header(hoid, t);
   if (!header)
     return -EINVAL;
+  if (check_update_spos(hoid, header, spos, t))
+    return 0;
   t->set(xattr_prefix(header), to_set);
   return db->submit_transaction(t);
 }
 
 int DBObjectMap::remove_xattrs(const hobject_t &hoid,
-			       const set<string> &to_remove)
+			       const set<string> &to_remove,
+			       const SequencerPosition *spos)
 {
   KeyValueDB::Transaction t = db->get_transaction();
   Header header = lookup_map_header(hoid);
   if (!header)
     return -ENOENT;
+  if (check_update_spos(hoid, header, spos, t))
+    return 0;
   t->rmkeys(xattr_prefix(header), to_remove);
   return db->submit_transaction(t);
 }
 
 int DBObjectMap::clone(const hobject_t &hoid,
-		       const hobject_t &target)
+		       const hobject_t &target,
+		       const SequencerPosition *spos)
 {
   if (hoid == target)
     return 0;
@@ -885,6 +904,8 @@ int DBObjectMap::clone(const hobject_t &hoid,
     Header destination = lookup_map_header(target);
     if (destination) {
       remove_map_header(target, destination, t);
+      if (check_update_spos(target, destination, spos, t))
+	return 0;
       destination->num_children--;
       _clear(destination, t);
     }
@@ -896,6 +917,8 @@ int DBObjectMap::clone(const hobject_t &hoid,
 
   Header source = generate_new_header(hoid, parent);
   Header destination = generate_new_header(target, parent);
+  if (spos)
+    destination->spos = *spos;
 
   parent->num_children = 2;
   set_header(parent, t);
@@ -1153,4 +1176,20 @@ void DBObjectMap::set_map_header(const hobject_t &hoid, _Header header,
   map<string, bufferlist> to_set;
   header.encode(to_set[map_header_key(hoid)]);
   t->set(HOBJECT_TO_SEQ, to_set);
+}
+
+bool DBObjectMap::check_update_spos(const hobject_t &hoid,
+				    Header header,
+				    const SequencerPosition *spos,
+				    KeyValueDB::Transaction t)
+{
+  if (!spos)
+    return false;
+  if (*spos <= header->spos) {
+    return true;
+  } else {
+    header->spos = *spos;
+    set_map_header(hoid, *header, t);
+    return false;
+  }
 }

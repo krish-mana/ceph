@@ -2688,7 +2688,7 @@ unsigned FileStore::_do_transaction(Transaction& t, uint64_t op_seq, int trans_n
 	if (_check_replay_guard(cid, oid, spos) > 0) {
 	  map<string, bufferptr> to_set;
 	  to_set[name] = bufferptr(bl.c_str(), bl.length());
-	  r = _setattrs(cid, oid, to_set);
+	  r = _setattrs(cid, oid, to_set, spos);
 	  if (r == -ENOSPC)
 	    dout(0) << " ENOSPC on setxattr on " << cid << "/" << oid
 		    << " name " << name << " size " << bl.length() << dendl;
@@ -2703,7 +2703,7 @@ unsigned FileStore::_do_transaction(Transaction& t, uint64_t op_seq, int trans_n
 	map<string, bufferptr> aset;
 	i.get_attrset(aset);
 	if (_check_replay_guard(cid, oid, spos) > 0)
-	  r = _setattrs(cid, oid, aset);
+	  r = _setattrs(cid, oid, aset, spos);
   	if (r == -ENOSPC)
 	  dout(0) << " ENOSPC on setxattrs on " << cid << "/" << oid << dendl;
       }
@@ -2715,7 +2715,7 @@ unsigned FileStore::_do_transaction(Transaction& t, uint64_t op_seq, int trans_n
 	hobject_t oid = i.get_oid();
 	string name = i.get_attrname();
 	if (_check_replay_guard(cid, oid, spos) > 0)
-	  r = _rmattr(cid, oid, name.c_str());
+	  r = _rmattr(cid, oid, name.c_str(), spos);
       }
       break;
 
@@ -2724,7 +2724,7 @@ unsigned FileStore::_do_transaction(Transaction& t, uint64_t op_seq, int trans_n
 	coll_t cid = i.get_cid();
 	hobject_t oid = i.get_oid();
 	if (_check_replay_guard(cid, oid, spos) > 0)
-	  r = _rmattrs(cid, oid);
+	  r = _rmattrs(cid, oid, spos);
       }
       break;
       
@@ -2843,7 +2843,7 @@ unsigned FileStore::_do_transaction(Transaction& t, uint64_t op_seq, int trans_n
       {
 	coll_t cid(i.get_cid());
 	hobject_t oid = i.get_oid();
-	r = _omap_clear(cid, oid);
+	r = _omap_clear(cid, oid, spos);
       }
       break;
     case Transaction::OP_OMAP_SETKEYS:
@@ -2852,7 +2852,7 @@ unsigned FileStore::_do_transaction(Transaction& t, uint64_t op_seq, int trans_n
 	hobject_t oid = i.get_oid();
 	map<string, bufferlist> aset;
 	i.get_attrset(aset);
-	r = _omap_setkeys(cid, oid, aset);
+	r = _omap_setkeys(cid, oid, aset, spos);
       }
       break;
     case Transaction::OP_OMAP_RMKEYS:
@@ -2861,7 +2861,7 @@ unsigned FileStore::_do_transaction(Transaction& t, uint64_t op_seq, int trans_n
 	hobject_t oid = i.get_oid();
 	set<string> keys;
 	i.get_keyset(keys);
-	r = _omap_rmkeys(cid, oid, keys);
+	r = _omap_rmkeys(cid, oid, keys, spos);
       }
       break;
     case Transaction::OP_OMAP_SETHEADER:
@@ -2870,7 +2870,7 @@ unsigned FileStore::_do_transaction(Transaction& t, uint64_t op_seq, int trans_n
 	hobject_t oid = i.get_oid();
 	bufferlist bl;
 	i.get_bl(bl);
-	r = _omap_setheader(cid, oid, bl);
+	r = _omap_setheader(cid, oid, bl, spos);
       }
       break;
 
@@ -3250,7 +3250,7 @@ int FileStore::_clone(coll_t cid, const hobject_t& oldoid, const hobject_t& newo
       goto out3;
     }
     dout(20) << "objectmap clone" << dendl;
-    r = object_map->clone(oldoid, newoid);
+    r = object_map->clone(oldoid, newoid, &spos);
     if (r < 0 && r != -ENOENT)
       goto out3;
   }
@@ -3261,7 +3261,7 @@ int FileStore::_clone(coll_t cid, const hobject_t& oldoid, const hobject_t& newo
     if (r < 0)
       goto out3;
 
-    r = _setattrs(cid, newoid, aset);
+    r = _setattrs(cid, newoid, aset, spos);
     if (r < 0)
       goto out3;
   }
@@ -4091,7 +4091,8 @@ int FileStore::getattrs(coll_t cid, const hobject_t& oid, map<string,bufferptr>&
   return r;
 }
 
-int FileStore::_setattrs(coll_t cid, const hobject_t& oid, map<string,bufferptr>& aset) 
+int FileStore::_setattrs(coll_t cid, const hobject_t& oid, map<string,bufferptr>& aset,
+			 const SequencerPosition &spos)
 {
   map<string, bufferlist> omap_set;
   set<string> omap_remove;
@@ -4152,12 +4153,12 @@ int FileStore::_setattrs(coll_t cid, const hobject_t& oid, map<string,bufferptr>
       dout(10) << __func__ << " could not get index r = " << r << dendl;
       return r;
     }
-    r = object_map->remove_xattrs(oid, omap_remove);
+    r = object_map->remove_xattrs(oid, omap_remove, &spos);
     if (r < 0 && r != -ENOENT) {
       dout(10) << __func__ << " could not remove_xattrs r = " << r << dendl;
       return r;
     }
-    r = object_map->set_xattrs(oid, omap_set);
+    r = object_map->set_xattrs(oid, omap_set, &spos);
     if (r < 0) {
       dout(10) << __func__ << " could not set_xattrs r = " << r << dendl;
       return r;
@@ -4168,7 +4169,8 @@ int FileStore::_setattrs(coll_t cid, const hobject_t& oid, map<string,bufferptr>
 }
 
 
-int FileStore::_rmattr(coll_t cid, const hobject_t& oid, const char *name) 
+int FileStore::_rmattr(coll_t cid, const hobject_t& oid, const char *name,
+		       const SequencerPosition &spos)
 {
   dout(15) << "rmattr " << cid << "/" << oid << " '" << name << "'" << dendl;
   char n[ATTR_MAX_NAME_LEN];
@@ -4183,7 +4185,7 @@ int FileStore::_rmattr(coll_t cid, const hobject_t& oid, const char *name)
     }
     set<string> to_remove;
     to_remove.insert(string(name));
-    r = object_map->remove_xattrs(oid, to_remove);
+    r = object_map->remove_xattrs(oid, to_remove, &spos);
     if (r < 0 && r != -ENOENT) {
       dout(10) << __func__ << " could not remove_xattrs index r = " << r << dendl;
       return r;
@@ -4193,7 +4195,8 @@ int FileStore::_rmattr(coll_t cid, const hobject_t& oid, const char *name)
   return r;
 }
 
-int FileStore::_rmattrs(coll_t cid, const hobject_t& oid) 
+int FileStore::_rmattrs(coll_t cid, const hobject_t& oid,
+			const SequencerPosition &spos)
 {
   dout(15) << "rmattrs " << cid << "/" << oid << dendl;
 
@@ -4221,7 +4224,7 @@ int FileStore::_rmattrs(coll_t cid, const hobject_t& oid)
       dout(10) << __func__ << " could not get omap_attrs r = " << r << dendl;
       return r;
     }
-    r = object_map->remove_xattrs(oid, omap_attrs);
+    r = object_map->remove_xattrs(oid, omap_attrs, &spos);
     if (r < 0 && r != -ENOENT) {
       dout(10) << __func__ << " could not remove omap_attrs r = " << r << dendl;
       return r;
@@ -4656,47 +4659,51 @@ void FileStore::_inject_failure()
   }
 }
 
-int FileStore::_omap_clear(coll_t cid, const hobject_t &hoid) {
+int FileStore::_omap_clear(coll_t cid, const hobject_t &hoid,
+			   const SequencerPosition &spos) {
   dout(15) << __func__ << " " << cid << "/" << hoid << dendl;
   IndexedPath path;
   int r = lfn_find(cid, hoid, &path);
   if (r < 0)
     return r;
-  r = object_map->clear(hoid);
+  r = object_map->clear(hoid, &spos);
   if (r < 0 && r != -ENOENT)
     return r;
   return 0;
 }
 int FileStore::_omap_setkeys(coll_t cid, const hobject_t &hoid,
-			     const map<string, bufferlist> &aset) {
+			     const map<string, bufferlist> &aset,
+			     const SequencerPosition &spos) {
   dout(15) << __func__ << " " << cid << "/" << hoid << dendl;
   IndexedPath path;
   int r = lfn_find(cid, hoid, &path);
   if (r < 0)
     return r;
-  return object_map->set_keys(hoid, aset);
+  return object_map->set_keys(hoid, aset, &spos);
 }
 int FileStore::_omap_rmkeys(coll_t cid, const hobject_t &hoid,
-			   const set<string> &keys) {
+			    const set<string> &keys,
+			    const SequencerPosition &spos) {
   dout(15) << __func__ << " " << cid << "/" << hoid << dendl;
   IndexedPath path;
   int r = lfn_find(cid, hoid, &path);
   if (r < 0)
     return r;
-  r = object_map->rm_keys(hoid, keys);
+  r = object_map->rm_keys(hoid, keys, &spos);
   if (r < 0 && r != -ENOENT)
     return r;
   return 0;
 }
 int FileStore::_omap_setheader(coll_t cid, const hobject_t &hoid,
-			       const bufferlist &bl)
+			       const bufferlist &bl,
+			       const SequencerPosition &spos)
 {
   dout(15) << __func__ << " " << cid << "/" << hoid << dendl;
   IndexedPath path;
   int r = lfn_find(cid, hoid, &path);
   if (r < 0)
     return r;
-  return object_map->set_header(hoid, bl);
+  return object_map->set_header(hoid, bl, &spos);
 }
 
 

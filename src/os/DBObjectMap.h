@@ -75,12 +75,14 @@ public:
 
   int set_keys(
     const hobject_t &hoid,
-    const map<string, bufferlist> &set
+    const map<string, bufferlist> &set,
+    const SequencerPosition *spos=0
     );
 
   int set_header(
     const hobject_t &hoid,
-    const bufferlist &bl
+    const bufferlist &bl,
+    const SequencerPosition *spos=0
     );
 
   int get_header(
@@ -89,12 +91,14 @@ public:
     );
 
   int clear(
-    const hobject_t &hoid
+    const hobject_t &hoid,
+    const SequencerPosition *spos=0
     );
 
   int rm_keys(
     const hobject_t &hoid,
-    const set<string> &to_clear
+    const set<string> &to_clear,
+    const SequencerPosition *spos=0
     );
 
   int get(
@@ -133,17 +137,20 @@ public:
 
   int set_xattrs(
     const hobject_t &hoid,
-    const map<string, bufferlist> &to_set
+    const map<string, bufferlist> &to_set,
+    const SequencerPosition *spos=0
     );
 
   int remove_xattrs(
     const hobject_t &hoid,
-    const set<string> &to_remove
+    const set<string> &to_remove,
+    const SequencerPosition *spos=0
     );
 
   int clone(
     const hobject_t &hoid,
-    const hobject_t &target
+    const hobject_t &target,
+    const SequencerPosition *spos=0
     );
 
   /// Read initial state from backing store
@@ -215,13 +222,16 @@ public:
     coll_t c;
     hobject_t hoid;
 
+    SequencerPosition spos;
+
     void encode(bufferlist &bl) const {
-      ENCODE_START(1, 1, bl);
+      ENCODE_START(2, 1, bl);
       ::encode(seq, bl);
       ::encode(parent, bl);
       ::encode(num_children, bl);
       ::encode(c, bl);
       ::encode(hoid, bl);
+      ::encode(spos, bl);
       ENCODE_FINISH(bl);
     }
 
@@ -232,6 +242,7 @@ public:
       ::decode(num_children, bl);
       ::decode(c, bl);
       ::decode(hoid, bl);
+      ::decode(spos, bl);
       DECODE_FINISH(bl);
     }
 
@@ -361,6 +372,12 @@ private:
   /// Set leaf node for c and hoid to the value of header
   void set_map_header(const hobject_t &hoid, _Header header,
 		      KeyValueDB::Transaction t);
+
+  /// Set leaf node for c and hoid to the value of header
+  bool check_update_spos(const hobject_t &hoid,
+			 Header header,
+			 const SequencerPosition *spos,
+			 KeyValueDB::Transaction t);
 
   /// Lookup or create header for c hoid
   Header lookup_create_map_header(const hobject_t &hoid,
