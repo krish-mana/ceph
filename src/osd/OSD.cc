@@ -3325,7 +3325,7 @@ void OSD::handle_osd_map(MOSDMap *m)
   map_lock.put_write();
 
   // yay!
-  activate_map(t, fin->contexts);
+  activate_map();
 
   if (m->newest_map && m->newest_map > last) {
     dout(10) << " msg say newest map is " << m->newest_map << ", requesting more" << dendl;
@@ -3474,7 +3474,7 @@ void OSD::advance_map(ObjectStore::Transaction& t, C_Contexts *tfin)
   }
 }
 
-void OSD::activate_map(ObjectStore::Transaction& t, list<Context*>& tfin)
+void OSD::activate_map()
 {
   assert(osd_lock.is_locked());
 
