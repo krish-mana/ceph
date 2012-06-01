@@ -3859,7 +3859,7 @@ void PG::take_waiters()
 
 void PG::handle_peering_event(CephPeeringEvtRef evt, RecoveryCtx *rctx)
 {
-  dout(10) << "handle_peering_event" << dendl;
+  dout(10) << "handle_peering_event: " << evt->get_desc() << dendl;
   if (!require_same_or_newer_map(evt->get_epoch_sent())) {
     peering_waiters.push_back(evt);
     return;
