@@ -5003,11 +5003,11 @@ void OSD::handle_op(OpRequestRef op)
   } else if (m->may_write() &&
 	     (!pg->is_primary() ||
 	      !pg->same_for_modify_since(m->get_map_epoch()))) {
-    handle_misdirected_op(NULL, op);
+    handle_misdirected_op(pg, op);
     return;
   } else if (m->may_read() &&
-	     !pg->same_for_modify_since(m->get_map_epoch())) {
-    handle_misdirected_op(NULL, op);
+	     !pg->same_for_read_since(m->get_map_epoch())) {
+    handle_misdirected_op(pg, op);
     return;
   } else if (!op_has_sufficient_caps(pg, m)) {
     return;
