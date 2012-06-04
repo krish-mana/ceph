@@ -3304,12 +3304,6 @@ void OSD::handle_osd_map(MOSDMap *m)
     superblock.clean_thru = osdmap->get_epoch();
   }
 
-  // completion
-  Mutex ulock("OSD::handle_osd_map() ulock");
-  Cond ucond;
-  bool udone;
-  fin->add(new C_SafeCond(&ulock, &ucond, &udone));
-
   // superblock and commit
   write_superblock(t);
   int r = store->apply_transaction(t, fin);
