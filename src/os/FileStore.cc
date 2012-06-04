@@ -366,7 +366,8 @@ int FileStore::lfn_link(coll_t c, coll_t cid, const hobject_t& o)
   return 0;
 }
 
-int FileStore::lfn_unlink(coll_t cid, const hobject_t& o)
+int FileStore::lfn_unlink(coll_t cid, const hobject_t& o,
+			  const SequencerPosition &spos)
 {
   Index index;
   int r = get_index(cid, &index);
@@ -385,7 +386,7 @@ int FileStore::lfn_unlink(coll_t cid, const hobject_t& o)
       return -errno;
     }
     if (st.st_nlink == 1) {
-      r = object_map->clear(o);
+      r = object_map->clear(o, &spos);
       if (r < 0 && r != -ENOENT)
 	return r;
     }
@@ -2677,7 +2678,7 @@ unsigned FileStore::_do_transaction(Transaction& t, uint64_t op_seq, int trans_n
 	coll_t cid = i.get_cid();
 	hobject_t oid = i.get_oid();
 	if (_check_replay_guard(cid, oid, spos) > 0)
-	  r = _remove(cid, oid);
+	  r = _remove(cid, oid, spos);
       }
       break;
       
@@ -2793,7 +2794,7 @@ unsigned FileStore::_do_transaction(Transaction& t, uint64_t op_seq, int trans_n
 	coll_t cid = i.get_cid();
 	hobject_t oid = i.get_oid();
 	if (_check_replay_guard(cid, oid, spos) > 0)
-	  r = _collection_remove(cid, oid);
+	  r = _remove(cid, oid, spos);
        }
       break;
 
@@ -2806,7 +2807,7 @@ unsigned FileStore::_do_transaction(Transaction& t, uint64_t op_seq, int trans_n
 	r = _collection_add(ocid, ncid, oid, spos);
 	if (r == 0 &&
 	    (_check_replay_guard(ocid, oid, spos) > 0))
-	  r = _collection_remove(ocid, oid);
+	  r = _remove(ocid, oid, spos);
       }
       break;
 
@@ -3093,10 +3094,11 @@ done:
 }
 
 
-int FileStore::_remove(coll_t cid, const hobject_t& oid) 
+int FileStore::_remove(coll_t cid, const hobject_t& oid,
+		       const SequencerPosition &spos) 
 {
   dout(15) << "remove " << cid << "/" << oid << dendl;
-  int r = lfn_unlink(cid, oid);
+  int r = lfn_unlink(cid, oid, spos);
   dout(10) << "remove " << cid << "/" << oid << " = " << r << dendl;
   return r;
 }
@@ -4639,15 +4641,6 @@ int FileStore::_collection_add(coll_t c, coll_t oldcid, const hobject_t& o,
   dout(10) << "collection_add " << c << "/" << o << " from " << oldcid << "/" << o << " = " << r << dendl;
   return r;
 }
-
-int FileStore::_collection_remove(coll_t c, const hobject_t& o) 
-{
-  dout(15) << "collection_remove " << c << "/" << o << dendl;
-  int r = lfn_unlink(c, o);
-  dout(10) << "collection_remove " << c << "/" << o << " = " << r << dendl;
-  return r;
-}
-
 
 void FileStore::_inject_failure()
 {

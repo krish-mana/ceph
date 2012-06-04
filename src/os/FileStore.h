@@ -282,7 +282,7 @@ public:
   int lfn_open(coll_t cid, const hobject_t& oid, int flags, mode_t mode);
   int lfn_open(coll_t cid, const hobject_t& oid, int flags);
   int lfn_link(coll_t c, coll_t cid, const hobject_t& o) ;
-  int lfn_unlink(coll_t cid, const hobject_t& o);
+  int lfn_unlink(coll_t cid, const hobject_t& o, const SequencerPosition &spos);
 
  public:
   FileStore(const std::string &base, const std::string &jdev, const char *internal_name = "filestore", bool update_to=false);
@@ -377,7 +377,7 @@ public:
 		   const SequencerPosition& spos);
   int _do_clone_range(int from, int to, uint64_t srcoff, uint64_t len, uint64_t dstoff);
   int _do_copy_range(int from, int to, uint64_t srcoff, uint64_t len, uint64_t dstoff);
-  int _remove(coll_t cid, const hobject_t& oid);
+  int _remove(coll_t cid, const hobject_t& oid, const SequencerPosition &spos);
 
   void _start_sync();
 
@@ -449,8 +449,6 @@ public:
   int _destroy_collection(coll_t c);
   int _collection_add(coll_t c, coll_t ocid, const hobject_t& o,
 		      const SequencerPosition& spos);
-  int _collection_remove(coll_t c, const hobject_t& o);
-
   void dump_start(const std::string& file);
   void dump_stop();
   void dump_transactions(list<ObjectStore::Transaction*>& ls, uint64_t seq, OpSequencer *osr);
