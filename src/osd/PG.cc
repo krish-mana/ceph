@@ -1397,10 +1397,10 @@ void PG::do_request(OpRequestRef op)
 {
   // do any pending flush
   do_pending_flush();
-  if (can_discard_request(op)) {
-    return;
-  } else if (must_delay_request(op)) {
+  if (must_delay_request(op)) {
     op_waiters.push_back(op);
+    return;
+  } else if (can_discard_request(op)) {
     return;
   } else if (!is_active()) {
     waiting_for_active.push_back(op);
@@ -1409,6 +1409,8 @@ void PG::do_request(OpRequestRef op)
     waiting_for_active.push_back(op);
     return;
   }
+
+  assert(!waiting_for_active.size());
 
   switch (op->request->get_type()) {
   case CEPH_MSG_OSD_OP:
@@ -3747,9 +3749,11 @@ bool PG::can_discard_op(OpRequestRef op)
   } else if (m->may_write() &&
 	     (!is_primary() ||
 	      !same_for_modify_since(m->get_map_epoch()))) {
+    osd->handle_misdirected_op(this, op);
     return true;
   } else if (m->may_read() &&
 	     !same_for_read_since(m->get_map_epoch())) {
+    osd->handle_misdirected_op(this, op);
     return true;
   } else if (is_replay()) {
     if (m->get_version().version > 0) {
@@ -3852,8 +3856,12 @@ bool PG::must_delay_request(OpRequestRef op)
 
 void PG::queue_op(OpRequestRef op)
 {
-  if (can_discard_request(op))
+  if (must_delay_request(op)) {
+    op_waiters.push_back(op);
     return;
+  } else if (can_discard_request(op)) {
+    return;
+  }
   op_queue.push_back(op);
   osd->queue_for_op(this);
 }
@@ -4202,6 +4210,7 @@ boost::statechart::result PG::RecoveryState::Primary::react(const ActMap&)
   dout(7) << "handle ActMap primary" << dendl;
   PG *pg = context< RecoveryMachine >().pg;
   pg->update_stats();
+  pg->take_waiters();
   return discard_event();
 }
 
@@ -4554,6 +4563,7 @@ boost::statechart::result PG::RecoveryState::ReplicaActive::react(const ActMap&)
 		  pg->get_osdmap()->get_epoch(),
 		  pg->info));
   }
+  pg->take_waiters();
   return discard_event();
 }
 
@@ -4662,6 +4672,7 @@ boost::statechart::result PG::RecoveryState::Stray::react(const ActMap&)
 		  pg->get_osdmap()->get_epoch(),
 		  pg->info));
   }
+  pg->take_waiters();
   return discard_event();
 }
 
@@ -5165,7 +5176,6 @@ boost::statechart::result PG::RecoveryState::WaitUpThru::react(const ActMap& am)
   PG *pg = context< RecoveryMachine >().pg;
   if (!pg->need_up_thru) {
     post_event(CheckRepops());
-    return discard_event();
   }
   return forward_event();
 }
