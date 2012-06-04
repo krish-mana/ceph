@@ -1050,6 +1050,8 @@ int DBObjectMap::sync(const hobject_t *hoid,
     assert(spos);
     Header header = lookup_map_header(*hoid);
     if (header) {
+      dout(10) << "hoid: " << *hoid << " setting spos to "
+	       << *spos << dendl;
       header->spos = *spos;
       set_map_header(*hoid, *header, t);
     }
@@ -1196,9 +1198,11 @@ bool DBObjectMap::check_spos(const hobject_t &hoid,
 			     const SequencerPosition *spos)
 {
   if (!spos || *spos > header->spos) {
+    dout(10) << "hoid: " << hoid << " not skipping op, *spos " << *spos
+	     << " > header.spos " << header->spos << dendl;
     return false;
   } else {
-    dout(10) << "skipping op, passed spos " << *spos
+    dout(10) << "hoid: " << hoid << " skipping op, *spos " << *spos
 	     << " <= header.spos " << header->spos << dendl;
     return true;
   }
