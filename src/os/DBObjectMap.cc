@@ -1198,9 +1198,12 @@ bool DBObjectMap::check_spos(const hobject_t &hoid,
 			     const SequencerPosition *spos)
 {
   if (!spos || *spos > header->spos) {
-    dout(10) << "hoid: " << hoid << " not skipping op, *spos "
-	     << spos ? *spos : "(empty)"
-	     << " > header.spos " << header->spos << dendl;
+    dout(10) << "hoid: " << hoid << " not skipping op, *spos ";
+    if (spos)
+      dout(10) << spos;
+    else
+      dout(10) << "(empty)";
+    dout(10) << " > header.spos " << header->spos << dendl;
     return false;
   } else {
     dout(10) << "hoid: " << hoid << " skipping op, *spos " << *spos
