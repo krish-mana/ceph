@@ -3221,6 +3221,15 @@ void OSD::handle_osd_map(MOSDMap *m)
       bufferlist fbl;
       o->encode(fbl);
 
+      /// ERROR: DNM
+      {
+	OSDMap *o2 = new OSDMap;
+	o2->decode(fbl);
+	bufferlist bl;
+	o2->encode(bl);
+	assert(bl == fbl);
+      }
+
       hobject_t fulloid = get_osdmap_pobject_name(e);
       t.write(coll_t::META_COLL, fulloid, 0, fbl.length(), fbl);
       pin_map_bl(e, fbl);
@@ -3414,9 +3423,12 @@ void OSD::advance_pg(epoch_t osd_epoch, PG *pg, PG::RecoveryCtx *rctx)
        next_epoch <= osd_epoch;
        ++next_epoch) {
     OSDMapRef nextmap = get_map(next_epoch);
+    dout(0) << "nextmap.get(): " << nextmap.get() << dendl;
     vector<int> newup, newacting;
     nextmap->pg_to_up_acting_osds(pg->info.pgid, newup, newacting);
+    assert(nextmap == get_map(next_epoch));
     pg->handle_advance_map(nextmap, lastmap, newup, newacting, rctx);
+    get_map(next_epoch);
     lastmap = nextmap;
   }
   pg->handle_activate_map(rctx);
@@ -3729,6 +3741,14 @@ OSDMapRef OSDService::get_map(epoch_t epoch)
   OSDMapRef retval = map_cache.lookup(epoch);
   if (retval) {
     dout(30) << "get_map " << epoch << " -cached" << dendl;
+    {
+      bufferlist bl, bl2;
+      assert(_get_map_bl(epoch, bl));
+      retval->encode(bl2);
+      assert(bl == bl2);
+      dout(0) << "srsly, epoch " << epoch << " ok "
+	      << " retval.get(): " << retval.get() << dendl;
+    }
     return retval;
   }
 
@@ -3741,6 +3761,7 @@ OSDMapRef OSDService::get_map(epoch_t epoch)
   } else {
     dout(20) << "get_map " << epoch << " - return initial " << map << dendl;
   }
+  assert(epoch == map->get_epoch());
   return _add_map(map);
 }
 

@@ -4009,9 +4009,34 @@ void PG::handle_advance_map(OSDMapRef osdmap, OSDMapRef lastmap,
 			    vector<int>& newup, vector<int>& newacting,
 			    RecoveryCtx *rctx)
 {
+  dout(0) << "osdmap.get(): " << osdmap.get() << dendl;
   assert(osdmap->get_epoch() == (lastmap->get_epoch() + 1));
   assert(lastmap->get_epoch() == osdmap_ref->get_epoch());
   assert(lastmap == osdmap_ref);
+  /** ERROR: DO NOT MERGE, SLOPPY DEBUG CODE */
+  {
+    OSDMap *testmap(new OSDMap);
+    bufferlist bl, bl2;
+    assert(osd->get_map_bl(osdmap->get_epoch(), bl));
+    testmap->decode(bl);
+    dout(0) << "asdfasdfasdf osdmap: " << osdmap->get_epoch()
+	    << " lastmap: " << lastmap->get_epoch()
+	    << " testmap: " << testmap->get_epoch() << dendl;
+    if (osdmap->get_epoch() > 0) {
+      osdmap->encode(bl2);
+      assert(bl == bl2);
+    }
+    assert(osdmap->get_epoch() == testmap->get_epoch());
+    vector<int> test_up, test_acting;
+    vector<int> test_up2, test_acting2;
+    osdmap->pg_to_up_acting_osds(info.pgid, test_up2, test_acting2);
+    assert(test_up2 == newup);
+    assert(test_acting2 == newacting);
+    testmap->pg_to_up_acting_osds(info.pgid, test_up, test_acting);
+    assert(test_up == newup);
+    assert(test_acting == newacting);
+    delete testmap;
+  }
   dout(10) << "handle_advance_map " << newup << "/" << newacting << dendl;
   osdmap_ref = osdmap;
   AdvMap evt(osdmap, lastmap, newup, newacting);
