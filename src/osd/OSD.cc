@@ -4714,9 +4714,11 @@ void OSD::do_recovery(PG *pg)
 
     {
       Mutex::Locker l(osd_lock);
-      do_notifies(notify_list);
-      do_queries(query_map);
-      do_infos(info_map);
+      if (is_active()) {
+	do_notifies(notify_list);
+	do_queries(query_map);
+	do_infos(info_map);
+      }
     }
   }
   pg->put();
