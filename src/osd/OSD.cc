@@ -600,7 +600,7 @@ OSD::OSD(int id, Messenger *internal_messenger, Messenger *external_messenger,
   admin_ops_hook(NULL),
   op_queue_len(0),
   op_wq(this, g_conf->osd_op_thread_timeout, &op_tp),
-  peering_wq(this, g_conf->osd_op_thread_timeout, &op_tp),
+  peering_wq(this, g_conf->osd_op_thread_timeout, &op_tp, 200),
   map_lock("OSD::map_lock"),
   peer_map_epoch_lock("OSD::peer_map_epoch_lock"),
   outstanding_pg_stats(false),
@@ -5014,22 +5014,22 @@ void OSDService::queue_for_op(PG *pg)
   op_wq.queue(pg);
 }
 
-void OSD::process_peering_event(PG *pg)
+void OSD::process_peering_events(const list<PG*> &pgs)
 {
   map< int, map<pg_t, pg_query_t> > query_map;
   map< int, vector<pg_notify_t> > notify_list;
   map<int,vector<pg_notify_t> > info_map;  // peer -> message
   bool need_up_thru = false;
-  epoch_t same_interval_since;
-  OSDMapRef curmap;
-  {
-    map_lock.get_read();
+  epoch_t same_interval_since = 0;
+  OSDMapRef curmap = service.get_osdmap();
+  for (list<PG*>::const_iterator i = pgs.begin();
+       i != pgs.end();
+       ++i) {
+    PG *pg = *i;
     pg->lock();
-    curmap = osdmap;
-    map_lock.put_read();
     if (pg->deleting) {
       pg->unlock();
-      return;
+      continue;
     }
     ObjectStore::Transaction *t = new ObjectStore::Transaction;
     C_Contexts *pfin = new C_Contexts(g_ceph_context);
@@ -5041,6 +5041,9 @@ void OSD::process_peering_event(PG *pg)
       pg->peering_queue.pop_front();
       pg->handle_peering_event(evt, &rctx);
     }
+    need_up_thru = pg->need_up_thru || need_up_thru;
+    same_interval_since = MAX(pg->info.history.same_interval_since,
+			      same_interval_since);
     if (!t->empty()) {
       int tr = store->queue_transaction(
         pg->osr.get(),
@@ -5050,8 +5053,6 @@ void OSD::process_peering_event(PG *pg)
       delete t;
       delete pfin;
     }
-    need_up_thru = pg->need_up_thru;
-    same_interval_since = pg->info.history.same_interval_since;
     pg->unlock();
   }
   if (need_up_thru)
