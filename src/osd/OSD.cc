@@ -1427,7 +1427,8 @@ void OSD::calc_priors_during(pg_t pgid, epoch_t start, epoch_t end, set<int>& ps
  * and same_primary_since.
  */
 void OSD::project_pg_history(pg_t pgid, pg_history_t& h, epoch_t from,
-			     vector<int>& currentup, vector<int>& currentacting)
+			     const vector<int>& currentup,
+			     const vector<int>& currentacting)
 {
   dout(15) << "project_pg_history " << pgid
            << " from " << from << " to " << osdmap->get_epoch()
@@ -4504,7 +4505,10 @@ void OSD::handle_pg_remove(OpRequestRef op)
     }
     dout(5) << "queue_pg_for_deletion: " << pgid << dendl;
     PG *pg = _lookup_lock_pg(pgid);
-    if (pg->info.history.same_interval_since <= m->get_epoch()) {
+    pg_history_t history = pg->info.history;
+    project_pg_history(pg->info.pgid, history, pg->get_osdmap()->get_epoch(),
+		       pg->up, pg->acting);
+    if (history.same_interval_since <= m->get_epoch()) {
       assert(pg->get_primary() == m->get_source().num());
       pg->get();
       _remove_pg(pg);
@@ -4512,7 +4516,7 @@ void OSD::handle_pg_remove(OpRequestRef op)
       pg->put();
     } else {
       dout(10) << *pg << " ignoring remove request, pg changed in epoch "
-	       << pg->info.history.same_interval_since
+	       << history.same_interval_since
 	       << " > " << m->get_epoch() << dendl;
       pg->unlock();
     }
