@@ -805,9 +805,12 @@ protected:
   }
 
   // -- generic pg peering --
-  void do_notifies(map< int, vector<pg_notify_t> >& notify_list);
-  void do_queries(map< int, map<pg_t,pg_query_t> >& query_map);
-  void do_infos(map<int, vector<pg_notify_t> >& info_map);
+  void do_notifies(map< int, vector<pg_notify_t> >& notify_list,
+		   OSDMapRef map);
+  void do_queries(map< int, map<pg_t,pg_query_t> >& query_map,
+		  OSDMapRef map);
+  void do_infos(map<int, vector<pg_notify_t> >& info_map,
+		OSDMapRef map);
   void repeer(PG *pg, map< int, map<pg_t,pg_query_t> >& query_map);
 
   bool require_mon_peer(Message *m);
