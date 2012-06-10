@@ -662,8 +662,7 @@ protected:
   pg_stat_t pg_stats_stable;
 
   // for ordering writes
-  std::tr1::shared_ptr<ObjectStore::Sequencer> osr_ref;
-  ObjectStore::Sequencer &osr;
+  std::tr1::shared_ptr<ObjectStore::Sequencer> osr;
 
   void update_stats();
   void clear_stats();

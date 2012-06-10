@@ -1360,7 +1360,7 @@ PG *OSD::get_or_create_pg(const pg_info_t& info, epoch_t epoch, int from, int& c
     delete fin;
   } else if (t) {
     int tr = store->queue_transaction(
-      &pg->osr,
+      pg->osr.get(),
       t, new ObjectStore::C_DeleteTransaction(t), fin);
     assert(tr == 0);
   }
@@ -4044,7 +4044,7 @@ void OSD::handle_pg_create(OpRequestRef op)
       pg->handle_create(&rctx);
       pg->update_stats();
 
-      int tr = store->queue_transaction(&pg->osr, t, new ObjectStore::C_DeleteTransaction(t), fin);
+      int tr = store->queue_transaction(pg->osr.get(), t, new ObjectStore::C_DeleteTransaction(t), fin);
       assert(tr == 0);
 
       pg->unlock();
@@ -4268,7 +4268,8 @@ void OSD::handle_pg_trim(OpRequestRef op)
       ObjectStore::Transaction *t = new ObjectStore::Transaction;
       pg->trim(*t, m->trim_to);
       pg->write_info(*t);
-      int tr = store->queue_transaction(&pg->osr, t, new ObjectStore::C_DeleteTransaction(t));
+      int tr = store->queue_transaction(pg->osr.get(), t,
+					new ObjectStore::C_DeleteTransaction(t));
       assert(tr == 0);
     }
     pg->unlock();
@@ -4489,9 +4490,9 @@ void OSD::_remove_pg(PG *pg)
   rmt->remove(coll_t::META_COLL, pg->biginfo_oid);
 
   store->queue_transaction(
-    &pg->osr, rmt,
+    pg->osr.get(), rmt,
     new ObjectStore::C_DeleteTransactionHolder<
-      SequencerRef>(rmt, pg->osr_ref));
+      SequencerRef>(rmt, pg->osr));
 
   // on_removal, which calls remove_watchers_and_notifies, and the erasure from 
   // the pg_map must be done together without unlocking the pg lock,
@@ -4502,7 +4503,7 @@ void OSD::_remove_pg(PG *pg)
   for (vector<coll_t>::iterator i = removals.begin();
        i != removals.end();
        ++i) {
-    remove_wq.queue(new pair<coll_t, SequencerRef>(*i, pg->osr_ref));
+    remove_wq.queue(new pair<coll_t, SequencerRef>(*i, pg->osr));
   }
 
   recovery_wq.dequeue(pg);
@@ -4645,7 +4646,7 @@ void OSD::do_recovery(PG *pg)
     }
 
     if (!t->empty()) {
-      int tr = store->queue_transaction(&pg->osr, t, new ObjectStore::C_DeleteTransaction(t), fin);
+      int tr = store->queue_transaction(pg->osr.get(), t, new ObjectStore::C_DeleteTransaction(t), fin);
       assert(tr == 0);
     } else {
       delete t;
@@ -5071,7 +5072,7 @@ void OSD::process_peering_events(const list<PG*> &pgs)
 			      same_interval_since);
     if (!t->empty()) {
       int tr = store->queue_transaction(
-	&pg->osr,
+        pg->osr.get(),
 	t, new ObjectStore::C_DeleteTransaction(t), pfin);
       assert(tr == 0);
     } else {

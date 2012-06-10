@@ -74,8 +74,7 @@ PG::PG(OSDService *o, OSDMapRef curmap,
   backfill_target(-1),
   pg_stats_lock("PG::pg_stats_lock"),
   pg_stats_valid(false),
-  osr_ref(osd->osr_registry.lookup(p, (stringify(p)))),
-  osr(*osr_ref),
+  osr(osd->osr_registry.lookup(p, (stringify(p)))),
   finish_sync_event(NULL),
   finalizing_scrub(false),
   scrub_reserved(false), scrub_reserve_failed(false),
@@ -1433,7 +1432,7 @@ void PG::do_pending_flush()
   assert(is_locked());
   if (need_flush) {
     dout(10) << "do_pending_flush doing pending flush" << dendl;
-    osr.flush();
+    osr->flush();
     need_flush = false;
     dout(10) << "do_pending_flush done" << dendl;
   }
@@ -1552,7 +1551,7 @@ void PG::all_activated_and_committed()
 
   ObjectStore::Transaction *t = new ObjectStore::Transaction;
   write_info(*t);
-  int tr = osd->store->queue_transaction(&osr, t);
+  int tr = osd->store->queue_transaction(osr.get(), t);
   assert(tr == 0);
 }
 
@@ -2793,7 +2792,7 @@ void PG::build_scrub_map(ScrubMap &map)
 
   // wait for any writes on our pg to flush to disk first.  this avoids races
   // with scrub starting immediately after trim or recovery completion.
-  osr.flush();
+  osr->flush();
 
   // objects
   vector<hobject_t> ls;
@@ -3320,7 +3319,7 @@ void PG::scrub_finalize() {
   {
     ObjectStore::Transaction *t = new ObjectStore::Transaction;
     write_info(*t);
-    int tr = osd->store->queue_transaction(&osr, t);
+    int tr = osd->store->queue_transaction(osr.get(), t);
     assert(tr == 0);
   }
 
@@ -4310,7 +4309,7 @@ PG::RecoveryState::Peering::Peering(my_context ctx)
     new FlushState(pg, pg->get_osdmap()->get_epoch())
     );
   pg->osd->store->queue_transaction(
-    &pg->osr,
+    pg->osr.get(),
     t,
     new ContainerContext<FlushStateRef>(for_flush),
     new ContainerContext<FlushStateRef>(for_flush));
