@@ -1022,6 +1022,25 @@ inline ostream& operator<<(ostream& out, const pg_info_t& pgi)
   return out;
 }
 
+struct pg_notify_t {
+  epoch_t query_epoch;
+  epoch_t epoch_sent;
+  pg_info_t info;
+  pg_notify_t() : query_epoch(0), epoch_sent(0) {}
+  pg_notify_t(epoch_t query_epoch,
+	      epoch_t epoch_sent,
+	      const pg_info_t &info)
+    : query_epoch(query_epoch),
+      epoch_sent(epoch_sent),
+      info(info) {}
+  void encode(bufferlist &bl) const;
+  void decode(bufferlist::iterator &p);
+  void dump(Formatter *f) const;
+  static void generate_test_instances(list<pg_notify_t*> &o);
+};
+WRITE_CLASS_ENCODER(pg_notify_t)
+ostream &operator<<(ostream &lhs, const pg_notify_t notify);
+
 
 /** 
  * pg_query_t - used to ask a peer for information about a pg.

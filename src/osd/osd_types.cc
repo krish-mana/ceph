@@ -1301,6 +1301,48 @@ void pg_info_t::generate_test_instances(list<pg_info_t*>& o)
   o.back()->stats = *s.back();
 }
 
+// -- pg_notify_t --
+void pg_notify_t::encode(bufferlist &bl) const
+{
+  ENCODE_START(1, 1, bl);
+  ::encode(query_epoch, bl);
+  ::encode(epoch_sent, bl);
+  ::encode(info, bl);
+  ENCODE_FINISH(bl);
+}
+
+void pg_notify_t::decode(bufferlist::iterator &bl)
+{
+  DECODE_START(1, bl);
+  ::decode(query_epoch, bl);
+  ::decode(epoch_sent, bl);
+  ::decode(info, bl);
+  DECODE_FINISH(bl);
+}
+
+void pg_notify_t::dump(Formatter *f) const
+{
+  f->dump_stream("query_epoch") << query_epoch;
+  f->dump_stream("epoch_sent") << epoch_sent;
+  {
+    f->open_object_section("info");
+    info.dump(f);
+    f->close_section();
+  }
+}
+
+void pg_notify_t::generate_test_instances(list<pg_notify_t*>& o)
+{
+  o.push_back(new pg_notify_t(1,1,pg_info_t()));
+  o.push_back(new pg_notify_t(3,10,pg_info_t()));
+}
+
+ostream &operator<<(ostream &lhs, const pg_notify_t notify)
+{
+  return lhs << "(query_epoch:" << notify.query_epoch
+	     << ", epoch_sent:" << notify.epoch_sent
+	     << ", info:" << notify.info << ")";
+}
 
 // -- pg_query_t --
 
