@@ -973,6 +973,19 @@ public:
       *out << "NeedUpThru" << std::endl;
     }
   };
+  struct WaitFlushComplete : CephEvent< WaitFlushComplete > {
+    WaitFlushComplete() : CephEvent< WaitFlushComplete >() {};
+    void print(std::ostream *out) const {
+      *out << "WaitFlushComplete" << std::endl;
+    }
+  };
+  struct FlushedEvt : CephEvent< FlushedEvt > {
+    FlushedEvt() : CephEvent< FlushedEvt >() {};
+    void print(std::ostream *out) const {
+      *out << "FlushedEvt" << std::endl;
+    }
+  };
+
   /* Encapsulates PG recovery process */
   class RecoveryState {
     void start_handle(RecoveryCtx *new_ctx) {
@@ -1070,6 +1083,7 @@ public:
 	boost::statechart::custom_reaction< MNotifyRec >,
 	boost::statechart::custom_reaction< MInfoRec >,
 	boost::statechart::custom_reaction< MLogRec >,
+	boost::statechart::custom_reaction< FlushedEvt >,
 	boost::statechart::transition< boost::statechart::event_base, Crashed >
 	> reactions;
 
@@ -1086,6 +1100,7 @@ public:
 	boost::statechart::custom_reaction< QueryState >,
 	boost::statechart::custom_reaction< AdvMap >,
 	boost::statechart::custom_reaction< ActMap >,
+	boost::statechart::custom_reaction< FlushedEvt >,
 	boost::statechart::transition< boost::statechart::event_base, Crashed >
 	> reactions;
       boost::statechart::result react(const QueryState& q);
@@ -1102,6 +1117,7 @@ public:
       typedef boost::mpl::list <
 	boost::statechart::custom_reaction< QueryState >,
 	boost::statechart::custom_reaction< AdvMap >,
+	boost::statechart::custom_reaction< FlushedEvt >,
 	boost::statechart::transition< boost::statechart::event_base, Crashed >
 	> reactions;
       boost::statechart::result react(const QueryState& q);
@@ -1180,6 +1196,7 @@ public:
 
     struct Peering : boost::statechart::state< Peering, Primary, GetInfo >, NamedState {
       std::auto_ptr< PriorSet > prior_set;
+      bool flushed;
 
       Peering(my_context ctx);
       void exit();
@@ -1187,10 +1204,12 @@ public:
       typedef boost::mpl::list <
 	boost::statechart::custom_reaction< QueryState >,
 	boost::statechart::transition< Activate, Active >,
-	boost::statechart::custom_reaction< AdvMap >
+	boost::statechart::custom_reaction< AdvMap >,
+	boost::statechart::custom_reaction< FlushedEvt >
 	> reactions;
       boost::statechart::result react(const QueryState& q);
       boost::statechart::result react(const AdvMap &advmap);
+      boost::statechart::result react(const FlushedEvt &evt);
     };
 
     struct Active : boost::statechart::state< Active, Primary >, NamedState {
@@ -1293,6 +1312,7 @@ public:
     };
 
     struct WaitUpThru;
+    struct WaitFlushedPeering;
 
     struct GetMissing : boost::statechart::state< GetMissing, Peering >, NamedState {
       set<int> peer_missing_requested;
@@ -1303,10 +1323,23 @@ public:
       typedef boost::mpl::list <
 	boost::statechart::custom_reaction< QueryState >,
 	boost::statechart::custom_reaction< MLogRec >,
-	boost::statechart::transition< NeedUpThru, WaitUpThru >
+	boost::statechart::transition< NeedUpThru, WaitUpThru >,
+	boost::statechart::transition< WaitFlushComplete, WaitFlushedPeering>
 	> reactions;
       boost::statechart::result react(const QueryState& q);
       boost::statechart::result react(const MLogRec& logevt);
+    };
+
+    struct WaitFlushedPeering :
+      boost::statechart::state< WaitFlushedPeering, Peering>, NamedState {
+      WaitFlushedPeering(my_context ctx);
+      void exit() {}
+      typedef boost::mpl::list <
+	boost::statechart::custom_reaction< QueryState >,
+	boost::statechart::custom_reaction< FlushedEvt >
+      > reactions;
+      boost::statechart::result react(const FlushedEvt& evt);
+      boost::statechart::result react(const QueryState& q);
     };
 
     struct WaitUpThru : boost::statechart::state< WaitUpThru, Peering >, NamedState {
@@ -1316,6 +1349,7 @@ public:
       typedef boost::mpl::list <
 	boost::statechart::custom_reaction< QueryState >,
 	boost::statechart::custom_reaction< ActMap >,
+	boost::statechart::transition< WaitFlushComplete, WaitFlushedPeering>,
 	boost::statechart::custom_reaction< MLogRec >
 	> reactions;
       boost::statechart::result react(const QueryState& q);
