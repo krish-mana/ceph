@@ -3786,6 +3786,14 @@ void PG::queue_log(epoch_t msg_epoch,
 					 MLogRec(from, msg))));
 }
 
+void PG::queue_flushed(epoch_t e)
+{
+  dout(10) << "flushed" << dendl;
+  queue_peering_event(
+    CephPeeringEvtRef(new CephPeeringEvt(e, e,
+					 FlushedEvt())));
+}
+
 void PG::queue_query(epoch_t msg_epoch,
 		     epoch_t query_epoch,
 		     int from, const pg_query_t& q)
@@ -4055,8 +4063,22 @@ void PG::RecoveryState::Primary::exit()
 }
 
 /*---------Peering--------*/
+struct FlushState {
+  PG *pg;
+  epoch_t epoch;
+  FlushState(PG *pg, epoch_t epoch) : pg(pg), epoch(epoch) {
+    pg->get();
+  }
+  ~FlushState() {
+    pg->lock();
+    pg->queue_flushed(epoch);
+    pg->unlock();
+    pg->put();
+  }
+};
+typedef std::tr1::shared_ptr<FlushState> FlushStateRef;
 PG::RecoveryState::Peering::Peering(my_context ctx)
-  : my_base(ctx)
+  : my_base(ctx), flushed(false)
 {
   state_name = "Started/Primary/Peering";
   context< RecoveryMachine >().log_enter(state_name);
@@ -4066,7 +4088,24 @@ PG::RecoveryState::Peering::Peering(my_context ctx)
   assert(!pg->is_peering());
   assert(pg->is_primary());
   pg->state_set(PG_STATE_PEERING);
-} 
+  ObjectStore::Transaction *t = new ObjectStore::Transaction;
+  t->nop();
+  FlushStateRef for_flush(
+    new FlushState(pg, pg->get_osdmap()->get_epoch())
+    );
+  pg->osd->store->queue_transaction(
+    pg->osr.get(),
+    t,
+    new ObjectStore::C_DeleteTransactionHolder<FlushStateRef>(t, for_flush),
+    new ContainerContext<FlushStateRef>(for_flush));
+}
+
+boost::statechart::result
+PG::RecoveryState::Peering::react(const FlushedEvt&) 
+{
+  flushed = true;
+  return discard_event();
+}
 
 boost::statechart::result PG::RecoveryState::Peering::react(const AdvMap& advmap) 
 {
@@ -4880,7 +4919,7 @@ PG::RecoveryState::GetMissing::GetMissing(my_context ctx)
     }
 
     // all good!
-    post_event(Activate());
+    post_event(WaitFlushComplete());
   }
 }
 
@@ -4894,7 +4933,7 @@ boost::statechart::result PG::RecoveryState::GetMissing::react(const MLogRec& lo
 		       msg->info, msg->log, msg->missing, logevt.from);
   
   if (peer_missing_requested.empty()) {
-    post_event(Activate());
+    post_event(WaitFlushComplete());
   }
   return discard_event();
 };
@@ -4928,6 +4967,33 @@ void PG::RecoveryState::GetMissing::exit()
   context< RecoveryMachine >().log_exit(state_name, enter_time);
 }
 
+/*---WaitFlushedPeering---*/
+PG::RecoveryState::WaitFlushedPeering::WaitFlushedPeering(my_context ctx)
+  : my_base(ctx)
+{
+  state_name = "Started/Primary/Peering/WaitFlushedPeering";
+  context< RecoveryMachine >().log_enter(state_name);
+  if (context< Peering >().flushed)
+    post_event(Activate());
+}
+
+boost::statechart::result
+PG::RecoveryState::WaitFlushedPeering::react(const FlushedEvt &evt)
+{
+  context< Peering >().flushed = true;
+  return transit< WaitFlushedPeering >();
+}
+
+boost::statechart::result
+PG::RecoveryState::WaitFlushedPeering::react(const QueryState &q)
+{
+  q.f->open_object_section("state");
+  q.f->dump_string("name", state_name);
+  q.f->dump_stream("enter_time") << enter_time;
+  q.f->dump_string("comment", "waiting for flush");
+  return forward_event();
+}
+
 /*------WaitUpThru--------*/
 PG::RecoveryState::WaitUpThru::WaitUpThru(my_context ctx)
   : my_base(ctx)
@@ -4940,8 +5006,7 @@ boost::statechart::result PG::RecoveryState::WaitUpThru::react(const ActMap& am)
 {
   PG *pg = context< RecoveryMachine >().pg;
   if (!pg->need_up_thru) {
-    post_event(Activate());
-    return discard_event();
+    post_event(WaitFlushComplete());
   }
   return forward_event();
 }
