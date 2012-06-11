@@ -788,7 +788,9 @@ protected:
   int get_pgls_filter(bufferlist::iterator& iter, PGLSFilter **pfilter);
 
 public:
-  ReplicatedPG(OSD *o, PGPool *_pool, pg_t p, const hobject_t& oid, const hobject_t& ioid);
+  ReplicatedPG(OSDService *o, OSDMapRef curmap,
+	       PGPool _pool, pg_t p, const hobject_t& oid,
+	       const hobject_t& ioid);
   ~ReplicatedPG() {}
 
   int do_command(vector<string>& cmd, ostream& ss, bufferlist& idata, bufferlist& odata);
@@ -804,13 +806,21 @@ public:
 		       coll_t &col_to_trim,
 		       vector<hobject_t> &obs_to_trim);
   RepGather *trim_object(const hobject_t &coid, const snapid_t &sn);
-  bool snap_trimmer();
+  void snap_trimmer();
   int do_osd_ops(OpContext *ctx, vector<OSDOp>& ops);
   void do_osd_op_effects(OpContext *ctx);
 private:
   bool temp_created;
   coll_t temp_coll;
   coll_t get_temp_coll(ObjectStore::Transaction *t);
+public:
+  bool have_temp_coll() {
+    return temp_created;
+  }
+  coll_t get_temp_coll() {
+    return temp_coll;
+  }
+private:
   struct NotTrimming;
   struct SnapTrim : boost::statechart::event< SnapTrim > {
     SnapTrim() : boost::statechart::event < SnapTrim >() {}

@@ -40,6 +40,7 @@
 #include "os/ObjectStore.h"
 #include "msg/Messenger.h"
 #include "messages/MOSDRepScrub.h"
+#include "messages/MOSDPGLog.h"
 
 #include "common/DecayCounter.h"
 
@@ -55,15 +56,14 @@ using namespace __gnu_cxx;
 
 //#define DEBUG_RECOVERY_OIDS   // track set of recovering oids explicitly, to find counting bugs
 
-
 class OSD;
+class OSDService;
 class MOSDOp;
 class MOSDSubOp;
 class MOSDSubOpReply;
 class MOSDPGScan;
 class MOSDPGBackfill;
 class MOSDPGInfo;
-class MOSDPGLog;
 
 
 struct PGRecoveryStats {
@@ -118,8 +118,6 @@ struct PGRecoveryStats {
 
 struct PGPool {
   int id;
-  atomic_t nref;
-  int num_pg;
   string name;
   uint64_t auid;
 
@@ -130,18 +128,13 @@ struct PGPool {
   interval_set<snapid_t> newly_removed_snaps;  // newly removed in the last epoch
 
   PGPool(int i, const char *_name, uint64_t au) :
-    id(i), num_pg(0), auid(au) {
+    id(i), auid(au) {
     if (_name)
       name = _name;
   }
 
-  void get() { nref.inc(); }
-  void put() {
-    if (nref.dec() == 0)
-      delete this;
-  }
+  void update(OSDMapRef map);
 };
-
 
 /** PG - Replica Placement Group
  *
@@ -336,10 +329,10 @@ public:
 
   /*** PG ****/
 protected:
-  OSD *osd;
-  PGPool *pool;
-
+  OSDService *osd;
   OSDMapRef osdmap_ref;
+  PGPool pool;
+
   OSDMapRef get_osdmap() const {
     assert(is_locked());
     assert(osdmap_ref);
@@ -363,7 +356,6 @@ public:
   void lock(bool no_lockdep = false);
   void unlock() {
     //generic_dout(0) << this << " " << info.pgid << " unlock" << dendl;
-    osdmap_ref.reset();
     _lock.Unlock();
   }
 
@@ -398,6 +390,7 @@ public:
   }
 
 
+  list<OpRequestRef> op_waiters;
   list<OpRequestRef> op_queue;  // op queue
 
   bool dirty_info, dirty_log;
@@ -472,7 +465,7 @@ public:
 
   /* You should not use these items without taking their respective queue locks
    * (if they have one) */
-  xlist<PG*>::item recovery_item, scrub_item, scrub_finalize_item, snap_trim_item, remove_item, stat_queue_item;
+  xlist<PG*>::item recovery_item, scrub_item, scrub_finalize_item, snap_trim_item, stat_queue_item;
   int recovery_ops_active;
   bool waiting_on_backfill;
 #ifdef DEBUG_RECOVERY_OIDS
@@ -527,15 +520,15 @@ public:
   struct RecoveryCtx {
     utime_t start_time;
     map< int, map<pg_t, pg_query_t> > *query_map;
-    map< int, MOSDPGInfo* > *info_map;
-    map< int, vector<pg_info_t> > *notify_list;
+    map< int, vector<pg_notify_t> > *info_map;
+    map< int, vector<pg_notify_t> > *notify_list;
     list< Context* > *context_list;
     ObjectStore::Transaction *transaction;
     RecoveryCtx() : query_map(0), info_map(0), notify_list(0),
 		    context_list(0), transaction(0) {}
     RecoveryCtx(map< int, map<pg_t, pg_query_t> > *query_map,
-		map< int, MOSDPGInfo* > *info_map,
-		map< int, vector<pg_info_t> > *notify_list,
+		map< int, vector<pg_notify_t> > *info_map,
+		map< int, vector<pg_notify_t> > *notify_list,
 		list< Context* > *context_list,
 		ObjectStore::Transaction *transaction)
       : query_map(query_map), info_map(info_map), 
@@ -661,6 +654,7 @@ protected:
   map<eversion_t,OpRequestRef>   replay_queue;
 
   void requeue_object_waiters(map<hobject_t, list<OpRequestRef> >& m);
+  void requeue_ops(list<OpRequestRef> &l);
 
   // stats
   Mutex pg_stats_lock;
@@ -668,7 +662,7 @@ protected:
   pg_stat_t pg_stats_stable;
 
   // for ordering writes
-  ObjectStore::Sequencer osr;
+  std::tr1::shared_ptr<ObjectStore::Sequencer> osr;
 
   void update_stats();
   void clear_stats();
@@ -722,7 +716,7 @@ public:
 			pg_missing_t& omissing, int from);
   void proc_master_log(ObjectStore::Transaction& t, pg_info_t &oinfo, pg_log_t &olog,
 		       pg_missing_t& omissing, int from);
-  bool proc_replica_info(int from, pg_info_t &info);
+  bool proc_replica_info(int from, const pg_info_t &info);
   bool merge_old_entry(ObjectStore::Transaction& t, pg_log_entry_t& oe);
   void merge_log(ObjectStore::Transaction& t, pg_info_t &oinfo, pg_log_t &olog, int from);
   void rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead);
@@ -743,7 +737,7 @@ public:
   void replay_queued_ops();
   void activate(ObjectStore::Transaction& t, list<Context*>& tfin,
 		map< int, map<pg_t,pg_query_t> >& query_map,
-		map<int, MOSDPGInfo*> *activator_map=0);
+		map<int, vector<pg_notify_t> > *activator_map=0);
   void _activate_committed(epoch_t e, entity_inst_t& primary);
   void all_activated_and_committed();
 
@@ -811,6 +805,8 @@ public:
   void build_scrub_map(ScrubMap &map);
   void build_inc_scrub_map(ScrubMap &map, eversion_t v);
   virtual int _scrub(ScrubMap &map, int& errors, int& fixed) { return 0; }
+  virtual coll_t get_temp_coll() = 0;
+  virtual bool have_temp_coll() = 0;
   void clear_scrub_reserved();
   void scrub_reserve_replicas();
   void scrub_unreserve_replicas();
@@ -979,6 +975,12 @@ public:
       *out << "WaitFlushComplete" << std::endl;
     }
   };
+  struct NullEvt : CephEvent< NullEvt > {
+    NullEvt() : CephEvent< NullEvt >() {};
+    void print(std::ostream *out) const {
+      *out << "NullEvt" << std::endl;
+    }
+  };
   struct FlushedEvt : CephEvent< FlushedEvt > {
     FlushedEvt() : CephEvent< FlushedEvt >() {};
     void print(std::ostream *out) const {
@@ -1040,7 +1042,7 @@ public:
 	return state->rctx->query_map;
       }
 
-      map<int, MOSDPGInfo*> *get_info_map() {
+      map<int, vector<pg_notify_t> > *get_info_map() {
 	assert(state->rctx->info_map);
 	return state->rctx->info_map;
       }
@@ -1050,7 +1052,7 @@ public:
 	return state->rctx->context_list;
       }
 
-      void send_notify(int to, const pg_info_t &info) {
+      void send_notify(int to, const pg_notify_t &info) {
 	assert(state->rctx->notify_list);
 	(*state->rctx->notify_list)[to].push_back(info);
       }
@@ -1078,11 +1080,9 @@ public:
       void exit();
 
       typedef boost::mpl::list <
-	boost::statechart::transition< Initialize, Started >,
+	boost::statechart::transition< Initialize, Reset >,
 	boost::statechart::transition< Load, Reset >,
-	boost::statechart::custom_reaction< MNotifyRec >,
-	boost::statechart::custom_reaction< MInfoRec >,
-	boost::statechart::custom_reaction< MLogRec >,
+	boost::statechart::custom_reaction< NullEvt >,
 	boost::statechart::custom_reaction< FlushedEvt >,
 	boost::statechart::transition< boost::statechart::event_base, Crashed >
 	> reactions;
@@ -1090,6 +1090,9 @@ public:
       boost::statechart::result react(const MNotifyRec&);
       boost::statechart::result react(const MInfoRec&);
       boost::statechart::result react(const MLogRec&);
+      boost::statechart::result react(const boost::statechart::event_base&) {
+	return discard_event();
+      }
     };
 
     struct Reset : boost::statechart::state< Reset, RecoveryMachine >, NamedState {
@@ -1100,12 +1103,16 @@ public:
 	boost::statechart::custom_reaction< QueryState >,
 	boost::statechart::custom_reaction< AdvMap >,
 	boost::statechart::custom_reaction< ActMap >,
+	boost::statechart::custom_reaction< NullEvt >,
 	boost::statechart::custom_reaction< FlushedEvt >,
 	boost::statechart::transition< boost::statechart::event_base, Crashed >
 	> reactions;
       boost::statechart::result react(const QueryState& q);
       boost::statechart::result react(const AdvMap&);
       boost::statechart::result react(const ActMap&);
+      boost::statechart::result react(const boost::statechart::event_base&) {
+	return discard_event();
+      }
     };
 
     struct Start;
@@ -1117,11 +1124,15 @@ public:
       typedef boost::mpl::list <
 	boost::statechart::custom_reaction< QueryState >,
 	boost::statechart::custom_reaction< AdvMap >,
+	boost::statechart::custom_reaction< NullEvt >,
 	boost::statechart::custom_reaction< FlushedEvt >,
 	boost::statechart::transition< boost::statechart::event_base, Crashed >
 	> reactions;
       boost::statechart::result react(const QueryState& q);
       boost::statechart::result react(const AdvMap&);
+      boost::statechart::result react(const boost::statechart::event_base&) {
+	return discard_event();
+      }
     };
 
     struct MakePrimary : boost::statechart::event< MakePrimary > {
@@ -1296,10 +1307,9 @@ public:
 
     struct GetLog : boost::statechart::state< GetLog, Peering >, NamedState {
       int newest_update_osd;
-      MOSDPGLog *msg;
+      boost::intrusive_ptr<MOSDPGLog> msg;
 
       GetLog(my_context ctx);
-      ~GetLog();
       void exit();
 
       typedef boost::mpl::list <
@@ -1386,36 +1396,9 @@ public:
 
 
  public:  
-  PG(OSD *o, PGPool *_pool, pg_t p, const hobject_t& loid, const hobject_t& ioid) : 
-    osd(o), pool(_pool),
-    _lock("PG::_lock"),
-    ref(0), deleting(false), dirty_info(false), dirty_log(false),
-    info(p), coll(p), log_oid(loid), biginfo_oid(ioid),
-    recovery_item(this), scrub_item(this), scrub_finalize_item(this), snap_trim_item(this), remove_item(this), stat_queue_item(this),
-    recovery_ops_active(0),
-    waiting_on_backfill(0),
-    role(0),
-    state(0),
-    need_up_thru(false),
-    need_flush(false),
-    last_peering_reset(0),
-    heartbeat_peer_lock("PG::heartbeat_peer_lock"),
-    backfill_target(-1),
-    pg_stats_lock("PG::pg_stats_lock"),
-    pg_stats_valid(false),
-    osr(stringify(p)),
-    finish_sync_event(NULL),
-    finalizing_scrub(false),
-    scrub_reserved(false), scrub_reserve_failed(false),
-    scrub_waiting_on(0),
-    active_rep_scrub(0),
-    recovery_state(this)
-  {
-    pool->get();
-  }
-  virtual ~PG() {
-    pool->put();
-  }
+  PG(OSDService *o, OSDMapRef curmap,
+     PGPool pool, pg_t p, const hobject_t& loid, const hobject_t& ioid);
+  virtual ~PG() {}
   
  private:
   // Prevent copying
@@ -1497,18 +1480,30 @@ public:
 			      const vector<int>& newacting);
   void set_last_peering_reset();
 
+  void update_history_from_master(pg_history_t new_history);
   void fulfill_info(int from, const pg_query_t &query, 
 		    pair<int, pg_info_t> &notify_info);
   void fulfill_log(int from, const pg_query_t &query, epoch_t query_epoch);
   bool acting_up_affected(const vector<int>& newup, const vector<int>& newacting);
 
   // OpRequest queueing
+  bool can_discard_op(OpRequestRef op);
+  bool can_discard_scan(OpRequestRef op);
+  bool can_discard_subop(OpRequestRef op);
+  bool can_discard_backfill(OpRequestRef op);
+  bool can_discard_request(OpRequestRef op);
+
+  bool must_delay_request(OpRequestRef op);
+  void queue_op(OpRequestRef op);
+
   bool old_peering_msg(epoch_t reply_epoch, epoch_t query_epoch);
   bool old_peering_evt(CephPeeringEvtRef evt) {
     return old_peering_msg(evt->get_epoch_sent(), evt->get_epoch_requested());
   }
   bool require_same_or_newer_map(epoch_t e) {
+    return e <= get_osdmap()->get_epoch();
   }
+
   // recovery bits
   void take_waiters();
   void queue_peering_event(CephPeeringEvtRef evt);
@@ -1543,7 +1538,7 @@ public:
   virtual void do_sub_op_reply(OpRequestRef op) = 0;
   virtual void do_scan(OpRequestRef op) = 0;
   virtual void do_backfill(OpRequestRef op) = 0;
-  virtual bool snap_trimmer() = 0;
+  virtual void snap_trimmer() = 0;
 
   virtual int do_command(vector<string>& cmd, ostream& ss,
 			 bufferlist& idata, bufferlist& odata) = 0;
