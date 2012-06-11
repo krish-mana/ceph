@@ -1067,31 +1067,29 @@ struct pg_query_t {
   __s32 type;
   eversion_t since;
   pg_history_t history;
+  epoch_t epoch_sent;
 
   pg_query_t() : type(-1) {}
-  pg_query_t(int t, const pg_history_t& h)
-    : type(t), history(h) {
+  pg_query_t(int t, const pg_history_t& h,
+	     epoch_t epoch_sent)
+    : type(t), history(h),
+      epoch_sent(epoch_sent) {
     assert(t != LOG);
   }
-  pg_query_t(int t, eversion_t s, const pg_history_t& h)
-    : type(t), since(s), history(h) {
+  pg_query_t(int t, eversion_t s, const pg_history_t& h,
+	     epoch_t epoch_sent)
+    : type(t), since(s), history(h),
+      epoch_sent(epoch_sent) {
     assert(t == LOG);
   }
   
-  void encode(bufferlist &bl) const {
-    ::encode(type, bl);
-    ::encode(since, bl);
-    history.encode(bl);
-  }
-  void decode(bufferlist::iterator &bl) {
-    ::decode(type, bl);
-    ::decode(since, bl);
-    history.decode(bl);
-  }
+  void encode(bufferlist &bl, uint64_t features) const;
+  void decode(bufferlist::iterator &bl);
+
   void dump(Formatter *f) const;
   static void generate_test_instances(list<pg_query_t*>& o);
 };
-WRITE_CLASS_ENCODER(pg_query_t)
+WRITE_CLASS_ENCODER_FEATURES(pg_query_t)
 
 inline ostream& operator<<(ostream& out, const pg_query_t& q) {
   out << "query(" << q.get_type_name() << " " << q.since;

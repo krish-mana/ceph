@@ -1346,10 +1346,41 @@ ostream &operator<<(ostream &lhs, const pg_notify_t notify)
 
 // -- pg_query_t --
 
+void pg_query_t::encode(bufferlist &bl, uint64_t features) const {
+  if (features & CEPH_FEATURE_QUERY_T) {
+    ::encode(type, bl);
+    ::encode(since, bl);
+    history.encode(bl);
+  } else {
+    ENCODE_START(2, 2, bl);
+    ::encode(type, bl);
+    ::encode(since, bl);
+    history.encode(bl);
+    ::encode(epoch_sent, bl);
+    ENCODE_FINISH(bl);
+  }
+}
+
+void pg_query_t::decode(bufferlist::iterator &bl) {
+  try {
+    DECODE_START(2, bl);
+    ::decode(type, bl);
+    ::decode(since, bl);
+    history.decode(bl);
+    ::decode(epoch_sent, bl);
+    DECODE_FINISH(bl);
+  } catch (...) {
+    ::decode(type, bl);
+    ::decode(since, bl);
+    history.decode(bl);
+  }
+}
+
 void pg_query_t::dump(Formatter *f) const
 {
   f->dump_string("type", get_type_name());
   f->dump_stream("since") << since;
+  f->dump_stream("epoch_sent") << epoch_sent;
   f->open_object_section("history");
   history.dump(f);
   f->close_section();
@@ -1359,10 +1390,10 @@ void pg_query_t::generate_test_instances(list<pg_query_t*>& o)
   o.push_back(new pg_query_t());
   list<pg_history_t*> h;
   pg_history_t::generate_test_instances(h);
-  o.push_back(new pg_query_t(pg_query_t::INFO, *h.back()));
-  o.push_back(new pg_query_t(pg_query_t::MISSING, *h.back()));
-  o.push_back(new pg_query_t(pg_query_t::LOG, eversion_t(4, 5), *h.back()));
-  o.push_back(new pg_query_t(pg_query_t::FULLLOG, *h.back()));
+  o.push_back(new pg_query_t(pg_query_t::INFO, *h.back(), 4));
+  o.push_back(new pg_query_t(pg_query_t::MISSING, *h.back(), 4));
+  o.push_back(new pg_query_t(pg_query_t::LOG, eversion_t(4, 5), *h.back(), 4));
+  o.push_back(new pg_query_t(pg_query_t::FULLLOG, *h.back(), 5));
 }
 
 
