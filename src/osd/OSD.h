@@ -49,6 +49,7 @@ using namespace __gnu_cxx;
 #include "OpRequest.h"
 #include "common/shared_cache.hpp"
 #include "common/simple_cache.hpp"
+#include "common/sharedptr_registry.hpp"
 
 #define CEPH_OSD_PROTOCOL    10 /* cluster internal */
 
@@ -128,6 +129,172 @@ class OpsFlightSocketHook;
 
 extern const coll_t meta_coll;
 
+typedef std::tr1::shared_ptr<ObjectStore::Sequencer> SequencerRef;
+
+class OSD;
+class OSDService {
+public:
+  OSD *osd;
+  SharedPtrRegistry<pg_t, ObjectStore::Sequencer> osr_registry;
+  const int whoami;
+  ObjectStore *&store;
+  LogClient &clog;
+  PGRecoveryStats &pg_recovery_stats;
+  Messenger *&cluster_messenger;
+  Messenger *&client_messenger;
+  PerfCounters *&logger;
+  MonClient   *&monc;
+  ThreadPool::WorkQueue<PG> &op_wq;
+  ThreadPool::BatchWorkQueue<PG> &peering_wq;
+  ThreadPool::WorkQueue<PG> &recovery_wq;
+  ThreadPool::WorkQueue<PG> &snap_trim_wq;
+  ThreadPool::WorkQueue<PG> &scrub_wq;
+  ThreadPool::WorkQueue<PG> &scrub_finalize_wq;
+  ThreadPool::WorkQueue<MOSDRepScrub> &rep_scrub_wq;
+  ClassHandler  *&class_handler;
+
+  // -- superblock --
+  Mutex publish_lock;
+  OSDSuperblock superblock;
+  OSDSuperblock get_superblock() {
+    Mutex::Locker l(publish_lock);
+    return superblock;
+  }
+  void publish_superblock(OSDSuperblock block) {
+    Mutex::Locker l(publish_lock);
+    superblock = block;
+  }
+  OSDMapRef osdmap;
+  OSDMapRef get_osdmap() {
+    Mutex::Locker l(publish_lock);
+    return osdmap;
+  }
+  void publish_map(OSDMapRef map) {
+    Mutex::Locker l(publish_lock);
+    osdmap = map;
+  }
+    
+
+  int get_nodeid() const { return whoami; }
+
+  // -- scrub scheduling --
+  Mutex sched_scrub_lock;
+  int scrubs_pending;
+  int scrubs_active;
+  set< pair<utime_t,pg_t> > last_scrub_pg;
+  
+  bool scrub_should_schedule();
+  
+  void reg_last_pg_scrub(pg_t pgid, utime_t t) {
+    Mutex::Locker l(sched_scrub_lock);
+    last_scrub_pg.insert(pair<utime_t,pg_t>(t, pgid));
+  }
+  void unreg_last_pg_scrub(pg_t pgid, utime_t t) {
+    Mutex::Locker l(sched_scrub_lock);
+    pair<utime_t,pg_t> p(t, pgid);
+    assert(last_scrub_pg.count(p));
+    last_scrub_pg.erase(p);
+  }
+  bool next_scrub_stamp(pair<utime_t, pg_t> after,
+			pair<utime_t, pg_t> *out) {
+    Mutex::Locker l(sched_scrub_lock);
+    if (last_scrub_pg.size() == 0) return false;
+    set< pair<utime_t, pg_t> >::iterator iter = last_scrub_pg.lower_bound(after);
+    if (iter == last_scrub_pg.end()) return false;
+    ++iter;
+    if (iter == last_scrub_pg.end()) return false;
+    *out = *iter;
+    return true;
+  }
+  
+  bool inc_scrubs_pending();
+  void dec_scrubs_pending();
+  void dec_scrubs_active();
+
+  void reply_op_error(OpRequestRef op, int err);
+  void reply_op_error(OpRequestRef op, int err, eversion_t v);
+  void handle_misdirected_op(PG *pg, OpRequestRef op);
+
+  // -- Watch --
+  Mutex &watch_lock;
+  SafeTimer &watch_timer;
+  Watch *watch;
+
+  // -- tids --
+  // for ops i issue
+  tid_t last_tid;
+  Mutex tid_lock;
+  tid_t get_tid() {
+    tid_t t;
+    tid_lock.Lock();
+    t = ++last_tid;
+    tid_lock.Unlock();
+    return t;
+  }
+
+  // -- pg_temp --
+  Mutex pg_temp_lock;
+  map<pg_t, vector<int> > pg_temp_wanted;
+  void queue_want_pg_temp(pg_t pgid, vector<int>& want);
+  void remove_want_pg_temp(pg_t pgid) {
+    Mutex::Locker l(pg_temp_lock);
+    pg_temp_wanted.erase(pgid);
+  }
+  void send_pg_temp();
+
+  void queue_for_peering(PG *pg);
+  void queue_for_op(PG *pg);
+  bool queue_for_recovery(PG *pg);
+  bool queue_for_snap_trim(PG *pg) {
+    return snap_trim_wq.queue(pg);
+  }
+  bool queue_for_scrub(PG *pg) {
+    return scrub_wq.queue(pg);
+  }
+
+  // osd map cache (past osd maps)
+  Mutex map_cache_lock;
+  SharedLRU<epoch_t, const OSDMap> map_cache;
+  SimpleLRU<epoch_t, bufferlist> map_bl_cache;
+  SimpleLRU<epoch_t, bufferlist> map_bl_inc_cache;
+
+
+  OSDMapRef get_map(epoch_t e);
+  OSDMapRef add_map(OSDMap *o) {
+    Mutex::Locker l(map_cache_lock);
+    return _add_map(o);
+  }
+  OSDMapRef _add_map(OSDMap *o);
+
+  void add_map_bl(epoch_t e, bufferlist& bl) {
+    Mutex::Locker l(map_cache_lock);
+    return _add_map_bl(e, bl);
+  }
+  void pin_map_bl(epoch_t e, bufferlist &bl);
+  void _add_map_bl(epoch_t e, bufferlist& bl);
+  bool get_map_bl(epoch_t e, bufferlist& bl) {
+    Mutex::Locker l(map_cache_lock);
+    return _get_map_bl(e, bl);
+  }
+  bool _get_map_bl(epoch_t e, bufferlist& bl);
+
+  void add_map_inc_bl(epoch_t e, bufferlist& bl) {
+    Mutex::Locker l(map_cache_lock);
+    return _add_map_inc_bl(e, bl);
+  }
+  void pin_map_inc_bl(epoch_t e, bufferlist &bl);
+  void _add_map_inc_bl(epoch_t e, bufferlist& bl);
+  bool get_inc_map_bl(epoch_t e, bufferlist& bl);
+
+  void clear_map_bl_cache_pins();
+
+  void need_heartbeat_peer_update();
+
+  void pg_stat_queue_enqueue(PG *pg);
+  void pg_stat_queue_dequeue(PG *pg);
+
+  OSDService(OSD *osd);
+};
 class OSD : public Dispatcher {
   /** OSD **/
 protected:
@@ -141,10 +308,6 @@ protected:
   MonClient   *monc;
   PerfCounters      *logger;
   ObjectStore *store;
-
-  // cover OSDMap update data when using multiple msgrs
-  Cond *map_in_progress_cond;
-  bool map_in_progress;
 
   LogClient clog;
 
@@ -331,12 +494,6 @@ private:
     finished.push_back(op);
     finished_lock.Unlock();
   }
-  void push_waiters(list<OpRequestRef>& ls) {
-    assert(osd_lock.is_locked());   // currently, at least.  be careful if we change this (see #743)
-    finished_lock.Lock();
-    finished.splice(finished.begin(), ls);
-    finished_lock.Unlock();
-  }
   void do_waiters();
   
   // -- op tracking --
@@ -347,7 +504,7 @@ private:
   OpsFlightSocketHook *admin_ops_hook;
 
   // -- op queue --
-  deque<PG*> op_queue;
+  list<PG*> op_queue;
   int op_queue_len;
 
   struct OpWQ : public ThreadPool::WorkQueue<PG> {
@@ -357,7 +514,14 @@ private:
 
     bool _enqueue(PG *pg);
     void _dequeue(PG *pg) {
-      assert(0);
+      for (list<PG*>::iterator i = osd->op_queue.begin();
+	   i != osd->op_queue.end();
+	   ) {
+	if (*i == pg)
+	  osd->op_queue.erase(i++);
+	else
+	  ++i;
+      }
     }
     bool _empty() {
       return osd->op_queue.empty();
@@ -372,7 +536,6 @@ private:
   } op_wq;
 
   void enqueue_op(PG *pg, OpRequestRef op);
-  void requeue_ops(PG *pg, list<OpRequestRef>& ls);
   void dequeue_op(PG *pg);
   static void static_dequeueop(OSD *o, PG *pg) {
     o->dequeue_op(pg);
@@ -422,6 +585,7 @@ private:
       in_use.insert(got.begin(), got.end());
     }
     void _process(const list<PG *> &pgs) {
+      osd->process_peering_events(pgs);
       for (list<PG *>::const_iterator i = pgs.begin();
 	   i != pgs.end();
 	   ++i) {
@@ -440,6 +604,8 @@ private:
     }
   } peering_wq;
 
+  void process_peering_events(const list<PG*> &pg);
+
   friend class PG;
   friend class ReplicatedPG;
 
@@ -448,6 +614,9 @@ private:
 
   // -- osd map --
   OSDMapRef       osdmap;
+  OSDMapRef get_osdmap() {
+    return osdmap;
+  }
   utime_t         had_map_since;
   RWLock          map_lock;
   list<OpRequestRef>  waiting_for_osdmap;
@@ -461,52 +630,47 @@ private:
 
   bool _share_map_incoming(const entity_inst_t& inst, epoch_t epoch,
 			   Session *session = 0);
-  void _share_map_outgoing(const entity_inst_t& inst);
+  void _share_map_outgoing(const entity_inst_t& inst,
+			   OSDMapRef map = OSDMapRef());
 
   void wait_for_new_map(OpRequestRef op);
   void handle_osd_map(class MOSDMap *m);
   void note_down_osd(int osd);
   void note_up_osd(int osd);
   
+  void advance_pg(epoch_t advance_to, PG *pg, PG::RecoveryCtx *rctx);
   void advance_map(ObjectStore::Transaction& t, C_Contexts *tfin);
-  void activate_map(ObjectStore::Transaction& t, list<Context*>& tfin);
+  void activate_map();
 
   // osd map cache (past osd maps)
-  Mutex map_cache_lock;
-  SharedLRU<epoch_t, OSDMap> map_cache;
-  SimpleLRU<epoch_t, bufferlist> map_bl_cache;
-  SimpleLRU<epoch_t, bufferlist> map_bl_inc_cache;
-
-
-  OSDMapRef get_map(epoch_t e);
+  OSDMapRef get_map(epoch_t e) {
+    return service.get_map(e);
+  }
   OSDMapRef add_map(OSDMap *o) {
-    Mutex::Locker l(map_cache_lock);
-    return _add_map(o);
+    return service.add_map(o);
   }
-  OSDMapRef _add_map(OSDMap *o);
-
   void add_map_bl(epoch_t e, bufferlist& bl) {
-    Mutex::Locker l(map_cache_lock);
-    return _add_map_bl(e, bl);
+    return service.add_map_bl(e, bl);
   }
-  void pin_map_bl(epoch_t e, bufferlist &bl);
-  void _add_map_bl(epoch_t e, bufferlist& bl);
+  void pin_map_bl(epoch_t e, bufferlist &bl) {
+    return service.pin_map_bl(e, bl);
+  }
   bool get_map_bl(epoch_t e, bufferlist& bl) {
-    Mutex::Locker l(map_cache_lock);
-    return _get_map_bl(e, bl);
+    return service.get_map_bl(e, bl);
   }
-  bool _get_map_bl(epoch_t e, bufferlist& bl);
-
   void add_map_inc_bl(epoch_t e, bufferlist& bl) {
-    Mutex::Locker l(map_cache_lock);
-    return _add_map_inc_bl(e, bl);
+    return service.add_map_inc_bl(e, bl);
   }
-  void pin_map_inc_bl(epoch_t e, bufferlist &bl);
-  void _add_map_inc_bl(epoch_t e, bufferlist& bl);
-  bool get_inc_map_bl(epoch_t e, bufferlist& bl);
+  void pin_map_inc_bl(epoch_t e, bufferlist &bl) {
+    return service.pin_map_inc_bl(e, bl);
+  }
+  bool get_inc_map_bl(epoch_t e, bufferlist& bl) {
+    return service.get_inc_map_bl(e, bl);
+  }
+  void clear_map_bl_cache_pins() {
+    service.clear_map_bl_cache_pins();
+  }
 
-  void clear_map_bl_cache_pins();
-  
   MOSDMap *build_incremental_map_msg(epoch_t from, epoch_t to);
   void send_incremental_map(epoch_t since, const entity_inst_t& inst, bool lazy=false);
   void send_map(MOSDMap *m, const entity_inst_t& inst, bool lazy);
@@ -518,32 +682,33 @@ protected:
 
 protected:
   // -- placement groups --
-  map<int, PGPool*> pool_map;
   hash_map<pg_t, PG*> pg_map;
   map<pg_t, list<OpRequestRef> > waiting_for_pg;
   PGRecoveryStats pg_recovery_stats;
 
-  PGPool *_get_pool(int id);
-  void _put_pool(PGPool *p);
+  PGPool _get_pool(int id, OSDMapRef createmap);
 
   bool  _have_pg(pg_t pgid);
   PG   *_lookup_lock_pg(pg_t pgid);
   PG   *_lookup_lock_pg_with_map_lock_held(pg_t pgid);
-  PG   *_open_lock_pg(pg_t pg, bool no_lockdep_check=false, bool hold_map_lock=false);
-  PG   *_create_lock_pg(pg_t pgid, bool newly_created, bool hold_map_lock,
-			int role, vector<int>& up, vector<int>& acting, pg_history_t history,
+  PG   *_open_lock_pg(OSDMapRef createmap,
+		      pg_t pg, bool no_lockdep_check=false,
+		      bool hold_map_lock=false);
+  PG   *_create_lock_pg(OSDMapRef createmap,
+			pg_t pgid, bool newly_created,
+			bool hold_map_lock, int role,
+			vector<int>& up, vector<int>& acting,
+			pg_history_t history,
 			ObjectStore::Transaction& t);
 
   PG *lookup_lock_raw_pg(pg_t pgid);
 
-  PG *get_or_create_pg(const pg_info_t& info, epoch_t epoch, int from, int& pcreated, bool primary,
-		       ObjectStore::Transaction **pt,
-		       C_Contexts **pfin);
+  PG *get_or_create_pg(const pg_info_t& info, epoch_t epoch, int from, int& pcreated, bool primary);
   
   void load_pgs();
   void calc_priors_during(pg_t pgid, epoch_t start, epoch_t end, set<int>& pset);
   void project_pg_history(pg_t pgid, pg_history_t& h, epoch_t from,
-			  vector<int>& lastup, vector<int>& lastacting);
+			  const vector<int>& lastup, const vector<int>& lastacting);
 
   void wake_pg_waiters(pg_t pgid) {
     if (waiting_for_pg.count(pgid)) {
@@ -608,12 +773,6 @@ protected:
   void queue_want_up_thru(epoch_t want);
   void send_alive();
 
-  // -- pg_temp --
-  map<pg_t, vector<int> > pg_temp_wanted;
-
-  void queue_want_pg_temp(pg_t pgid, vector<int>& want);
-  void send_pg_temp();
-
   // -- failures --
   set<int> failure_queue;
   map<int,entity_inst_t> failure_pending;
@@ -661,27 +820,17 @@ protected:
     pg_stat_queue_lock.Unlock();
   }
 
-
-  // -- tids --
-  // for ops i issue
-  tid_t               last_tid;
-
-  Mutex tid_lock;
   tid_t get_tid() {
-    tid_t t;
-    tid_lock.Lock();
-    t = ++last_tid;
-    tid_lock.Unlock();
-    return t;
+    return service.get_tid();
   }
 
-
-
   // -- generic pg peering --
-  void do_notifies(map< int, vector<pg_info_t> >& notify_list,
-		   epoch_t query_epoch);
-  void do_queries(map< int, map<pg_t,pg_query_t> >& query_map);
-  void do_infos(map<int, MOSDPGInfo*>& info_map);
+  void do_notifies(map< int, vector<pg_notify_t> >& notify_list,
+		   OSDMapRef map);
+  void do_queries(map< int, map<pg_t,pg_query_t> >& query_map,
+		  OSDMapRef map);
+  void do_infos(map<int, vector<pg_notify_t> >& info_map,
+		OSDMapRef map);
   void repeer(PG *pg, map< int, map<pg_t,pg_query_t> >& query_map);
 
   bool require_mon_peer(Message *m);
@@ -690,20 +839,16 @@ protected:
   bool require_same_or_newer_map(OpRequestRef op, epoch_t e);
 
   void handle_pg_query(OpRequestRef op);
-  void handle_pg_missing(OpRequestRef op);
   void handle_pg_notify(OpRequestRef op);
   void handle_pg_log(OpRequestRef op);
   void handle_pg_info(OpRequestRef op);
   void handle_pg_trim(OpRequestRef op);
 
   void handle_pg_scan(OpRequestRef op);
-  bool scan_is_queueable(PG *pg, OpRequestRef op);
 
   void handle_pg_backfill(OpRequestRef op);
-  bool backfill_is_queueable(PG *pg, OpRequestRef op);
 
   void handle_pg_remove(OpRequestRef op);
-  void queue_pg_for_deletion(PG *pg);
   void _remove_pg(PG *pg);
 
   // -- commands --
@@ -821,21 +966,11 @@ protected:
     }
   } recovery_wq;
 
-  bool queue_for_recovery(PG *pg);
   void start_recovery_op(PG *pg, const hobject_t& soid);
   void finish_recovery_op(PG *pg, const hobject_t& soid, bool dequeue);
   void defer_recovery(PG *pg);
   void do_recovery(PG *pg);
   bool _recover_now();
-
-  Mutex remove_list_lock;
-  map<epoch_t, map<int, vector<pg_t> > > remove_list;
-
-  void queue_for_removal(epoch_t epoch, int osd, pg_t pgid) {
-    remove_list_lock.Lock();
-    remove_list[epoch][osd].push_back(pgid);
-    remove_list_lock.Unlock();
-  }
 
   // replay / delayed pg activation
   Mutex replay_queue_lock;
@@ -881,31 +1016,9 @@ protected:
     }
   } snap_trim_wq;
 
-  // -- scrub scheduling --
-  Mutex sched_scrub_lock;
-  int scrubs_pending;
-  int scrubs_active;
-  set< pair<utime_t,pg_t> > last_scrub_pg;
-
-  bool scrub_should_schedule();
-  void sched_scrub();
-
-  void reg_last_pg_scrub(pg_t pgid, utime_t t) {
-    Mutex::Locker l(sched_scrub_lock);
-    last_scrub_pg.insert(pair<utime_t,pg_t>(t, pgid));
-  }
-  void unreg_last_pg_scrub(pg_t pgid, utime_t t) {
-    Mutex::Locker l(sched_scrub_lock);
-    pair<utime_t,pg_t> p(t, pgid);
-    assert(last_scrub_pg.count(p));
-    last_scrub_pg.erase(p);
-  }
-
-  bool inc_scrubs_pending();
-  void dec_scrubs_pending();
-  void dec_scrubs_active();
 
   // -- scrubbing --
+  void sched_scrub();
   xlist<PG*> scrub_queue;
 
 
@@ -1043,45 +1156,42 @@ protected:
   } rep_scrub_wq;
 
   // -- removing --
-  xlist<PG*> remove_queue;
-
-  struct RemoveWQ : public ThreadPool::WorkQueue<PG> {
-    OSD *osd;
-    RemoveWQ(OSD *o, time_t ti, ThreadPool *tp)
-      : ThreadPool::WorkQueue<PG>("OSD::RemoveWQ", ti, 0, tp), osd(o) {}
+  struct RemoveWQ : public ThreadPool::WorkQueue<pair<coll_t, SequencerRef> > {
+    ObjectStore *&store;
+    list<pair<coll_t, SequencerRef> *> remove_queue;
+    RemoveWQ(ObjectStore *&o, time_t ti, ThreadPool *tp)
+      : ThreadPool::WorkQueue<pair<coll_t, SequencerRef> >("OSD::RemoveWQ", ti, 0, tp),
+	store(o) {}
 
     bool _empty() {
-      return osd->remove_queue.empty();
+      return remove_queue.empty();
     }
-    bool _enqueue(PG *pg) {
-      if (pg->remove_item.is_on_list())
-	return false;
-      pg->get();
-      osd->remove_queue.push_back(&pg->remove_item);
+    bool _enqueue(pair<coll_t, SequencerRef> *item) {
+      remove_queue.push_back(item);
       return true;
     }
-    void _dequeue(PG *pg) {
-      if (pg->remove_item.remove_myself())
-	pg->put();
+    void _dequeue(pair<coll_t, SequencerRef> *item) {
+      assert(0);
     }
-    PG *_dequeue() {
-      if (osd->remove_queue.empty())
+    pair<coll_t, SequencerRef> *_dequeue() {
+      if (remove_queue.empty())
 	return NULL;
-      PG *pg = osd->remove_queue.front();
-      osd->remove_queue.pop_front();
-      return pg;
+      pair<coll_t, SequencerRef> *item = remove_queue.front();
+      remove_queue.pop_front();
+      return item;
     }
-    void _process(PG *pg) {
-      osd->_remove_pg(pg);
-    }
+    void _process(pair<coll_t, SequencerRef> *item);
     void _clear() {
-      while (!osd->remove_queue.empty()) {
-	PG *pg = osd->remove_queue.front();
-	osd->remove_queue.pop_front();
-	pg->put();
+      while (!remove_queue.empty()) {
+	delete remove_queue.front();
+	remove_queue.pop_front();
       }
     }
   } remove_wq;
+  uint64_t next_removal_seq;
+  coll_t get_next_removal_coll() {
+    return coll_t::make_removal_coll(next_removal_seq++);
+  }
 
  private:
   bool ms_dispatch(Message *m);
@@ -1142,10 +1252,6 @@ public:
 
   void handle_signal(int signum);
 
-  void reply_op_error(OpRequestRef op, int r);
-  void reply_op_error(OpRequestRef op, int r, eversion_t v);
-  void handle_misdirected_op(PG *pg, OpRequestRef op);
-
   void handle_rep_scrub(MOSDRepScrub *m);
   void handle_scrub(class MOSDScrub *m);
   void handle_osd_ping(class MOSDPing *m);
@@ -1153,16 +1259,11 @@ public:
   void handle_sub_op(OpRequestRef op);
   void handle_sub_op_reply(OpRequestRef op);
 
-private:
   /// check if we can throw out op from a disconnected client
-  bool op_is_discardable(class MOSDOp *m);
+  static bool op_is_discardable(class MOSDOp *m);
   /// check if op has sufficient caps
   bool op_has_sufficient_caps(PG *pg, class MOSDOp *m);
   /// check if op should be (re)queued for processing
-  bool op_is_queueable(PG *pg, OpRequestRef op);
-  /// check if subop should be (re)queued for processing
-  bool subop_is_queueable(PG *pg, OpRequestRef op);
-
 public:
   void force_remount();
 
@@ -1181,6 +1282,8 @@ public:
 			    ReplicatedPG *pg,
 			    entity_name_t entity,
 			    utime_t expire);
+  OSDService service;
+  friend class OSDService;
 };
 
 //compatibility of the executable
