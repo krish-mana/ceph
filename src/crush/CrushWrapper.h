@@ -21,6 +21,7 @@ extern "C" {
 #include <map>
 #include <set>
 #include <string>
+#include "common/Mutex.h"
 
 #include <iostream> //for testing, remove
 
@@ -45,6 +46,7 @@ inline static void decode(crush_rule_step &s, bufferlist::iterator &p)
 
 using namespace std;
 class CrushWrapper {
+  mutable Mutex mapper_lock;
 public:
   struct crush_map *crush;
   std::map<int, string> type_map; /* bucket/device type names */
@@ -73,7 +75,8 @@ public:
   CrushWrapper(const CrushWrapper& other);
   const CrushWrapper& operator=(const CrushWrapper& other);
 
-  CrushWrapper() : crush(0), have_rmaps(false) {
+  CrushWrapper() : mapper_lock("CrushWrapper::mapper_lock"),
+		   crush(0), have_rmaps(false) {
     create();
   }
   ~CrushWrapper() {
@@ -391,6 +394,7 @@ public:
   }
   void do_rule(int rule, int x, vector<int>& out, int maxout, int forcefeed,
 	       const vector<__u32>& weight) const {
+    Mutex::Locker l(mapper_lock);
     int rawout[maxout];
     int numrep = crush_do_rule(crush, rule, x, rawout, maxout,
 			       forcefeed, &weight[0]);
