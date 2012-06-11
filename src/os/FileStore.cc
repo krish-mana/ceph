@@ -2261,6 +2261,7 @@ int FileStore::queue_transactions(Sequencer *posr, list<Transaction*> &tls,
   OpSequencer *osr;
   if (!posr)
     posr = &default_osr;
+  assert((uint64_t)posr > 1);
   if (posr->p) {
     osr = (OpSequencer *)posr->p;
     dout(5) << "queue_transactions existing " << *osr << "/" << osr->parent << dendl; //<< " w/ q " << osr->q << dendl;
