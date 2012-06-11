@@ -4463,6 +4463,11 @@ void OSD::handle_pg_remove(OpRequestRef op)
   }
 }
 
+class NullRemoval {
+public:
+  void operator()(ObjectStore::Sequencer *) {}
+};
+
 void OSD::_remove_pg(PG *pg)
 {
   vector<coll_t> removals;
@@ -4515,6 +4520,7 @@ void OSD::_remove_pg(PG *pg)
   peering_wq.dequeue(pg);
   
   pg->deleting = true;
+  pg->osr = std::tr1::shared_ptr<ObjectStore::Sequencer>((ObjectStore::Sequencer*)1, NullRemoval());
 
   // remove from map
   pg_map.erase(pg->info.pgid);
