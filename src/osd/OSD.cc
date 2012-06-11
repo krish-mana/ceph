@@ -4309,36 +4309,13 @@ void OSD::handle_pg_log(OpRequestRef op)
   }
 
   int created = 0;
-  ObjectStore::Transaction *t;
-  C_Contexts *fin;  
   PG *pg = get_or_create_pg(m->info, m->get_epoch(), 
-			    from, created, false, &t, &fin);
-  if (!pg) {
+			    from, created, false);
+  if (!pg)
     return;
-  }
-
-  if (pg->old_peering_msg(m->get_epoch(), m->get_query_epoch())) {
-    dout(10) << "ignoring old peering message " << *m << dendl;
-    pg->unlock();
-    delete t;
-    delete fin;
-    return;
-  }
-
   op->mark_started();
-
-  map< int, map<pg_t,pg_query_t> > query_map;
-  map< int, MOSDPGInfo* > info_map;
-  PG::RecoveryCtx rctx(&query_map, &info_map, 0, &fin->contexts, t);
-  pg->handle_log(from, m, &rctx);
+  pg->queue_log(m->get_epoch(), m->get_query_epoch(), from, m);
   pg->unlock();
-  do_queries(query_map);
-  do_infos(info_map);
-
-  int tr = store->queue_transaction(&pg->osr, t, new ObjectStore::C_DeleteTransaction(t), fin);
-  assert(!tr);
-
-  maybe_update_heartbeat_peers();
 }
 
 void OSD::handle_pg_info(OpRequestRef op)
@@ -4355,46 +4332,21 @@ void OSD::handle_pg_info(OpRequestRef op)
 
   op->mark_started();
 
-  map< int, MOSDPGInfo* > info_map;
-
   int created = 0;
-
-  for (vector<pg_info_t>::iterator p = m->pg_info.begin();
+  for (vector<pg_notify_t>::iterator p = m->pg_info.begin();
        p != m->pg_info.end();
        ++p) {
-    if (p->pgid.preferred() >= 0) {
-      dout(10) << "ignoring localized pg " << p->pgid << dendl;
+    if (p->info.pgid.preferred() >= 0) {
+      dout(10) << "ignoring localized pg " << p->info.pgid << dendl;
       continue;
     }
 
-    ObjectStore::Transaction *t = 0;
-    C_Contexts *fin = 0;
-    PG *pg = get_or_create_pg(*p, m->get_epoch(), 
 			      from, created, false, &t, &fin);
     if (!pg)
       continue;
-
-    if (pg->old_peering_msg(m->get_epoch(), m->get_epoch())) {
-      dout(10) << "ignoring old peering message " << *m << dendl;
-      pg->unlock();
-      delete t;
-      delete fin;
-      continue;
-    }
-
-    PG::RecoveryCtx rctx(0, &info_map, 0, &fin->contexts, t);
-
-    pg->handle_info(from, *p, &rctx);
-
-    int tr = store->queue_transaction(&pg->osr, t, new ObjectStore::C_DeleteTransaction(t), fin);
-    assert(!tr);
-
+    pg->queue_info(p->epoch_sent, p->epoch_sent, from,  p->info);
     pg->unlock();
   }
-
-  do_infos(info_map);
-
-  maybe_update_heartbeat_peers();
 }
 
 void OSD::handle_pg_trim(OpRequestRef op)
@@ -4441,7 +4393,8 @@ void OSD::handle_pg_trim(OpRequestRef op)
       ObjectStore::Transaction *t = new ObjectStore::Transaction;
       pg->trim(*t, m->trim_to);
       pg->write_info(*t);
-      int tr = store->queue_transaction(&pg->osr, t, new ObjectStore::C_DeleteTransaction(t));
+      int tr = store->queue_transaction(pg->osr.get(), t,
+					new ObjectStore::C_DeleteTransaction(t));
       assert(tr == 0);
     }
     pg->unlock();
@@ -4608,78 +4561,47 @@ void OSD::handle_pg_query(OpRequestRef op)
 
     PG *pg = 0;
 
-    if (pg_map.count(pgid) == 0) {
-      // get active crush mapping
-      vector<int> up, acting;
-      osdmap->pg_to_up_acting_osds(pgid, up, acting);
-      int role = osdmap->calc_pg_role(whoami, acting, acting.size());
-
-      // same primary?
-      pg_history_t history = it->second.history;
-      project_pg_history(pgid, history, m->get_epoch(), up, acting);
-
-      if (m->get_epoch() < history.same_interval_since) {
-        dout(10) << " pg " << pgid << " dne, and pg has changed in "
-                 << history.same_interval_since << " (msg from " << m->get_epoch() << ")" << dendl;
-        continue;
-      }
-
-      assert(role != 0);
-      dout(10) << " pg " << pgid << " dne" << dendl;
-      pg_info_t empty(pgid);
-      if (it->second.type == pg_query_t::LOG ||
-	  it->second.type == pg_query_t::FULLLOG) {
-	MOSDPGLog *mlog = new MOSDPGLog(osdmap->get_epoch(), empty,
-					m->get_epoch());
-	_share_map_outgoing(osdmap->get_cluster_inst(from));
-	cluster_messenger->send_message(mlog,
-					osdmap->get_cluster_inst(from));
-      } else {
-	notify_list[from].push_back(empty);
-      }
-      continue;
-    }
-
-    pg = _lookup_lock_pg(pgid);
-    if (m->get_epoch() < pg->info.history.same_interval_since) {
-      dout(10) << *pg << " handle_pg_query changed in "
-	       << pg->info.history.same_interval_since
-	       << " (msg from " << m->get_epoch() << ")" << dendl;
+    if (pg_map.count(pgid)) {
+      pg = _lookup_lock_pg(pgid);
+      pg->queue_query(it->second.epoch_sent, it->second.epoch_sent,
+		      from, it->second);
       pg->unlock();
       continue;
     }
 
-    if (pg->old_peering_msg(m->get_epoch(), m->get_epoch())) {
-      dout(10) << "ignoring old peering message " << *m << dendl;
-      pg->unlock();
+    // get active crush mapping
+    vector<int> up, acting;
+    osdmap->pg_to_up_acting_osds(pgid, up, acting);
+    int role = osdmap->calc_pg_role(whoami, acting, acting.size());
+    
+    // same primary?
+    pg_history_t history = it->second.history;
+    project_pg_history(pgid, history, it->second.epoch_sent, up, acting);
+    
+    if (it->second.epoch_sent < history.same_interval_since) {
+      dout(10) << " pg " << pgid << " dne, and pg has changed in "
+	       << history.same_interval_since
+	       << " (msg from " << it->second.epoch_sent << ")" << dendl;
       continue;
     }
-
-    if (pg->deleting) {
-      /*
-       * We cancel deletion on pg change.  And the primary will never
-       * query anything it already asked us to delete.  So the only
-       * reason we would ever get a query on a deleting pg is when we
-       * get an old query from an old primary.. which we can safely
-       * ignore.
-       */
-      dout(0) << *pg << " query on deleting pg" << dendl;
-      assert(0 == "this should not happen");
-      pg->unlock();
-      continue;
+    
+    assert(role != 0);
+    dout(10) << " pg " << pgid << " dne" << dendl;
+    pg_info_t empty(pgid);
+    if (it->second.type == pg_query_t::LOG ||
+	it->second.type == pg_query_t::FULLLOG) {
+      MOSDPGLog *mlog = new MOSDPGLog(osdmap->get_epoch(), empty,
+				      it->second.epoch_sent);
+      _share_map_outgoing(osdmap->get_cluster_inst(from));
+      cluster_messenger->send_message(mlog,
+				      osdmap->get_cluster_inst(from));
+    } else {
+      notify_list[from].push_back(pg_notify_t(it->second.epoch_sent,
+					      osdmap->get_epoch(),
+					      empty));
     }
-
-    unreg_last_pg_scrub(pg->info.pgid, pg->info.history.last_scrub_stamp);
-    pg->info.history.merge(it->second.history);
-    reg_last_pg_scrub(pg->info.pgid, pg->info.history.last_scrub_stamp);
-
-    // ok, process query!
-    PG::RecoveryCtx rctx(0, 0, &notify_list, 0, 0);
-    pg->handle_query(from, it->second, m->get_epoch(), &rctx);
-    pg->unlock();
   }
-  
-  do_notifies(notify_list, m->get_epoch());
+  do_notifies(notify_list, osdmap);
 }
 
 

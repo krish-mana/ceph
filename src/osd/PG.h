@@ -21,6 +21,9 @@
 #include <boost/statechart/state.hpp>
 #include <boost/statechart/state_machine.hpp>
 #include <boost/statechart/transition.hpp>
+#include <boost/statechart/event_base.hpp>
+#include <boost/scoped_ptr.hpp>
+#include <tr1/memory>
 
 // re-include our assert to clobber boost's
 #include "include/assert.h" 
@@ -824,6 +827,152 @@ public:
 
   // -- recovery state --
 
+  template <class T>
+  struct CephEvent : boost::statechart::event< T > {
+    virtual ~CephEvent() {}
+    //virtual void print(std::ostream *out) const = 0;
+    void print(std::ostream *out) const {
+      static_cast<const T *>(this)->print(out);
+    }
+  };
+
+  class CephPeeringEvt {
+    epoch_t epoch_sent;
+    epoch_t epoch_requested;
+    boost::intrusive_ptr< const boost::statechart::event_base > evt;
+    string desc;
+  public:
+    template <class T>
+    CephPeeringEvt(epoch_t epoch_sent,
+		   epoch_t epoch_requested,
+		   const CephEvent<T> &evt_) :
+      epoch_sent(epoch_sent), epoch_requested(epoch_requested),
+      evt(evt_.intrusive_from_this()) {
+      stringstream out;
+      out << "epoch_sent: " << epoch_sent
+	  << " epoch_requested: " << epoch_requested << " ";
+      evt_.print(&out);
+      desc = out.str();
+    }
+    epoch_t get_epoch_sent() { return epoch_sent; }
+    epoch_t get_epoch_requested() { return epoch_requested; }
+    const boost::statechart::event_base &get_event() { return *evt; }
+    string get_desc() { return desc; }
+  };
+  typedef std::tr1::shared_ptr<CephPeeringEvt> CephPeeringEvtRef;
+  list<CephPeeringEvtRef> peering_queue;  // op queue
+  list<CephPeeringEvtRef> peering_waiters;
+
+  struct QueryState : CephEvent< QueryState > {
+    Formatter *f;
+    QueryState(Formatter *f) : f(f) {}
+    void print(std::ostream *out) const {
+      *out << "Query" << std::endl;
+    }
+  };
+
+  struct MInfoRec : CephEvent< MInfoRec > {
+    int from;
+    pg_info_t info;
+    MInfoRec(int from, pg_info_t &info) :
+      from(from), info(info) {}
+    void print(std::ostream *out) const {
+      *out << "MInfoRec from " << from
+	   << " info: " << info
+	   << std::endl;
+    }
+  };
+
+  struct MLogRec : CephEvent< MLogRec > {
+    int from;
+    boost::intrusive_ptr<MOSDPGLog> msg;
+    MLogRec(int from, MOSDPGLog *msg) :
+      from(from), msg(msg) {}
+    void print(std::ostream *out) const {
+      *out << "MLogRec from " << from
+	   << std::endl;
+    }
+  };
+
+  struct MNotifyRec : CephEvent< MNotifyRec > {
+    int from;
+    pg_notify_t notify;
+    MNotifyRec(int from, pg_notify_t &notify) :
+      from(from), notify(notify) {}
+    void print(std::ostream *out) const {
+      *out << "MNotifyRec from " << from
+	   << " notify: " << notify
+	   << std::endl;
+    }
+  };
+
+  struct MQuery : CephEvent< MQuery > {
+    int from;
+    pg_query_t query;
+    epoch_t query_epoch;
+    MQuery(int from, const pg_query_t &query, epoch_t query_epoch):
+      from(from), query(query), query_epoch(query_epoch) {}
+    void print(std::ostream *out) const {
+      *out << "MQuery from " << from
+	   << " query_epoch " << query_epoch
+	   << " query: " << query
+	   << std::endl;
+    }
+  };
+
+  struct AdvMap : CephEvent< AdvMap > {
+    OSDMapRef osdmap;
+    OSDMapRef lastmap;
+    vector<int> newup, newacting;
+    AdvMap(OSDMapRef osdmap, OSDMapRef lastmap, vector<int>& newup, vector<int>& newacting):
+      osdmap(osdmap), lastmap(lastmap), newup(newup), newacting(newacting) {}
+    void print(std::ostream *out) const {
+      *out << "AdvMap" << std::endl;
+    }
+  };
+
+  struct RecoveryComplete : CephEvent< RecoveryComplete > { 
+    RecoveryComplete() : CephEvent< RecoveryComplete >() {}
+    void print(std::ostream *out) const {
+      *out << "RecoveryComplete" << std::endl;
+    }
+  };
+  struct ActMap : CephEvent< ActMap > {
+    ActMap() : CephEvent< ActMap >() {}
+    void print(std::ostream *out) const {
+      *out << "ActMap" << std::endl;
+    }
+  };
+  struct Activate : CephEvent< Activate > {
+    Activate() : CephEvent< Activate >() {}
+    void print(std::ostream *out) const {
+      *out << "Activate" << std::endl;
+    }
+  };
+  struct Initialize : CephEvent< Initialize > {
+    Initialize() : CephEvent< Initialize >() {}
+    void print(std::ostream *out) const {
+      *out << "Initialize" << std::endl;
+    }
+  };
+  struct Load : CephEvent< Load > {
+    Load() : CephEvent< Load >() {}
+    void print(std::ostream *out) const {
+      *out << "Load" << std::endl;
+    }
+  };
+  struct GotInfo : CephEvent< GotInfo > {
+    GotInfo() : CephEvent< GotInfo >() {}
+    void print(std::ostream *out) const {
+      *out << "GotInfo" << std::endl;
+    }
+  };
+  struct NeedUpThru : CephEvent< NeedUpThru > {
+    NeedUpThru() : CephEvent< NeedUpThru >() {};
+    void print(std::ostream *out) const {
+      *out << "NeedUpThru" << std::endl;
+    }
+  };
   /* Encapsulates PG recovery process */
   class RecoveryState {
     void start_handle(RecoveryCtx *new_ctx) {
@@ -841,71 +990,6 @@ public:
       machine.event_count++;
       rctx = 0;
     }
-
-    struct QueryState : boost::statechart::event< QueryState > {
-      Formatter *f;
-      QueryState(Formatter *f) : f(f) {}
-    };
-
-    struct MInfoRec : boost::statechart::event< MInfoRec > {
-      int from;
-      pg_info_t &info;
-      MInfoRec(int from, pg_info_t &info) :
-	from(from), info(info) {}
-    };
-
-    struct MLogRec : boost::statechart::event< MLogRec > {
-      int from;
-      MOSDPGLog *msg;
-      MLogRec(int from, MOSDPGLog *msg) :
-	from(from), msg(msg) {}
-    };
-
-    struct MNotifyRec : boost::statechart::event< MNotifyRec > {
-      int from;
-      pg_info_t &info;
-      MNotifyRec(int from, pg_info_t &info) :
-	from(from), info(info) {}
-    };
-
-    struct MQuery : boost::statechart::event< MQuery > {
-      int from;
-      const pg_query_t &query;
-      epoch_t query_epoch;
-      MQuery(int from, const pg_query_t &query, epoch_t query_epoch):
-	from(from), query(query), query_epoch(query_epoch) {}
-    };
-
-    struct AdvMap : boost::statechart::event< AdvMap > {
-      OSDMapRef osdmap;
-      OSDMapRef lastmap;
-      vector<int> newup, newacting;
-      AdvMap(OSDMapRef osdmap, OSDMapRef lastmap, vector<int>& newup, vector<int>& newacting):
-	osdmap(osdmap), lastmap(lastmap), newup(newup), newacting(newacting) {}
-    };
-
-    struct RecoveryComplete : boost::statechart::event< RecoveryComplete > {
-      RecoveryComplete() : boost::statechart::event< RecoveryComplete >() {}
-    };
-    struct ActMap : boost::statechart::event< ActMap > {
-      ActMap() : boost::statechart::event< ActMap >() {}
-    };
-    struct Activate : boost::statechart::event< Activate > {
-      Activate() : boost::statechart::event< Activate >() {}
-    };
-    struct Initialize : boost::statechart::event< Initialize > {
-      Initialize() : boost::statechart::event< Initialize >() {}
-    };
-    struct Load : boost::statechart::event< Load > {
-      Load() : boost::statechart::event< Load >() {}
-    };
-    struct GotInfo : boost::statechart::event< GotInfo > {
-      GotInfo() : boost::statechart::event< GotInfo >() {}
-    };
-    struct NeedUpThru : boost::statechart::event< NeedUpThru > {
-      NeedUpThru() : boost::statechart::event< NeedUpThru >() {};
-    };
-
 
     /* States */
     struct Initial;
@@ -1193,10 +1277,9 @@ public:
 
     struct GetLog : boost::statechart::state< GetLog, Peering >, NamedState {
       int newest_update_osd;
-      MOSDPGLog *msg;
+      boost::intrusive_ptr<MOSDPGLog> msg;
 
       GetLog(my_context ctx);
-      ~GetLog();
       void exit();
 
       typedef boost::mpl::list <
@@ -1250,22 +1333,20 @@ public:
       machine.initiate();
     }
 
-    void handle_notify(int from, pg_info_t& i, RecoveryCtx *ctx);
-    void handle_info(int from, pg_info_t& i, RecoveryCtx *ctx);
-    void handle_log(int from,
-		    MOSDPGLog *msg,
-		    RecoveryCtx *ctx);
-    void handle_query(int from, const pg_query_t& q,
-		      epoch_t query_epoch,
-		      RecoveryCtx *ctx);
-    void handle_advance_map(OSDMapRef osdmap, OSDMapRef lastmap,
-			    vector<int>& newup, vector<int>& newacting, 
-			    RecoveryCtx *ctx);
-    void handle_activate_map(RecoveryCtx *ctx);
-    void handle_recovery_complete(RecoveryCtx *ctx);
-    void handle_create(RecoveryCtx *ctx);
-    void handle_loaded(RecoveryCtx *ctx);
-    void handle_query_state(Formatter *f);
+    void handle_event(const boost::statechart::event_base &evt,
+		      RecoveryCtx *rctx) {
+      start_handle(rctx);
+      machine.process_event(evt);
+      end_handle();
+    }
+
+    void handle_event(CephPeeringEvtRef evt,
+		      RecoveryCtx *rctx) {
+      start_handle(rctx);
+      machine.process_event(evt->get_event());
+      end_handle();
+    }
+
   } recovery_state;
 
 
@@ -1385,42 +1466,36 @@ public:
 		    pair<int, pg_info_t> &notify_info);
   void fulfill_log(int from, const pg_query_t &query, epoch_t query_epoch);
   bool acting_up_affected(const vector<int>& newup, const vector<int>& newacting);
-  bool old_peering_msg(epoch_t reply_epoch, epoch_t query_epoch);
 
+  // OpRequest queueing
+  bool old_peering_msg(epoch_t reply_epoch, epoch_t query_epoch);
+  bool old_peering_evt(CephPeeringEvtRef evt) {
+    return old_peering_msg(evt->get_epoch_sent(), evt->get_epoch_requested());
+  }
+  bool require_same_or_newer_map(epoch_t e) {
+  }
   // recovery bits
-  void handle_notify(int from, pg_info_t& i, RecoveryCtx *rctx) {
-    recovery_state.handle_notify(from, i, rctx);
-  }
-  void handle_info(int from, pg_info_t& i, RecoveryCtx *rctx) {
-    recovery_state.handle_info(from, i, rctx);
-  }
-  void handle_log(int from,
-		  MOSDPGLog *msg,
-		  RecoveryCtx *rctx) {
-    recovery_state.handle_log(from, msg, rctx);
-  }
-  void handle_query(int from, const pg_query_t& q,
-		    epoch_t query_epoch,
-		    RecoveryCtx *rctx) {
-    recovery_state.handle_query(from, q, query_epoch, rctx);
-  }
+  void take_waiters();
+  void queue_peering_event(CephPeeringEvtRef evt);
+  void handle_peering_event(CephPeeringEvtRef evt, RecoveryCtx *rctx);
+  void queue_notify(epoch_t msg_epoch, epoch_t query_epoch,
+		    int from, pg_notify_t& i);
+  void queue_info(epoch_t msg_epoch, epoch_t query_epoch,
+		  int from, pg_info_t& i);
+  void queue_log(epoch_t msg_epoch, epoch_t query_epoch, int from,
+		 MOSDPGLog *msg);
+  void queue_query(epoch_t msg_epoch, epoch_t query_epoch,
+		   int from, const pg_query_t& q);
+  void queue_null(epoch_t msg_epoch, epoch_t query_epoch);
+  void queue_flushed(epoch_t started_at);
   void handle_advance_map(OSDMapRef osdmap, OSDMapRef lastmap,
 			  vector<int>& newup, vector<int>& newacting,
-			  RecoveryCtx *rctx) {
-    recovery_state.handle_advance_map(osdmap, lastmap, newup, newacting, rctx);
-  }
-  void handle_activate_map(RecoveryCtx *rctx) {
-    recovery_state.handle_activate_map(rctx);
-  }
-  void handle_recovery_complete(RecoveryCtx *rctx) {
-    recovery_state.handle_recovery_complete(rctx);
-  }
-  void handle_create(RecoveryCtx *rctx) {
-    recovery_state.handle_create(rctx);
-  }
-  void handle_loaded(RecoveryCtx *rctx) {
-    recovery_state.handle_loaded(rctx);
-  }
+			  RecoveryCtx *rctx);
+  void handle_activate_map(RecoveryCtx *rctx);
+  void handle_recovery_complete(RecoveryCtx *rctx);
+  void handle_create(RecoveryCtx *rctx);
+  void handle_loaded(RecoveryCtx *rctx);
+  void handle_query_state(Formatter *f);
 
   void on_removal();
 
