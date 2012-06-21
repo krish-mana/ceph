@@ -65,13 +65,20 @@ public:
     for (vector<pair<pg_notify_t,pg_interval_map_t> >::iterator p = pg_list.begin();
 	 p != pg_list.end();
 	 p++)
-      ::encode(p->first, payload);
+      ::encode(p->first.info, payload);
 
     // v2 needs the pg_interval_map_t for each record
     for (vector<pair<pg_notify_t,pg_interval_map_t> >::iterator p = pg_list.begin();
 	 p != pg_list.end();
 	 p++)
       ::encode(p->second, payload);
+
+    // v3 needs epoch_sent, query_epoch
+    for (vector<pair<pg_notify_t,pg_interval_map_t> >::iterator p = pg_list.begin();
+	 p != pg_list.end();
+	 p++)
+      ::encode(pair<epoch_t, epoch_t>(
+		 p->first.epoch_sent, p->first.query_epoch), payload);
   }
   void decode_payload() {
     bufferlist::iterator p = payload.begin();
@@ -82,19 +89,28 @@ public:
     ::decode(n, p);
     pg_list.resize(n);
     for (unsigned i=0; i<n; i++) {
-      if (header.version == 2) {
-	pg_info_t info;
-	::decode(info, p);
-	pg_list[i].first = pg_notify_t(epoch, epoch, info);
-      } else {
-	::decode(pg_list[i].first, p);
-      }
+      ::decode(pg_list[i].first.info, p);
     }
 
     if (header.version >= 2) {
       // get the pg_interval_map_t portion
       for (unsigned i=0; i<n; i++) {
 	::decode(pg_list[i].second, p);
+      }
+    }
+
+    // v3 needs epoch_sent, query_epoch
+    for (vector<pair<pg_notify_t,pg_interval_map_t> >::iterator i = pg_list.begin();
+	 i != pg_list.end();
+	 i++) {
+      if (header.version >= 3) {
+	pair<epoch_t, epoch_t> dec;
+	::decode(dec, p);
+	i->first.epoch_sent = dec.first;
+	i->first.query_epoch = dec.second;
+      } else {
+	i->first.epoch_sent = epoch;
+	i->first.query_epoch = epoch;
       }
     }
   }
