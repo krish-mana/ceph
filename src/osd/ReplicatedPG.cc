@@ -5818,6 +5818,26 @@ bool ReplicatedPG::check_recovery_sources(const OSDMapRef osdmap)
       p++;
   }
 
+  for (set<int>::iterator i = peer_log_requested.begin();
+       i != peer_log_requested.end();
+       ) {
+    if (!osdmap->is_up(*i)) {
+      peer_log_requested.erase(i++);
+    } else {
+      ++i;
+    }
+  }
+
+  for (set<int>::iterator i = peer_missing_requested.begin();
+       i != peer_missing_requested.end();
+       ) {
+    if (!osdmap->is_up(*i)) {
+      peer_missing_requested.erase(i++);
+    } else {
+      ++i;
+    }
+  }
+
   return true;
 }
   
