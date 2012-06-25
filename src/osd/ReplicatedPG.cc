@@ -2634,6 +2634,35 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	::encode(out, osd_op.outdata);
       }
       break;
+    case CEPH_OSD_OP_OMAP_COMP:
+      {
+	if (!obs.exists) {
+	  result = -ENOENT;
+	  break;
+	}
+	map<string, pair<bufferlist, int> > assertions;
+	::decode(assertions, bp);
+	
+	map<string, bufferlist> out;
+	set<string> to_get;
+	for (map<string, pair<bufferlist, int> >::iterator i = assertions.begin();
+	     i != assertions.end();
+	     ++i)
+	  to_get.insert(i->first);
+	int r = osd->store->omap_get_values(coll, soid, to_get, &out);
+	if (r < 0) {
+	  result = r;
+	  break;
+	}
+
+	for (map<string, pair<bufferlist, int> >::iterator i = assertions.begin();
+	     i != assertions.end();
+	     ++i) {
+	  if (out.count(i->first)) {
+	    
+	}
+      }
+      break;
 
       // OMAP Write ops
     case CEPH_OSD_OP_OMAPSETVALS:
