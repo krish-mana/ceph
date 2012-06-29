@@ -175,7 +175,9 @@ public:
     version_t last_requested;           // last object requested by primary
 
     /****/
-    IndexedLog() {}
+    IndexedLog() {
+      complete_to = log.end();
+    }
 
     void claim_log(const pg_log_t& o) {
       log = o.log;
