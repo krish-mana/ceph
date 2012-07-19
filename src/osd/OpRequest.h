@@ -105,7 +105,7 @@ struct OpRequest : public TrackedOp {
   }
   double get_duration() const {
     return events.size() ?
-      (received_time - events.rbegin()->first) :
+      (events.rbegin()->first - received_time) :
       0.0;
   }
   void dump(utime_t now, Formatter *f) const;

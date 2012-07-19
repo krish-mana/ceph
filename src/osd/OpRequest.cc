@@ -27,7 +27,8 @@ void OpHistory::insert(utime_t now, OpRequest *op) {
 }
 
 void OpHistory::cleanup(utime_t now) {
-  while (now - arrived.begin()->first > duration_to_keep) {
+  while (arrived.size() &&
+    now - arrived.begin()->first > duration_to_keep) {
     delete arrived.begin()->second;
     duration.erase(make_pair(
 	arrived.begin()->second->get_duration(),
@@ -104,8 +105,8 @@ void OpTracker::unregister_inflight_op(OpRequest *i)
   Mutex::Locker locker(ops_in_flight_lock);
   assert(i->xitem.get_list() == &ops_in_flight);
   utime_t now = ceph_clock_now(g_ceph_context);
-  history.insert(now, i);
   i->xitem.remove_myself();
+  history.insert(now, i);
 }
 
 bool OpTracker::check_ops_in_flight(std::vector<string> &warning_vector)

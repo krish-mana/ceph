@@ -693,6 +693,7 @@ OSD::OSD(int id, Messenger *internal_messenger, Messenger *external_messenger,
   finished_lock("OSD::finished_lock"),
   op_tracker(g_conf->osd_keep_duration_ops, g_conf->osd_keep_num_ops),
   admin_ops_hook(NULL),
+  historic_ops_hook(NULL),
   op_queue_len(0),
   op_wq(this, g_conf->osd_op_thread_timeout, &op_tp),
   peering_wq(this, g_conf->osd_op_thread_timeout, &op_tp, 200),
@@ -755,6 +756,19 @@ int OSD::pre_init()
   }
   return 0;
 }
+
+class HistoricOpsSocketHook : public AdminSocketHook {
+  OSD *osd;
+public:
+  HistoricOpsSocketHook(OSD *o) : osd(o) {}
+  bool call(std::string command, std::string args, bufferlist& out) {
+    stringstream ss;
+    osd->dump_historic_ops(ss);
+    out.append(ss);
+    return true;
+  }
+};
+
 
 class OpsFlightSocketHook : public AdminSocketHook {
   OSD *osd;
@@ -889,6 +903,9 @@ int OSD::init()
   AdminSocket *admin_socket = cct->get_admin_socket();
   r = admin_socket->register_command("dump_ops_in_flight", admin_ops_hook,
                                          "show the ops currently in flight");
+  historic_ops_hook = new HistoricOpsSocketHook(this);
+  r = admin_socket->register_command("dump_historic_ops", historic_ops_hook,
+                                         "show slowest recent ops");
   assert(r == 0);
 
   return 0;
@@ -1012,7 +1029,9 @@ int OSD::shutdown()
 
   cct->get_admin_socket()->unregister_command("dump_ops_in_flight");
   delete admin_ops_hook;
+  delete historic_ops_hook;
   admin_ops_hook = NULL;
+  historic_ops_hook = NULL;
 
   recovery_tp.stop();
   dout(10) << "recovery tp stopped" << dendl;
@@ -2607,8 +2626,6 @@ void OSD::do_command(Connection *con, tid_t tid, vector<string>& cmd, bufferlist
       defer_recovery_until += g_conf->osd_recovery_delay_start;
       recovery_wq.wake();
     }
-    else if (cmd.size() == 2 && cmd[1] == "dump_slow_ops") {
-    }
   }
 
   else if (cmd[0] == "cpu_profiler") {
@@ -2625,7 +2642,6 @@ void OSD::do_command(Connection *con, tid_t tid, vector<string>& cmd, bufferlist
     ss << "reset pg recovery stats";
     pg_recovery_stats.reset();
   }
-
   else {
     ss << "unrecognized command! " << cmd;
     r = -EINVAL;
