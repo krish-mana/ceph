@@ -20,6 +20,51 @@ static ostream& _prefix(std::ostream* _dout)
   return *_dout << "--OSD::tracker-- ";
 }
 
+void OpHistory::insert(utime_t now, OpRequest *op) {
+  duration.insert(make_pair(op->get_duration(), op));
+  arrived.insert(make_pair(op->get_arrived(), op));
+  cleanup(now);
+}
+
+void OpHistory::cleanup(utime_t now) {
+  while (now - arrived.begin()->first > duration_to_keep) {
+    delete arrived.begin()->second;
+    duration.erase(make_pair(
+	arrived.begin()->second->get_duration(),
+	arrived.begin()->second));
+    arrived.erase(arrived.begin());
+  }
+
+  while (duration.size() > num_to_keep) {
+    delete duration.begin()->second;
+    arrived.erase(make_pair(
+	duration.begin()->second->get_arrived(),
+	duration.begin()->second));
+    duration.erase(duration.begin());
+  }
+}
+
+void OpHistory::dump_ops(utime_t now, Formatter *f)
+{
+  cleanup(now);
+  f->open_object_section("OpHistory");
+  f->dump_float("duration to keep", duration_to_keep);
+  f->dump_int("num to keep", num_to_keep);
+  {
+    f->open_array_section("Ops");
+    for (set<pair<double, const OpRequest *> >::const_iterator i =
+	   arrived.begin();
+	 i != arrived.end();
+	 ++i) {
+      f->open_object_section("Op");
+      i->second->dump(now, f);
+      f->close_section();
+    }
+    f->close_section();
+  }
+  f->close_section();
+}
+
 void OpTracker::dump_ops_in_flight(ostream &ss)
 {
   JSONFormatter jf(true);
@@ -29,22 +74,8 @@ void OpTracker::dump_ops_in_flight(ostream &ss)
   jf.open_array_section("ops"); // list of OpRequests
   utime_t now = ceph_clock_now(g_ceph_context);
   for (xlist<OpRequest*>::iterator p = ops_in_flight.begin(); !p.end(); ++p) {
-    stringstream name;
-    Message *m = (*p)->request;
-    m->print(name);
     jf.open_object_section("op");
-    jf.dump_string("description", name.str().c_str()); // this OpRequest
-    jf.dump_stream("received_at") << (*p)->received_time;
-    jf.dump_float("age", now - (*p)->received_time);
-    jf.dump_string("flag_point", (*p)->state_string());
-    if (m->get_orig_source().is_client()) {
-      jf.open_object_section("client_info");
-      stringstream client_name;
-      client_name << m->get_orig_source();
-      jf.dump_string("client", client_name.str());
-      jf.dump_int("tid", m->get_tid());
-      jf.close_section(); // client_info
-    }
+    (*p)->dump(now, &jf);
     jf.close_section(); // this OpRequest
   }
   jf.close_section(); // list of OpRequests
@@ -128,6 +159,25 @@ bool OpTracker::check_ops_in_flight(std::vector<string> &warning_vector)
   return warning_vector.size();
 }
 
+void OpRequest::dump(utime_t now, Formatter *f) const
+{
+  Message *m = request;
+  stringstream name;
+  m->print(name);
+  f->dump_string("description", name.str().c_str()); // this OpRequest
+  f->dump_stream("received_at") << received_time;
+  f->dump_float("age", now - received_time);
+  f->dump_string("flag_point", state_string());
+  if (m->get_orig_source().is_client()) {
+    f->open_object_section("client_info");
+    stringstream client_name;
+    client_name << m->get_orig_source();
+    f->dump_string("client", client_name.str());
+    f->dump_int("tid", m->get_tid());
+    f->close_section(); // client_info
+  }
+}
+
 void OpTracker::mark_event(OpRequest *op, const string &dest)
 {
   utime_t now = ceph_clock_now(g_ceph_context);
@@ -146,7 +196,7 @@ void OpTracker::_mark_event(OpRequest *op, const string &evt,
 void OpTracker::RemoveOnDelete::operator()(OpRequest *op) {
   op->mark_event("done");
   tracker->unregister_inflight_op(&(op->xitem));
-  delete op;
+  // Do not delete op, unregister_inflight_op took control
 }
 
 OpRequestRef OpTracker::create_request(Message *ref)

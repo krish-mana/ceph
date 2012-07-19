@@ -26,6 +26,22 @@
 #include "osd/osd_types.h"
 
 class OpRequest;
+class OpHistory {
+  const double duration_to_keep;
+  const size_t num_to_keep;
+  set<pair<double, const OpRequest *> > arrived;
+  set<pair<double, const OpRequest *> > duration;
+  void cleanup(utime_t now);
+
+public:
+  OpHistory(double duration_to_keep, size_t num_to_keep) :
+    duration_to_keep(duration_to_keep),
+    num_to_keep(num_to_keep) {}
+  void insert(utime_t now, OpRequest *op);
+  void dump_ops(utime_t now, Formatter *f);
+};
+
+class OpRequest;
 typedef std::tr1::shared_ptr<OpRequest> OpRequestRef;
 class OpTracker {
   class RemoveOnDelete {
@@ -44,6 +60,12 @@ public:
   void dump_ops_in_flight(std::ostream& ss);
   void register_inflight_op(xlist<OpRequest*>::item *i);
   void unregister_inflight_op(xlist<OpRequest*>::item *i);
+
+  /**
+   * Dump currently in progress ops as well as the N slowest
+   * ops of the last M seconds
+   */
+
   /**
    * Look for Ops which are too old, and insert warning
    * strings for each Op that is too old.
@@ -67,10 +89,18 @@ public:
  */
 struct OpRequest : public TrackedOp {
   friend class OpTracker;
+  friend class OpHistory;
   Message *request;
   xlist<OpRequest*>::item xitem;
   utime_t received_time;
   uint8_t warn_interval_multiplier;
+  double get_arrived() const {
+    return received_time;
+  }
+  double get_duration() const {
+    return received_time;
+  }
+  void dump(utime_t now, Formatter *f) const;
 private:
   OpTracker *tracker;
   osd_reqid_t reqid;
@@ -108,7 +138,7 @@ public:
   bool currently_started() { return latest_flag_point & flag_started; }
   bool currently_sub_op_sent() { return latest_flag_point & flag_sub_op_sent; }
 
-  const char *state_string() {
+  const char *state_string() const {
     switch(latest_flag_point) {
     case flag_queued_for_pg: return "queued for pg";
     case flag_reached_pg: return "reached pg";

@@ -2606,6 +2606,8 @@ void OSD::do_command(Connection *con, tid_t tid, vector<string>& cmd, bufferlist
       defer_recovery_until += g_conf->osd_recovery_delay_start;
       recovery_wq.wake();
     }
+    else if (cmd.size() == 2 && cmd[1] == "dump_slow_ops") {
+    }
   }
 
   else if (cmd[0] == "cpu_profiler") {
