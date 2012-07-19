@@ -52,7 +52,7 @@ void OpHistory::dump_ops(utime_t now, Formatter *f)
   f->dump_int("num to keep", num_to_keep);
   {
     f->open_array_section("Ops");
-    for (set<pair<double, const OpRequest *> >::const_iterator i =
+    for (set<pair<utime_t, const OpRequest *> >::const_iterator i =
 	   arrived.begin();
 	 i != arrived.end();
 	 ++i) {
@@ -167,6 +167,7 @@ void OpRequest::dump(utime_t now, Formatter *f) const
   f->dump_string("description", name.str().c_str()); // this OpRequest
   f->dump_stream("received_at") << received_time;
   f->dump_float("age", now - received_time);
+  f->dump_float("duration", get_duration());
   f->dump_string("flag_point", state_string());
   if (m->get_orig_source().is_client()) {
     f->open_object_section("client_info");
@@ -175,6 +176,18 @@ void OpRequest::dump(utime_t now, Formatter *f) const
     f->dump_string("client", client_name.str());
     f->dump_int("tid", m->get_tid());
     f->close_section(); // client_info
+  }
+  {
+    f->open_array_section("Events");
+    for (list<pair<utime_t, string> >::const_iterator i = events.begin();
+	 i != events.end();
+	 ++i) {
+      f->open_object_section("event");
+      f->dump_stream("time") << i->first;
+      f->dump_string("event", i->second);
+      f->close_section();
+    }
+    f->close_section();
   }
 }
 
@@ -218,5 +231,10 @@ OpRequestRef OpTracker::create_request(Message *ref)
 
 void OpRequest::mark_event(const string &event)
 {
+  utime_t now = ceph_clock_now(g_ceph_context);
+  {
+    Mutex::Locker l(lock);
+    events.push_back(make_pair(now, event));
+  }
   tracker->mark_event(this, event);
 }
