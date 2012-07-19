@@ -65,6 +65,15 @@ void OpHistory::dump_ops(utime_t now, Formatter *f)
   f->close_section();
 }
 
+void OpTracker::dump_historic_ops(ostream &ss)
+{
+  JSONFormatter jf(true);
+  Mutex::Locker locker(ops_in_flight_lock);
+  utime_t now = ceph_clock_now(g_ceph_context);
+  history.dump_ops(now, &jf);
+  jf.flush(ss);
+}
+
 void OpTracker::dump_ops_in_flight(ostream &ss)
 {
   JSONFormatter jf(true);
@@ -90,11 +99,13 @@ void OpTracker::register_inflight_op(xlist<OpRequest*>::item *i)
   ops_in_flight.back()->seq = seq++;
 }
 
-void OpTracker::unregister_inflight_op(xlist<OpRequest*>::item *i)
+void OpTracker::unregister_inflight_op(OpRequest *i)
 {
   Mutex::Locker locker(ops_in_flight_lock);
-  assert(i->get_list() == &ops_in_flight);
-  i->remove_myself();
+  assert(i->xitem.get_list() == &ops_in_flight);
+  utime_t now = ceph_clock_now(g_ceph_context);
+  history.insert(now, i);
+  i->xitem.remove_myself();
 }
 
 bool OpTracker::check_ops_in_flight(std::vector<string> &warning_vector)
@@ -208,7 +219,7 @@ void OpTracker::_mark_event(OpRequest *op, const string &evt,
 
 void OpTracker::RemoveOnDelete::operator()(OpRequest *op) {
   op->mark_event("done");
-  tracker->unregister_inflight_op(&(op->xitem));
+  tracker->unregister_inflight_op(op);
   // Do not delete op, unregister_inflight_op took control
 }
 

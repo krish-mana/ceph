@@ -54,12 +54,18 @@ class OpTracker {
   uint64_t seq;
   Mutex ops_in_flight_lock;
   xlist<OpRequest *> ops_in_flight;
+  OpHistory history;
 
 public:
-  OpTracker() : seq(0), ops_in_flight_lock("OpTracker mutex") {}
+  OpTracker(
+    double duration_to_keep,
+    size_t num_to_keep) :
+    seq(0), ops_in_flight_lock("OpTracker mutex"),
+    history(duration_to_keep, num_to_keep) {}
   void dump_ops_in_flight(std::ostream& ss);
+  void dump_historic_ops(std::ostream& ss);
   void register_inflight_op(xlist<OpRequest*>::item *i);
-  void unregister_inflight_op(xlist<OpRequest*>::item *i);
+  void unregister_inflight_op(OpRequest *i);
 
   /**
    * Dump currently in progress ops as well as the N slowest
