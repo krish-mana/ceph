@@ -20,6 +20,11 @@
 void cpu_profiler_handle_command(const std::vector<std::string> &cmd,
 				 LogClient &clog)
 {
+  if (cmd.size() < 2) {
+    clog.info() << "can't understand cpu_profiler command. Expected one of: "
+		<< "start,status,flush,stop.\n";
+    return;
+  }
   if (cmd[1] == "start") {
     if (cmd.size() < 3) {
       clog.info() << "cpu_profiler: you must give an argument to start: a "
