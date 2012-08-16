@@ -645,6 +645,7 @@ OSD::OSD(int id, Messenger *internal_messenger, Messenger *external_messenger,
   admin_ops_hook(NULL),
   op_queue_len(0),
   op_wq(this, g_conf->osd_op_thread_timeout, &op_tp),
+  admin_wq_hook(NULL),
   map_lock("OSD::map_lock"),
   peer_map_epoch_lock("OSD::peer_map_epoch_lock"),
   map_cache_lock("OSD::map_cache_lock"),
@@ -727,6 +728,16 @@ public:
     stringstream ss;
     osd->dump_ops_in_flight(ss);
     out.append(ss);
+    return true;
+  }
+};
+
+class WorkQueueSocketHook : public AdminSocketHook {
+  OSD *osd;
+public:
+  WorkQueueSocketHook(OSD *o) : osd(o) {}
+  bool call(std::string command, std::string args, bufferlist& out) {
+    osd->dump_work_queues(out);
     return true;
   }
 };
@@ -840,6 +851,11 @@ int OSD::init()
   AdminSocket *admin_socket = cct->get_admin_socket();
   r = admin_socket->register_command("dump_ops_in_flight", admin_ops_hook,
                                          "show the ops currently in flight");
+  assert(r == 0);
+
+  admin_wq_hook = new WorkQueueSocketHook(this);
+  r = admin_socket->register_command("dump_work_queue_length", admin_wq_hook,
+                                         "show the work queue sizes");
   assert(r == 0);
 
   return 0;
@@ -964,6 +980,10 @@ int OSD::shutdown()
   cct->get_admin_socket()->unregister_command("dump_ops_in_flight");
   delete admin_ops_hook;
   admin_ops_hook = NULL;
+
+  cct->get_admin_socket()->unregister_command("dump_work_queue_size");
+  delete admin_wq_hook;
+  admin_wq_hook = NULL;
 
   recovery_tp.stop();
   dout(10) << "recovery tp stopped" << dendl;
@@ -5740,6 +5760,7 @@ bool OSD::OpWQ::_enqueue(PG *pg)
   osd->op_queue.push_back(pg);
   osd->op_queue_len++;
   osd->logger->set(l_osd_opq, osd->op_queue_len);
+  enqueued();
   return true;
 }
 
@@ -5751,6 +5772,7 @@ PG *OSD::OpWQ::_dequeue()
   osd->op_queue.pop_front();
   osd->op_queue_len--;
   osd->logger->set(l_osd_opq, osd->op_queue_len);
+  dequeued();
   return pg;
 }
 
@@ -5829,6 +5851,17 @@ void OSD::dequeue_op(PG *pg)
   dout(10) << "dequeue_op " << op << " finish" << dendl;
 }
 
+// --------------------------------
+
+void OSD::dump_work_queues(bufferlist &out)
+{
+  // what work queues?
+  out.append("{\n");
+  op_wq.dump_perf(out);
+  out.append(",\n");
+  store->dump_op_wq_perf_counters(out);
+  out.append("\n}\n");
+}
 
 // --------------------------------
 

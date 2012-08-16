@@ -754,6 +754,8 @@ public:
   virtual int dump_journal(ostream& out) { return -EOPNOTSUPP; }
 
   virtual int snapshot(const string& name) { return -EOPNOTSUPP; }
+
+  virtual void dump_op_wq_perf_counters(bufferlist &bl) { }
     
   virtual void set_fsid(uuid_d u) = 0;
   virtual uuid_d get_fsid() = 0;

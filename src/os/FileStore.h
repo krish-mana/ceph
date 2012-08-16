@@ -212,6 +212,7 @@ private:
 
     bool _enqueue(OpSequencer *osr) {
       store->op_queue.push_back(osr);
+      enqueued();
       return true;
     }
     void _dequeue(OpSequencer *o) {
@@ -225,6 +226,7 @@ private:
 	return NULL;
       OpSequencer *osr = store->op_queue.front();
       store->op_queue.pop_front();
+      dequeued();
       return osr;
     }
     void _process(OpSequencer *osr) {
@@ -455,6 +457,8 @@ public:
   void dump_start(const std::string& file);
   void dump_stop();
   void dump_transactions(list<ObjectStore::Transaction*>& ls, uint64_t seq, OpSequencer *osr);
+
+  virtual void dump_op_wq_perf_counters(bufferlist &bl);
 
 private:
   void _inject_failure();

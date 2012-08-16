@@ -125,6 +125,7 @@ class ReplicatedPG;
 class AuthAuthorizeHandlerRegistry;
 
 class OpsFlightSocketHook;
+class WorkQueueSocketHook;
 
 extern const coll_t meta_coll;
 
@@ -378,6 +379,10 @@ private:
     o->dequeue_op(pg);
   };
 
+  // -- work queue tracking --
+  void dump_work_queues(bufferlist &bl);
+  friend class WorkQueueSocketHook;
+  WorkQueueSocketHook *admin_wq_hook;
 
   friend class PG;
   friend class ReplicatedPG;

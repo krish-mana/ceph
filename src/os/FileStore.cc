@@ -4888,3 +4888,7 @@ void FileStore::dump_transactions(list<ObjectStore::Transaction*>& ls, uint64_t 
   m_filestore_dump_fmt.flush(m_filestore_dump);
   m_filestore_dump.flush();
 }
+
+void FileStore::dump_op_wq_perf_counters(bufferlist &bl) {
+  op_wq.dump_perf(bl);
+}
