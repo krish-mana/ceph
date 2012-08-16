@@ -250,7 +250,9 @@ private:
   void _op_queue_reserve_throttle(Op *o, const char *caller = 0);
   void _op_queue_release_throttle(Op *o);
   void _journaled_ahead(OpSequencer *osr, Op *o, Context *ondisk);
+  void _journaled_ondisk(Context *ondisk);
   friend class C_JournaledAhead;
+  friend class C_OnDisk;
 
   // flusher thread
   Cond flusher_cond;
@@ -459,6 +461,7 @@ public:
   void dump_transactions(list<ObjectStore::Transaction*>& ls, uint64_t seq, OpSequencer *osr);
 
   virtual void dump_op_wq_perf_counters(bufferlist &bl);
+  virtual void dump_fs_perf_counters(bufferlist &bl);
 
 private:
   void _inject_failure();

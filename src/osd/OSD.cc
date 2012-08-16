@@ -5855,11 +5855,21 @@ void OSD::dequeue_op(PG *pg)
 
 void OSD::dump_work_queues(bufferlist &out)
 {
-  // what work queues?
+  utime_t s = ceph_clock_now(g_ceph_context);
+  stringstream ss;
+  ss << s;
+
+  // timestamp
   out.append("{\n");
+  out.append("\"time\": \"");
+  out.append(ss.str());
+  out.append("\",\n");
+
   op_wq.dump_perf(out);
   out.append(",\n");
   store->dump_op_wq_perf_counters(out);
+  out.append(",\n");
+  store->dump_fs_perf_counters(out);
   out.append("\n}\n");
 }
 

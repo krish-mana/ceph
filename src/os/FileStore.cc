@@ -800,6 +800,9 @@ FileStore::FileStore(const std::string &base, const std::string &jdev, const cha
   plb.add_fl_avg(l_os_commit_lat, "commitcycle_latency");
   plb.add_u64_counter(l_os_j_full, "journal_full");
 
+  plb.add_u64_counter(l_os_j_submitted, "journal_submitted");
+  plb.add_u64_counter(l_os_j_committed, "journal_committed");
+
   logger = plb.create_perf_counters();
 }
 
@@ -2302,6 +2305,18 @@ struct C_JournaledAhead : public Context {
   }
 };
 
+// simple wrapper for ondisk callback
+struct C_OnDisk : public Context {
+  FileStore *fs;
+  Context *ondisk;
+
+  C_OnDisk(FileStore *f, Context *ondisk):
+    fs(f), ondisk(ondisk) { }
+  void finish(int r) {
+    fs->_journaled_ondisk(ondisk);
+  }
+};
+
 int FileStore::queue_transaction(Sequencer *osr, Transaction *t)
 {
   list<Transaction*> tls;
@@ -2346,6 +2361,7 @@ int FileStore::queue_transactions(Sequencer *posr, list<Transaction*> &tls,
       dout(5) << "queue_transactions (parallel) " << o->op << " " << o->tls << dendl;
       
       _op_journal_transactions(o->tls, o->op, ondisk, osd_op);
+      logger->inc(l_os_j_submitted);
       
       // queue inside journal lock, to preserve ordering
       queue_op(osr, o);
@@ -2357,6 +2373,7 @@ int FileStore::queue_transactions(Sequencer *posr, list<Transaction*> &tls,
       _op_journal_transactions(o->tls, o->op,
 			       new C_JournaledAhead(this, osr, o, ondisk),
 			       osd_op);
+      logger->inc(l_os_j_submitted);
     } else {
       assert(0);
     }
@@ -2404,8 +2421,20 @@ void FileStore::_journaled_ahead(OpSequencer *osr, Op *o, Context *ondisk)
 
   osr->dequeue_journal();
 
+  logger->inc(l_os_j_committed);
+
   // do ondisk completions async, to prevent any onreadable_sync completions
   // getting blocked behind an ondisk completion.
+  if (ondisk) {
+    dout(10) << " queueing ondisk " << ondisk << dendl;
+    ondisk_finisher.queue(ondisk);
+  }
+}
+
+void FileStore::_journaled_ondisk(Context *ondisk)
+{
+  logger->inc(l_os_j_committed);
+
   if (ondisk) {
     dout(10) << " queueing ondisk " << ondisk << dendl;
     ondisk_finisher.queue(ondisk);
@@ -4891,4 +4920,8 @@ void FileStore::dump_transactions(list<ObjectStore::Transaction*>& ls, uint64_t 
 
 void FileStore::dump_op_wq_perf_counters(bufferlist &bl) {
   op_wq.dump_perf(bl);
+}
+
+void FileStore::dump_fs_perf_counters(bufferlist &bl) {
+  logger->write_json_to_buf(bl, false);
 }

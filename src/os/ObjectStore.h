@@ -65,6 +65,8 @@ enum {
   l_os_commit_len,
   l_os_commit_lat,
   l_os_j_full,
+  l_os_j_submitted,
+  l_os_j_committed,
   l_os_last,
 };
 
@@ -756,6 +758,7 @@ public:
   virtual int snapshot(const string& name) { return -EOPNOTSUPP; }
 
   virtual void dump_op_wq_perf_counters(bufferlist &bl) = 0;
+  virtual void dump_fs_perf_counters(bufferlist &bl) = 0;
     
   virtual void set_fsid(uuid_d u) = 0;
   virtual uuid_d get_fsid() = 0;
