@@ -4219,11 +4219,6 @@ bool OSD::can_create_pg(pg_t pgid)
     return false;
   }
 
-  if (creating_pgs[pgid].split_bits) {
-    dout(10) << "can_create_pg " << pgid << " - split" << dendl;
-    return false;
-  }
-
   dout(10) << "can_create_pg " << pgid << " - can create now" << dendl;
   return true;
 }
@@ -4428,7 +4423,8 @@ void OSD::handle_pg_create(OpRequestRef op)
     pg_t pgid = p->first;
     epoch_t created = p->second.created;
     pg_t parent = p->second.parent;
-    int split_bits = p->second.split_bits;
+    if (p->second.split_bits) // Skip split pgs
+      continue;
     pg_t on = pgid;
 
     if (pgid.preferred() >= 0) {
@@ -4436,13 +4432,7 @@ void OSD::handle_pg_create(OpRequestRef op)
       continue;
     }
 
-    if (split_bits) {
-      on = parent;
-      dout(20) << "mkpg " << pgid << " e" << created << " from parent " << parent
-	       << " split by " << split_bits << " bits" << dendl;
-    } else {
-      dout(20) << "mkpg " << pgid << " e" << created << dendl;
-    }
+    dout(20) << "mkpg " << pgid << " e" << created << dendl;
    
     // is it still ours?
     vector<int> up, acting;
@@ -4466,12 +4456,6 @@ void OSD::handle_pg_create(OpRequestRef op)
       continue;
     }
 
-    // does parent exist?
-    if (split_bits && !_have_pg(parent)) {
-      dout(10) << "mkpg " << pgid << "  missing parent " << parent << ", skipping" << dendl;
-      continue;
-    }
-
     // figure history
     pg_history_t history;
     history.epoch_created = created;
@@ -4481,7 +4465,6 @@ void OSD::handle_pg_create(OpRequestRef op)
     // register.
     creating_pgs[pgid].history = history;
     creating_pgs[pgid].parent = parent;
-    creating_pgs[pgid].split_bits = split_bits;
     creating_pgs[pgid].acting.swap(acting);
     calc_priors_during(pgid, created, history.same_interval_since, 
 		       creating_pgs[pgid].prior);
