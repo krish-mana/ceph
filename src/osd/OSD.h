@@ -331,6 +331,13 @@ public:
   void init();
   void shutdown();
 
+  // split
+  Mutex in_progress_split_lock;
+  set<pg_t> in_progress_splits;
+  void start_split(const set<pg_t> &pgs);
+  void complete_split(const set<pg_t> &pgs);
+  bool splitting(pg_t pgid);
+
   OSDService(OSD *osd);
 };
 class OSD : public Dispatcher {
@@ -708,7 +715,9 @@ private:
   void note_down_osd(int osd);
   void note_up_osd(int osd);
   
-  void advance_pg(epoch_t advance_to, PG *pg, PG::RecoveryCtx *rctx);
+  void advance_pg(
+    epoch_t advance_to, PG *pg, PG::RecoveryCtx *rctx,
+    set<boost::intrusive_ptr<PG> > *split_pgs);
   void advance_map(ObjectStore::Transaction& t, C_Contexts *tfin);
   void activate_map();
 
@@ -767,11 +776,15 @@ protected:
   PG   *_lookup_qlock_pg(pg_t pgid);
 
   PG *lookup_lock_raw_pg(pg_t pgid);
+  PG* _make_pg(OSDMapRef createmap, pg_t pgid);
+  void add_newly_split_pgs(set<boost::intrusive_ptr<PG> > *pgs);
 
+  bool pending_split(pg_t pgid);
   PG *get_or_create_pg(const pg_info_t& info,
-		       pg_interval_map_t& pi,
-		       epoch_t epoch, int from, int& pcreated,
-		       bool primary);
+                       pg_interval_map_t& pi,
+                       epoch_t epoch, int from, int& pcreated,
+                       bool primary,
+                       OpRequestRef op);
   
   void load_pgs();
   void build_past_intervals_parallel();
@@ -812,7 +825,12 @@ protected:
 
   void do_split(PG *parent, set<pg_t>& children, ObjectStore::Transaction &t, C_Contexts *tfin);
   void split_pg(PG *parent, map<pg_t,PG*>& children, ObjectStore::Transaction &t);
-
+  void split_pgs(
+    PG *parent,
+    const set<pg_t> &childpgids, set<boost::intrusive_ptr<PG> > *out_pgs,
+    OSDMapRef curmap,
+    OSDMapRef nextmap,
+    PG::RecoveryCtx *rctx);
 
   // == monitor interaction ==
   utime_t last_mon_report;
