@@ -2035,6 +2035,29 @@ void PG::write_log(ObjectStore::Transaction& t)
 {
   dout(10) << "write_log" << dendl;
 
+  {
+    // Check log/missing
+    for (map<version_t, hobject_t>::iterator i = missing.rmissing.begin();
+	 i < missing.rmissing.end();
+	 ++i) {
+      assert(i.first > 0);
+      if (log.objects.count(i->second))
+	assert(log.objects[i->second]->is_update());
+      assert(missing.count(i->second));
+      assert(missing[i->second].need.version == i->first);
+    }
+    eversion_t last;
+    for (list<pg_log_event_t>:iterator i = log.log.begin();
+	 i != log.log.end();
+	 ++i) {
+      assert(i->version > info.log_tail);
+      assert(i->version <= info.last_update);
+      assert(i->version.version > last.version);
+      assert(i->version > last);
+      last = i->version;
+    }
+  }
+
   // assemble buffer
   bufferlist bl;
 
