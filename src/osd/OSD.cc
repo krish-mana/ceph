@@ -4389,6 +4389,30 @@ void OSD::split_pgs(
     dout(0) << "m_seed " << i->ps() << dendl;
     dout(0) << "split_bits is " << split_bits << dendl;
 
+    vector<hobject_t> objects;
+    store->collection_list(coll_t(parent->info.pgid), objects);
+    for (vector<hobject_t>::iterator j = objects.begin();
+	 j != objects.end();
+	 ++j) {
+      pg_t maps;
+      nextmap->object_locator_to_pg(
+	object_t(j->oid), object_locator_t(parent->pool.id), maps);
+      maps = nextmap->raw_pg_to_pg(maps);
+      if ((j->hash & ~((~0)<<split_bits)) == i->m_seed) {
+	if (maps != *i) {
+	  dout(0) << "map " << maps << " doesn't match pgid " << *i << dendl;
+	  assert(maps == *i);
+	}
+      } else {
+	if (maps == *i) {
+	  dout(0) << "map " << maps << " does match pgid " << *i
+		  << " for object " << *j << " split_bits is " << split_bits
+		  << dendl;
+	  assert(maps != *i);
+	}
+      }
+    }
+
     rctx->transaction->split_collection(
       coll_t(parent->info.pgid),
       split_bits,
