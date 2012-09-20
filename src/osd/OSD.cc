@@ -4735,7 +4735,9 @@ void OSD::dispatch_context(PG::RecoveryCtx &ctx, PG *pg, OSDMapRef curmap)
   delete ctx.query_map;
   do_infos(*ctx.info_map, curmap);
   delete ctx.info_map;
-  if (ctx.transaction->empty() || !pg) {
+  if ((ctx.on_applied->empty() &&
+       ctx.on_safe->empty() &&
+       ctx.transaction->empty()) || !pg) {
     delete ctx.transaction;
     delete ctx.on_applied;
     delete ctx.on_safe;
@@ -5935,11 +5937,14 @@ struct C_CompleteSplits : public Context {
   OSD *osd;
   set<boost::intrusive_ptr<PG> > pgs;
   C_CompleteSplits(OSD *osd, const set<boost::intrusive_ptr<PG> > &in)
-    : osd(osd), pgs(in) {}
+    : osd(osd), pgs(in) {
+    assert(pgs.size());
+  }
   void finish(int r) {
     Mutex::Locker l(osd->osd_lock);
     PG::RecoveryCtx rctx = osd->create_context();
     set<pg_t> to_complete;
+    assert(pgs.size());
     for (set<boost::intrusive_ptr<PG> >::iterator i = pgs.begin();
 	 i != pgs.end();
 	 ++i) {
@@ -5980,6 +5985,7 @@ void OSD::process_peering_events(const list<PG*> &pgs)
 			      same_interval_since);
     pg->write_if_dirty(*rctx.transaction);
     if (split_pgs.size()) {
+      dout(10) << "Queueing C_CompleteSplits" << dendl;
       rctx.on_applied->add(new C_CompleteSplits(this, split_pgs));
       split_pgs.clear();
     }
