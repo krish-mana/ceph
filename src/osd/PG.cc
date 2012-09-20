@@ -869,6 +869,7 @@ void PG::generate_past_intervals()
       cur_map,
       last_map,
       info.pgid.pool(),
+      info.pgid,
       &past_intervals,
       &debug);
     if (new_interval) {
@@ -4317,6 +4318,13 @@ bool PG::may_need_replay(const OSDMapRef osdmap) const
   return crashed;
 }
 
+bool PG::is_split(OSDMapRef lastmap, OSDMapRef nextmap)
+{
+  return info.pgid.is_split(
+    lastmap->get_pg_num(pool.id),
+    nextmap->get_pg_num(pool.id),
+    0);
+}
 
 bool PG::acting_up_affected(const vector<int>& newup, const vector<int>& newacting)
 {
@@ -4425,14 +4433,14 @@ void PG::start_peering_interval(const OSDMapRef lastmap,
       info.history.same_interval_since,
       info.history.last_epoch_clean,
       osdmap,
-      lastmap, info.pgid.pool(), &past_intervals);
+      lastmap, info.pgid.pool(), info.pgid, &past_intervals);
     if (new_interval) {
       dout(10) << " noting past " << past_intervals.rbegin()->second << dendl;
       dirty_info = true;
     }
   }
 
-  if (oldacting != acting || oldup != up) {
+  if (oldacting != acting || oldup != up || is_split(lastmap, osdmap)) {
     info.history.same_interval_since = osdmap->get_epoch();
   }
   if (oldup != up) {
@@ -4971,7 +4979,8 @@ boost::statechart::result PG::RecoveryState::Started::react(const AdvMap& advmap
 {
   dout(10) << "Started advmap" << dendl;
   PG *pg = context< RecoveryMachine >().pg;
-  if (pg->acting_up_affected(advmap.newup, advmap.newacting)) {
+  if (pg->acting_up_affected(advmap.newup, advmap.newacting) ||
+    pg->is_split(advmap.lastmap, advmap.osdmap)) {
     dout(10) << "up or acting affected, transitioning to Reset" << dendl;
     post_event(advmap);
     return transit< Reset >();
@@ -5023,7 +5032,8 @@ boost::statechart::result PG::RecoveryState::Reset::react(const AdvMap& advmap)
   pg->generate_past_intervals();
 
   pg->remove_down_peer_info(advmap.osdmap);
-  if (pg->acting_up_affected(advmap.newup, advmap.newacting)) {
+  if (pg->acting_up_affected(advmap.newup, advmap.newacting) ||
+    pg->is_split(advmap.lastmap, advmap.osdmap)) {
     dout(10) << "up or acting affected, calling start_peering_interval again"
 	     << dendl;
     pg->start_peering_interval(advmap.lastmap, advmap.newup, advmap.newacting);
