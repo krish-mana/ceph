@@ -134,6 +134,7 @@ class AuthAuthorizeHandlerRegistry;
 
 class OpsFlightSocketHook;
 class HistoricOpsSocketHook;
+struct C_CompleteSplits;
 
 extern const coll_t meta_coll;
 
@@ -576,6 +577,7 @@ private:
   }
   friend class OpsFlightSocketHook;
   friend class HistoricOpsSocketHook;
+  friend class C_CompleteSplits;
   OpsFlightSocketHook *admin_ops_hook;
   HistoricOpsSocketHook *historic_ops_hook;
 
@@ -777,6 +779,7 @@ protected:
   // -- placement groups --
   hash_map<pg_t, PG*> pg_map;
   map<pg_t, list<OpRequestRef> > waiting_for_pg;
+  map<pg_t, list<PG::CephPeeringEvtRef> > peering_wait_for_split;
   PGRecoveryStats pg_recovery_stats;
 
   PGPool _get_pool(int id, OSDMapRef createmap);
@@ -799,7 +802,8 @@ protected:
 
   PG *lookup_lock_raw_pg(pg_t pgid);
   PG* _make_pg(OSDMapRef createmap, pg_t pgid);
-  void add_newly_split_pgs(set<boost::intrusive_ptr<PG> > *pgs);
+  void add_newly_split_pg(PG *pg,
+			  PG::RecoveryCtx *rctx);
 
   bool pending_split(pg_t pgid);
   PG *get_or_create_pg(const pg_info_t& info,
