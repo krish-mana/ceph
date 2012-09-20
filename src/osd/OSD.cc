@@ -3596,6 +3596,21 @@ void OSD::note_up_osd(int peer)
   forget_peer_epoch(peer, osdmap->get_epoch() - 1);
 }
 
+struct C_OnMapApply : public Context {
+  OSDService *service;
+  boost::scoped_ptr<ObjectStore::Transaction> t;
+  list<OSDMapRef> pinned_maps;
+  epoch_t e;
+  C_OnMapApply(OSDService *service,
+	       ObjectStore::Transaction *t,
+	       const list<OSDMapRef> &pinned_maps,
+	       epoch_t e)
+    : service(service), t(t), pinned_maps(pinned_maps), e(e) {}
+  void finish(int r) {
+    service->clear_map_bl_cache_pins(e);
+  }
+};
+
 void OSD::handle_osd_map(MOSDMap *m)
 {
   assert(osd_lock.is_locked());
@@ -3650,7 +3665,8 @@ void OSD::handle_osd_map(MOSDMap *m)
     skip_maps = true;
   }
 
-  ObjectStore::Transaction t;
+  ObjectStore::Transaction *_t = new ObjectStore::Transaction;
+  ObjectStore::Transaction &t = *_t;
 
   // store new maps: queue for disk and put in the osdmap cache
   epoch_t start = MAX(osdmap->get_epoch() + 1, first);
@@ -3823,17 +3839,13 @@ void OSD::handle_osd_map(MOSDMap *m)
 
   // superblock and commit
   write_superblock(t);
-  int r = store->apply_transaction(t, fin);
-  if (r) {
-    map_lock.put_write();
-    derr << "error writing map: " << cpp_strerror(-r) << dendl;
-    m->put();
-    shutdown();
-    return;
-  }
+  store->queue_transaction(
+    0,
+    _t,
+    new C_OnMapApply(&service, _t, pinned_maps, osdmap->get_epoch()),
+    0, fin);
   service.publish_superblock(superblock);
 
-  clear_map_bl_cache_pins();
   map_lock.put_write();
 
   check_osdmap_features();
@@ -4228,11 +4240,11 @@ void OSDService::pin_map_bl(epoch_t e, bufferlist &bl)
   map_bl_cache.pin(e, bl);
 }
 
-void OSDService::clear_map_bl_cache_pins()
+void OSDService::clear_map_bl_cache_pins(epoch_t e)
 {
   Mutex::Locker l(map_cache_lock);
-  map_bl_inc_cache.clear_pinned();
-  map_bl_cache.clear_pinned();
+  map_bl_inc_cache.clear_pinned(e);
+  map_bl_cache.clear_pinned(e);
 }
 
 OSDMapRef OSDService::_add_map(OSDMap *o)
