@@ -119,7 +119,7 @@ void ReplicatedPG::wait_for_missing_object(const hobject_t& soid, OpRequestRef o
   }
   else {
     dout(7) << "missing " << soid << " v " << v << ", pulling." << dendl;
-    pull(soid, v);
+    pull(soid, v, op->request->get_priority());
   }
   waiting_for_missing_object[soid].push_back(op);
   op->mark_delayed();
@@ -175,7 +175,7 @@ void ReplicatedPG::wait_for_degraded_object(const hobject_t& soid, OpRequestRef 
 	break;
       }
     }
-    recover_object_replicas(soid, v);
+    recover_object_replicas(soid, v, op->request->get_priority());
   }
   waiting_for_degraded_object[soid].push_back(op);
   op->mark_delayed();
@@ -1237,6 +1237,7 @@ void ReplicatedPG::do_backfill(OpRequestRef op)
       MOSDPGBackfill *reply = new MOSDPGBackfill(MOSDPGBackfill::OP_BACKFILL_FINISH_ACK,
 						 get_osdmap()->get_epoch(), m->query_epoch,
 						 info.pgid);
+      reply->set_priority(g_conf->osd_recovery_op_priority);
       osd->cluster_messenger->send_message(reply, m->get_connection());
       queue_peering_event(
 	CephPeeringEvtRef(
@@ -4747,7 +4748,9 @@ void ReplicatedPG::calc_clone_subsets(SnapSet& snapset, const hobject_t& soid,
  */
 enum { PULL_NONE, PULL_OTHER, PULL_YES };
 
-int ReplicatedPG::pull(const hobject_t& soid, eversion_t v)
+int ReplicatedPG::pull(
+  const hobject_t& soid, eversion_t v,
+  int priority)
 {
   int fromosd = -1;
   map<hobject_t,set<int> >::iterator q = missing_loc.find(soid);
@@ -4790,7 +4793,7 @@ int ReplicatedPG::pull(const hobject_t& soid, eversion_t v)
 	dout(10) << " missing but already pulling head " << head << dendl;
 	return PULL_NONE;
       } else {
-	int r = pull(head, missing.missing[head].need);
+	int r = pull(head, missing.missing[head].need, priority);
 	if (r != PULL_NONE)
 	  return PULL_OTHER;
 	return PULL_NONE;
@@ -4802,7 +4805,7 @@ int ReplicatedPG::pull(const hobject_t& soid, eversion_t v)
 	dout(10) << " missing but already pulling snapdir " << head << dendl;
 	return PULL_NONE;
       } else {
-	int r = pull(head, missing.missing[head].need);
+	int r = pull(head, missing.missing[head].need, priority);
 	if (r != PULL_NONE)
 	  return PULL_OTHER;
 	return PULL_NONE;
@@ -4838,7 +4841,8 @@ int ReplicatedPG::pull(const hobject_t& soid, eversion_t v)
   PullInfo &pi = pulling[soid];
   pi.recovery_info = recovery_info;
   pi.recovery_progress = progress;
-  send_pull(fromosd, recovery_info, progress);
+  pi.priority = priority;
+  send_pull(priority, fromosd, recovery_info, progress);
 
   start_recovery_op(soid);
   return PULL_YES;
@@ -4864,7 +4868,9 @@ void ReplicatedPG::send_remove_op(const hobject_t& oid, eversion_t v, int peer)
  * intelligently push an object to a replica.  make use of existing
  * clones/heads and dup data ranges where possible.
  */
-void ReplicatedPG::push_to_replica(ObjectContext *obc, const hobject_t& soid, int peer)
+void ReplicatedPG::push_to_replica(
+  ObjectContext *obc, const hobject_t& soid, int peer,
+  int prio)
 {
   const object_info_t& oi = obc->obs.oi;
   uint64_t size = obc->obs.oi.size;
@@ -4887,7 +4893,7 @@ void ReplicatedPG::push_to_replica(ObjectContext *obc, const hobject_t& soid, in
       map<hobject_t, interval_set<uint64_t> > clone_subsets;
       if (size)
 	clone_subsets[head].insert(0, size);
-      push_start(obc, soid, peer, oi.version, data_subset, clone_subsets);
+      push_start(prio, obc, soid, peer, oi.version, data_subset, clone_subsets);
       return;
     }
 
@@ -4895,13 +4901,13 @@ void ReplicatedPG::push_to_replica(ObjectContext *obc, const hobject_t& soid, in
     // we need the head (and current SnapSet) locally to do that.
     if (missing.is_missing(head)) {
       dout(15) << "push_to_replica missing head " << head << ", pushing raw clone" << dendl;
-      return push_start(obc, soid, peer);
+      return push_start(prio, obc, soid, peer);
     }
     hobject_t snapdir = head;
     snapdir.snap = CEPH_SNAPDIR;
     if (missing.is_missing(snapdir)) {
       dout(15) << "push_to_replica missing snapdir " << snapdir << ", pushing raw clone" << dendl;
-      return push_start(obc, soid, peer);
+      return push_start(prio, obc, soid, peer);
     }
     
     SnapSetContext *ssc = get_snapset_context(soid.oid, soid.get_key(), soid.hash, false);
@@ -4921,10 +4927,11 @@ void ReplicatedPG::push_to_replica(ObjectContext *obc, const hobject_t& soid, in
     put_snapset_context(ssc);
   }
 
-  push_start(obc, soid, peer, oi.version, data_subset, clone_subsets);
+  push_start(prio, obc, soid, peer, oi.version, data_subset, clone_subsets);
 }
 
-void ReplicatedPG::push_start(ObjectContext *obc,
+void ReplicatedPG::push_start(int prio,
+			      ObjectContext *obc,
 			      const hobject_t& soid, int peer)
 {
   interval_set<uint64_t> data_subset;
@@ -4932,10 +4939,12 @@ void ReplicatedPG::push_start(ObjectContext *obc,
     data_subset.insert(0, obc->obs.oi.size);
   map<hobject_t, interval_set<uint64_t> > clone_subsets;
 
-  push_start(obc, soid, peer, obc->obs.oi.version, data_subset, clone_subsets);
+  push_start(prio, obc, soid, peer,
+	     obc->obs.oi.version, data_subset, clone_subsets);
 }
 
 void ReplicatedPG::push_start(
+  int prio,
   ObjectContext *obc,
   const hobject_t& soid, int peer,
   eversion_t version,
@@ -4955,14 +4964,17 @@ void ReplicatedPG::push_start(
   pi.recovery_progress.data_recovered_to = 0;
   pi.recovery_progress.data_complete = 0;
   pi.recovery_progress.omap_complete = 0;
+  pi.priority = prio;
 
   ObjectRecoveryProgress new_progress;
-  send_push(peer, pi.recovery_info, pi.recovery_progress, &new_progress);
+  send_push(pi.priority,
+	    peer, pi.recovery_info,
+	    pi.recovery_progress, &new_progress);
   pi.recovery_progress = new_progress;
 }
 
-int ReplicatedPG::send_pull(int peer,
-			    const ObjectRecoveryInfo& recovery_info,
+int ReplicatedPG::send_pull(int prio, int peer,
+			    const ObjectRecoveryInfo &recovery_info,
 			    ObjectRecoveryProgress progress)
 {
   // send op
@@ -4980,6 +4992,7 @@ int ReplicatedPG::send_pull(int peer,
 				   false, CEPH_OSD_FLAG_ACK,
 				   get_osdmap()->get_epoch(), tid,
 				   recovery_info.version);
+  subop->set_priority(prio);
   subop->ops = vector<OSDOp>(1);
   subop->ops[0].op.op = CEPH_OSD_OP_PULL;
   subop->recovery_info = recovery_info;
@@ -5229,7 +5242,10 @@ void ReplicatedPG::handle_pull_response(OpRequestRef op)
       }
     }
   } else {
-    send_pull(m->get_source().num(), pi.recovery_info, pi.recovery_progress);
+    send_pull(pi.priority,
+	      m->get_source().num(),
+	      pi.recovery_info,
+	      pi.recovery_progress);
   }
 }
 
@@ -5279,8 +5295,8 @@ void ReplicatedPG::handle_push(OpRequestRef op)
   osd->cluster_messenger->send_message(reply, m->get_connection());
 }
 
-int ReplicatedPG::send_push(int peer,
-			    const ObjectRecoveryInfo& recovery_info,
+int ReplicatedPG::send_push(int prio, int peer,
+			    const ObjectRecoveryInfo &recovery_info,
 			    ObjectRecoveryProgress progress,
 			    ObjectRecoveryProgress *out_progress)
 {
@@ -5291,6 +5307,7 @@ int ReplicatedPG::send_push(int peer,
   MOSDSubOp *subop = new MOSDSubOp(rid, info.pgid, recovery_info.soid,
 				   false, 0, get_osdmap()->get_epoch(),
 				   tid, recovery_info.version);
+  subop->set_priority(prio);
 
   dout(7) << "send_push_op " << recovery_info.soid
 	  << " v " << recovery_info.version
@@ -5424,7 +5441,9 @@ void ReplicatedPG::sub_op_push_reply(OpRequestRef op)
 	       << " of " << pi->recovery_info.copy_subset << dendl;
       ObjectRecoveryProgress new_progress;
       send_push(
-	peer, pi->recovery_info, pi->recovery_progress, &new_progress);
+	pi->priority,
+	peer, pi->recovery_info,
+	pi->recovery_progress, &new_progress);
       pi->recovery_progress = new_progress;
     } else {
       // done!
@@ -5510,7 +5529,9 @@ void ReplicatedPG::sub_op_pull(OpRequestRef op)
       assert(recovery_info.clone_subset.empty());
     }
 
-    r = send_push(m->get_source().num(), recovery_info, progress);
+    r = send_push(m->get_priority(),
+		  m->get_source().num(),
+		  recovery_info, progress);
     if (r < 0)
       send_push_op_blank(soid, m->get_source().num());
   }
@@ -6342,7 +6363,7 @@ int ReplicatedPG::recover_primary(int max)
       } else if (unfound) {
 	++skipped;
       } else {
-	int r = pull(soid, need);
+	int r = pull(soid, need, g_conf->osd_recovery_op_priority);
 	switch (r) {
 	case PULL_YES:
 	  ++started;
@@ -6368,7 +6389,8 @@ int ReplicatedPG::recover_primary(int max)
   return started;
 }
 
-int ReplicatedPG::recover_object_replicas(const hobject_t& soid, eversion_t v)
+int ReplicatedPG::recover_object_replicas(
+  const hobject_t& soid, eversion_t v, int prio)
 {
   dout(10) << "recover_object_replicas " << soid << dendl;
 
@@ -6408,7 +6430,7 @@ int ReplicatedPG::recover_object_replicas(const hobject_t& soid, eversion_t v)
 	start_recovery_op(soid);
 	started = true;
       }
-      push_to_replica(obc, soid, peer);
+      push_to_replica(obc, soid, peer, prio);
     }
   }
   
@@ -6456,7 +6478,8 @@ int ReplicatedPG::recover_replicas(int max)
 
       dout(10) << __func__ << ": recover_object_replicas(" << soid << ")" << dendl;
       map<hobject_t,pg_missing_t::item>::const_iterator r = m.missing.find(soid);
-      started += recover_object_replicas(soid, r->second.need);
+      started += recover_object_replicas(soid, r->second.need,
+					 g_conf->osd_recovery_op_priority);
     }
   }
 
@@ -6646,6 +6669,7 @@ int ReplicatedPG::recover_backfill(int max)
     MOSDPGBackfill *m = NULL;
     if (bound.is_max()) {
       m = new MOSDPGBackfill(MOSDPGBackfill::OP_BACKFILL_FINISH, e, e, info.pgid);
+      m->set_priority(g_conf->osd_recovery_op_priority);
       /* pinfo.stats might be wrong if we did log-based recovery on the
        * backfilled portion in addition to continuing backfill.
        */
@@ -6653,6 +6677,7 @@ int ReplicatedPG::recover_backfill(int max)
       start_recovery_op(hobject_t::get_max());
     } else {
       m = new MOSDPGBackfill(MOSDPGBackfill::OP_BACKFILL_PROGRESS, e, e, info.pgid);
+      m->set_priority(g_conf->osd_recovery_op_priority);
     }
     m->last_backfill = bound;
     m->stats = pinfo.stats.stats;
@@ -6674,7 +6699,7 @@ void ReplicatedPG::push_backfill_object(hobject_t oid, eversion_t v, eversion_t 
     start_recovery_op(oid);
   ObjectContext *obc = get_object_context(oid, OLOC_BLANK, false);
   obc->ondisk_read_lock();
-  push_to_replica(obc, oid, peer);
+  push_to_replica(obc, oid, peer, g_conf->osd_recovery_op_priority);
   obc->ondisk_read_unlock();
   put_object_context(obc);
 }
