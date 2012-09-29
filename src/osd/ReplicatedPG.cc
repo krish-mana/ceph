@@ -4974,6 +4974,7 @@ int ReplicatedPG::send_pull(int peer,
 				   false, CEPH_OSD_FLAG_ACK,
 				   get_osdmap()->get_epoch(), tid,
 				   recovery_info.version);
+  subop->set_priority(CEPH_MSG_PRIO_LOW);
   subop->ops = vector<OSDOp>(1);
   subop->ops[0].op.op = CEPH_OSD_OP_PULL;
   subop->recovery_info = recovery_info;
@@ -5285,6 +5286,7 @@ int ReplicatedPG::send_push(int peer,
   MOSDSubOp *subop = new MOSDSubOp(rid, info.pgid, recovery_info.soid,
 				   false, 0, get_osdmap()->get_epoch(),
 				   tid, recovery_info.version);
+  subop->set_priority(CEPH_MSG_PRIO_LOW);
 
   dout(7) << "send_push_op " << recovery_info.soid
 	  << " v " << recovery_info.version
