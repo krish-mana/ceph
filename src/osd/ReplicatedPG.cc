@@ -1232,6 +1232,7 @@ void ReplicatedPG::do_backfill(OpRequestRef op)
       MOSDPGBackfill *reply = new MOSDPGBackfill(MOSDPGBackfill::OP_BACKFILL_FINISH_ACK,
 						 get_osdmap()->get_epoch(), m->query_epoch,
 						 info.pgid);
+      reply->set_priority(CEPH_MSG_PRIO_LOW);
       osd->cluster_messenger->send_message(reply, m->get_connection());
       queue_peering_event(
 	CephPeeringEvtRef(
@@ -6642,6 +6643,7 @@ int ReplicatedPG::recover_backfill(int max)
     MOSDPGBackfill *m = NULL;
     if (bound.is_max()) {
       m = new MOSDPGBackfill(MOSDPGBackfill::OP_BACKFILL_FINISH, e, e, info.pgid);
+      m->set_priority(CEPH_MSG_PRIO_LOW);
       /* pinfo.stats might be wrong if we did log-based recovery on the
        * backfilled portion in addition to continuing backfill.
        */
@@ -6649,6 +6651,7 @@ int ReplicatedPG::recover_backfill(int max)
       start_recovery_op(hobject_t::get_max());
     } else {
       m = new MOSDPGBackfill(MOSDPGBackfill::OP_BACKFILL_PROGRESS, e, e, info.pgid);
+      m->set_priority(CEPH_MSG_PRIO_LOW);
     }
     m->last_backfill = bound;
     m->stats = pinfo.stats.stats;
