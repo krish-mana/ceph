@@ -1155,6 +1155,7 @@ libcommon_files = \
 	msg/Accepter.cc \
 	msg/DispatchQueue.cc \
 	msg/Message.cc \
+	common/RefCountedObj.cc \
 	msg/Messenger.cc \
 	msg/Pipe.cc \
 	msg/SimpleMessenger.cc \
