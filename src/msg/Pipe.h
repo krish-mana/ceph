@@ -63,6 +63,7 @@ class DispatchQueue;
     ~Pipe();
 
     SimpleMessenger *msgr;
+    uint64_t conn_id;
     ostream& _pipe_prefix(std::ostream *_dout);
 
     enum {
@@ -110,7 +111,7 @@ class DispatchQueue;
     bool writer_running;
 
     map<int, list<Message*> > out_q;  // priority queue for outbound msgs
-    IncomingQueue *in_q;
+    DispatchQueue *in_q;
     list<Message*> sent;
     Cond cond;
     bool keepalive;
