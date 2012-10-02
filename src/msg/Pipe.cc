@@ -47,13 +47,14 @@ ostream& Pipe::_pipe_prefix(std::ostream *_dout) {
 Pipe::Pipe(SimpleMessenger *r, int st, Connection *con)
   : reader_thread(this), writer_thread(this),
     msgr(r),
+    conn_id(r->dispatch_queue.get_id()),
     sd(-1), port(0),
     peer_type(-1),
     pipe_lock("SimpleMessenger::Pipe::pipe_lock"),
     state(st),
     connection_state(NULL),
     reader_running(false), reader_joining(false), writer_running(false),
-    in_q(r->dispatch_queue.create_queue(this)),
+    in_q(&(r->dispatch_queue)),
     keepalive(false),
     close_on_empty(false),
     connect_seq(0), peer_global_seq(0),
@@ -72,7 +73,6 @@ Pipe::Pipe(SimpleMessenger *r, int st, Connection *con)
 
 Pipe::~Pipe()
 {
-  in_q->put();
   assert(out_q.empty());
   assert(sent.empty());
   if (connection_state)
@@ -132,7 +132,7 @@ void Pipe::join_reader()
 void Pipe::queue_received(Message *m, int priority)
 {
   assert(pipe_lock.is_locked());
-  in_q->queue(m, priority);
+  in_q->enqueue(m, conn_id, priority);
 }
 
 
@@ -464,15 +464,9 @@ int Pipe::accept()
     existing->connection_state->reset_pipe(this);
  
     // steal incoming queue
+    conn_id = existing->conn_id;
     in_seq = existing->in_seq;
     in_seq_acked = in_seq;
-    in_q->put();
-    in_q = existing->in_q;
-    in_q->lock.Lock();
-    in_q->parent = this;
-    in_q->restart_queue();
-    in_q->lock.Unlock();
-    existing->in_q = msgr->dispatch_queue.create_queue(existing);
 
     // steal outgoing queue and out_seq
     existing->requeue_sent();
@@ -806,7 +800,6 @@ int Pipe::connect()
     if (reply.tag == CEPH_MSGR_TAG_RESETSESSION) {
       ldout(msgr->cct,0) << "connect got RESETSESSION" << dendl;
       was_session_reset();
-      in_q->restart_queue();
       cseq = 0;
       pipe_lock.Unlock();
       continue;
@@ -992,7 +985,7 @@ void Pipe::fault(bool onread)
     unregister_pipe();
     msgr->lock.Unlock();
 
-    in_q->discard_queue();
+    in_q->discard_queue(conn_id);
     discard_out_queue();
 
     // disconnect from Connection, and mark it failed.  future messages
@@ -1041,7 +1034,7 @@ void Pipe::was_session_reset()
   assert(pipe_lock.is_locked());
 
   ldout(msgr->cct,10) << "was_session_reset" << dendl;
-  in_q->discard_queue();
+  in_q->discard_queue(conn_id);
   discard_out_queue();
 
   msgr->dispatch_queue.queue_remote_reset(connection_state);
