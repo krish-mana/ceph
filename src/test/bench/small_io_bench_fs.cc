@@ -37,8 +37,8 @@ class SequentialWriteLoad :
   uint64_t cur_pos;
   SequentialWriteLoad(const SequentialWriteLoad &other);
 public:
-  SequentialWriteLoad(const set<string> &objects, uint64_t size, uint64_t length)
-    : objects(objects), size(size), length(length),
+  SequentialWriteLoad(const set<string> &_objects, uint64_t size, uint64_t length)
+    : objects(_objects), size(size), length(length),
       object_pos(objects.begin()), cur_pos(0) {}
 
   boost::tuple<string, uint64_t, uint64_t, Bencher::OpType>
