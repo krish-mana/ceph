@@ -163,7 +163,6 @@ int main(int argc, char **argv)
     objects.insert(coll.str() + "/" + obj.str());
   }
   {
-    std::cout << "blah" << std::endl;
     ObjectStore::Transaction t;
     t.create_collection(coll_t(string("meta")));
     fs.apply_transaction(t);
@@ -181,11 +180,13 @@ int main(int argc, char **argv)
   Distribution<
     boost::tuple<string, uint64_t, uint64_t, Bencher::OpType> > *gen = 0;
   if (vm["sequential"].as<bool>()) {
+    std::cout << "Using Sequential generator" << std::cerr
     gen = new SequentialWriteLoad(
       objects,
       vm["object-size"].as<unsigned>(),
       vm["io-size"].as<unsigned>());
   } else {
+    std::cout << "Using random generator" << std::cerr
     gen = new FourTupleDist<string, uint64_t, uint64_t, Bencher::OpType>(
       new RandomDist<string>(rng, objects),
       new Align(
