@@ -91,6 +91,8 @@ int main(int argc, char **argv)
       "write info objects with main writes")
     ("sequential", po::value<bool>()->default_value(false),
      "do sequential writes like rbd")
+    ("disable-detailed-ops", po::value<bool>()->default_value(false),
+     "don't dump per op stats")
     ;
 
   po::variables_map vm;
@@ -170,7 +172,9 @@ int main(int argc, char **argv)
 
   ostream *detailed_ops = 0;
   ofstream myfile;
-  if (vm["op-dump-file"].as<string>().size()) {
+  if (vm["disable-detailed-ops"].as<bool>()) {
+    detailed_ops = 0;
+  } else if (vm["op-dump-file"].as<string>().size()) {
     myfile.open(vm["op-dump-file"].as<string>().c_str());
     detailed_ops = &myfile;
   } else {
