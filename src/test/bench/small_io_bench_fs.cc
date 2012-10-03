@@ -180,13 +180,13 @@ int main(int argc, char **argv)
   Distribution<
     boost::tuple<string, uint64_t, uint64_t, Bencher::OpType> > *gen = 0;
   if (vm["sequential"].as<bool>()) {
-    std::cout << "Using Sequential generator" << std::cerr
+    std::cout << "Using Sequential generator" << std::endl;
     gen = new SequentialWriteLoad(
       objects,
       vm["object-size"].as<unsigned>(),
       vm["io-size"].as<unsigned>());
   } else {
-    std::cout << "Using random generator" << std::cerr
+    std::cout << "Using random generator" << std::endl;
     gen = new FourTupleDist<string, uint64_t, uint64_t, Bencher::OpType>(
       new RandomDist<string>(rng, objects),
       new Align(
