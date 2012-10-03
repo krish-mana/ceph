@@ -152,19 +152,24 @@ void Bencher::run_bench()
   while ((!max_duration || time(0) < end) && (!max_ops || ops < max_ops)) {
     start_op();
     uint64_t seq = stat_collector->next_seq();
-    switch ((*op_type_gen)()) {
+    boost::tuple<std::string, uint64_t, uint64_t, OpType> next =
+      (*op_dist)();
+    string obj_name = next.get<0>();
+    uint64_t offset = next.get<1>();
+    uint64_t length = next.get<2>();
+    OpType op_type = next.get<3>();
+    switch (op_type) {
       case WRITE: {
 	std::tr1::shared_ptr<OnDelete> on_delete(
 	  new OnDelete(new Cleanup(this)));
 	bufferlist bl;
-	uint64_t length = (*length_gen)();
 	stat_collector->start_write(seq, length);
 	for (uint64_t i = 0; i < length; ++i) {
 	  bl.append(rand());
 	}
 	backend->write(
-	  (*object_gen)(),
-	  (*offset_gen)(),
+	  obj_name,
+	  offset,
 	  bl,
 	  new OnWriteApplied(
 	    this, seq, on_delete),
@@ -174,12 +179,11 @@ void Bencher::run_bench()
 	break;
       }
       case READ: {
-	uint64_t length = (*length_gen)();
 	stat_collector->start_read(seq, length);
 	bufferlist *bl = new bufferlist;
 	backend->read(
-	  (*object_gen)(),
-	  (*offset_gen)(),
+	  obj_name,
+	  offset,
 	  length,
 	  bl,
 	  new OnReadComplete(

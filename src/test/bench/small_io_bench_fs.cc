@@ -27,6 +27,35 @@
 namespace po = boost::program_options;
 using namespace std;
 
+class SequentialWriteLoad :
+  public Distribution<
+  boost::tuple<string, uint64_t, uint64_t, Bencher::OpType> > {
+  set<string> objects;
+  uint64_t size;
+  uint64_t length;
+  set<string>::iterator object_pos;
+  uint64_t cur_pos;
+  SequentialWriteLoad(const SequentialWriteLoad &other);
+public:
+  SequentialWriteLoad(const set<string> &objects, uint64_t size, uint64_t length)
+    : objects(objects), size(size), length(length),
+      object_pos(objects.begin()), cur_pos(0) {}
+
+  boost::tuple<string, uint64_t, uint64_t, Bencher::OpType>
+  operator()() {
+    boost::tuple<string, uint64_t, uint64_t, Bencher::OpType> ret = 
+      boost::make_tuple(*object_pos, cur_pos, length, Bencher::WRITE);
+    cur_pos += length;
+    if (cur_pos > size) {
+      cur_pos = 0;
+      object_pos++;
+    }
+    if (object_pos == objects.end())
+      object_pos = objects.begin();
+    return ret;
+  }
+};
+
 int main(int argc, char **argv)
 {
   po::options_description desc("Allowed options");
@@ -60,6 +89,8 @@ int main(int argc, char **argv)
      "align offset by")
     ("write-infos", po::value<bool>()->default_value(false),
       "write info objects with main writes")
+    ("sequential", po::value<bool>()->default_value(false),
+     "do sequential writes like rbd")
     ;
 
   po::variables_map vm;
@@ -147,17 +178,30 @@ int main(int argc, char **argv)
     detailed_ops = &cerr;
   }
 
+  Distribution<
+    boost::tuple<string, uint64_t, uint64_t, Bencher::OpType> > *gen = 0;
+  if (vm["sequential"].as<bool>()) {
+    gen = new SequentialWriteLoad(
+      objects,
+      vm["object-size"].as<unsigned>(),
+      vm["io-size"].as<unsigned>());
+  } else {
+    gen = new FourTupleDist<string, uint64_t, uint64_t, Bencher::OpType>(
+      new RandomDist<string>(rng, objects),
+      new Align(
+	new UniformRandom(
+	  rng,
+	  0,
+	  vm["object-size"].as<unsigned>() - vm["io-size"].as<unsigned>()),
+	vm["offset-align"].as<unsigned>()
+	),
+      new Uniform(vm["io-size"].as<unsigned>()),
+      new WeightedDist<Bencher::OpType>(rng, ops)
+      );
+  }
+
   Bencher bencher(
-    new RandomDist<string>(rng, objects),
-    new Align(
-      new UniformRandom(
-	rng,
-	0,
-	vm["object-size"].as<unsigned>() - vm["io-size"].as<unsigned>()),
-      vm["offset-align"].as<unsigned>()
-      ),
-    new Uniform(vm["io-size"].as<unsigned>()),
-    new WeightedDist<Bencher::OpType>(rng, ops),
+    gen,
     new DetailedStatCollector(1, new JSONFormatter, detailed_ops, &cout),
     new FileStoreBackend(&fs, vm["write-infos"].as<bool>()),
     vm["num-concurrent-ops"].as<unsigned>(),

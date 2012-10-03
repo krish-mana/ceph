@@ -11,6 +11,7 @@
 #include <boost/random/uniform_int.hpp>
 #include <boost/random/uniform_real.hpp>
 #include <boost/scoped_ptr.hpp>
+#include <boost/tuple/tuple.hpp>
 
 typedef boost::mt11213b rngen_t;
 
@@ -19,6 +20,24 @@ class Distribution {
 public:
   virtual T operator()() = 0;
   virtual ~Distribution() {}
+};
+
+template <typename T, typename U, typename V, typename W>
+class FourTupleDist : public Distribution<boost::tuple<T, U, V, W> > {
+  boost::scoped_ptr<Distribution<T> > t;
+  boost::scoped_ptr<Distribution<U> > u;
+  boost::scoped_ptr<Distribution<V> > v;
+  boost::scoped_ptr<Distribution<W> > w;
+public:
+  FourTupleDist(
+    Distribution<T> *t,
+    Distribution<U> *u,
+    Distribution<V> *v,
+    Distribution<W> *w)
+    : t(t), u(u), v(v), w(w) {}
+  boost::tuple<T, U, V, W> operator()() {
+    return boost::make_tuple((*t)(), (*u)(), (*v)(), (*w)());
+  }
 };
 
 template <typename T>
