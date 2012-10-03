@@ -165,7 +165,7 @@ void Bencher::run_bench()
 	std::tr1::shared_ptr<OnDelete> on_delete(
 	  new OnDelete(new Cleanup(this)));
 	stat_collector->start_write(seq, length);
-	for (uint64_t i = 0; i < length; ++i) {
+	while (bl.length() < length) {
 	  bl.append(rand());
 	}
 	backend->write(
