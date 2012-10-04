@@ -64,6 +64,10 @@ int main(int argc, char **argv)
      "fadvise after each write")
     ("sync-interval", po::value<unsigned>()->default_value(30),
      "frequency to sync")
+    ("sequential", po::value<bool>()->default_value(false),
+     "use sequential access pattern")
+    ("disable-detailed-ops", po::value<bool>()->default_value(false),
+     "don't dump per op stats")
     ;
 
   po::variables_map vm;
@@ -153,24 +157,41 @@ int main(int argc, char **argv)
 
   ostream *detailed_ops = 0;
   ofstream myfile;
-  if (vm["op-dump-file"].as<string>().size()) {
+  if (vm["disable-detailed-ops"].as<bool>()) {
+    detailed_ops = 0;
+  } else if (vm["op-dump-file"].as<string>().size()) {
     myfile.open(vm["op-dump-file"].as<string>().c_str());
     detailed_ops = &myfile;
   } else {
     detailed_ops = &cerr;
   }
 
+  Distribution<
+    boost::tuple<string, uint64_t, uint64_t, Bencher::OpType> > *gen = 0;
+  if (vm["sequential"].as<bool>()) {
+    std::cout << "Using Sequential generator" << std::endl;
+    gen = new SequentialWriteLoad(
+      objects,
+      vm["object-size"].as<unsigned>(),
+      vm["io-size"].as<unsigned>());
+  } else {
+    std::cout << "Using random generator" << std::endl;
+    gen = new FourTupleDist<string, uint64_t, uint64_t, Bencher::OpType>(
+      new RandomDist<string>(rng, objects),
+      new Align(
+	new UniformRandom(
+	  rng,
+	  0,
+	  vm["object-size"].as<unsigned>() - vm["io-size"].as<unsigned>()),
+	vm["offset-align"].as<unsigned>()
+	),
+      new Uniform(vm["io-size"].as<unsigned>()),
+      new WeightedDist<Bencher::OpType>(rng, ops)
+      );
+  }
+
   Bencher bencher(
-    new RandomDist<string>(rng, objects),
-    new Align(
-      new UniformRandom(
-	rng,
-	0,
-	vm["object-size"].as<unsigned>() - vm["io-size"].as<unsigned>()),
-      vm["offset-align"].as<unsigned>()
-      ),
-    new Uniform(vm["io-size"].as<unsigned>()),
-    new WeightedDist<Bencher::OpType>(rng, ops),
+    gen,
     new DetailedStatCollector(1, new JSONFormatter, detailed_ops, &cout),
     new DumbBackend(
       vm["filestore-path"].as<string>(),

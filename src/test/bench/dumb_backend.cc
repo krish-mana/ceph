@@ -32,7 +32,10 @@ void DumbBackend::_write(
   if (do_fadvise)
     ::posix_fadvise(fd, offset, bl.length(),
 		    POSIX_FADV_DONTNEED);
+  on_commit->complete(0);
   ::close(fd);
+  sem.Put();
+  return;
   {
     Mutex::Locker l(pending_commit_mutex);
     pending_commits.insert(on_commit);
