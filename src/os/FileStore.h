@@ -273,6 +273,8 @@ private:
 
   PerfCounters *logger;
 
+  Mutex fd_cache_lock;
+  map<hobject_t, int> fd_cache;
 public:
   int lfn_find(coll_t cid, const hobject_t& oid, IndexedPath *path);
   int lfn_getxattr(coll_t cid, const hobject_t& oid, const char *name, void *val, size_t size);

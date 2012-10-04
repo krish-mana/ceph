@@ -277,11 +277,15 @@ int FileStore::lfn_stat(coll_t cid, const hobject_t& oid, struct stat *buf)
 int FileStore::lfn_open(coll_t cid, const hobject_t& oid, int flags, mode_t mode,
 			IndexedPath *path,
 			Index *index) {
+  Mutex::Locker l(fd_cache_lock);
+  if (fd_cache.count(oid)) {
+    return fd_cache[oid];
+  }
   Index index2;
   IndexedPath path2;
+  int fd, exist;
   if (!path)
     path = &path2;
-  int fd, exist;
   int r = 0;
   if (!index) {
     index = &index2;
@@ -319,6 +323,7 @@ int FileStore::lfn_open(coll_t cid, const hobject_t& oid, int flags, mode_t mode
       goto fail;
     }
   }
+  fd_cache.insert(make_pair(oid, fd));
   return fd;
 
  fail:
@@ -529,7 +534,6 @@ int do_getxattr(const char *fn, const char *name, void *val, size_t size)
     goto out;
   }
   r = do_fgetxattr(fd, name, val, size);
-  TEMP_FAILURE_RETRY(::close(fd));
  out:
   return r;
 }
@@ -735,6 +739,7 @@ FileStore::FileStore(const std::string &base, const std::string &jdev, const cha
 	g_conf->filestore_op_thread_suicide_timeout, &op_tp),
   flusher_queue_len(0), flusher_thread(this),
   logger(NULL),
+  fd_cache_lock("FileStore::fd_cache_lock"),
   m_filestore_btrfs_clone_range(g_conf->filestore_btrfs_clone_range),
   m_filestore_btrfs_snap (g_conf->filestore_btrfs_snap ),
   m_filestore_commit_timeout(g_conf->filestore_commit_timeout),
@@ -1092,7 +1097,6 @@ int FileStore::mkfs()
     if (initial_seq == 0) {
       int err = write_op_seq(fd, 1);
       if (err < 0) {
-	TEMP_FAILURE_RETRY(::close(fd));
 	derr << "mkfs: failed to write to " << current_op_seq_fn << ": "
 	     << cpp_strerror(err) << dendl;
 	goto close_fsid_fd;
@@ -2591,7 +2595,6 @@ int FileStore::_check_replay_guard(coll_t cid, hobject_t oid, const SequencerPos
     return 1;  // if file does not exist, there is no guard, and we can replay.
   }
   int ret = _check_replay_guard(fd, spos);
-  TEMP_FAILURE_RETRY(::close(fd));
   return ret;
 }
 
@@ -3065,7 +3068,6 @@ int FileStore::read(coll_t cid, const hobject_t& oid,
   }
   bptr.set_length(got);   // properly size the buffer
   bl.push_back(bptr);   // put it in the target bufferlist
-  TEMP_FAILURE_RETRY(::close(fd));
 
   dout(10) << "FileStore::read " << cid << "/" << oid << " " << offset << "~"
 	   << got << "/" << len << dendl;
@@ -3177,7 +3179,6 @@ int FileStore::_touch(coll_t cid, const hobject_t& oid)
   int fd = lfn_open(cid, oid, flags, 0644);
   int r;
   if (fd >= 0) {
-    TEMP_FAILURE_RETRY(::close(fd));
     r = 0;
   } else
     r = fd;
@@ -3208,13 +3209,11 @@ int FileStore::_write(coll_t cid, const hobject_t& oid,
   if (actual < 0) {
     r = -errno;
     dout(0) << "write lseek64 to " << offset << " failed: " << cpp_strerror(r) << dendl;
-    TEMP_FAILURE_RETRY(::close(fd));
     goto out;
   }
   if (actual != (int64_t)offset) {
     dout(0) << "write lseek64 to " << offset << " gave bad offset " << actual << dendl;
     r = -EIO;
-    TEMP_FAILURE_RETRY(::close(fd));
     goto out;
   }
 
@@ -3235,7 +3234,6 @@ int FileStore::_write(coll_t cid, const hobject_t& oid,
       ::sync_file_range(fd, offset, len, SYNC_FILE_RANGE_WRITE);
       ::posix_fadvise(fd, offset, len, POSIX_FADV_DONTNEED);
     }
-    TEMP_FAILURE_RETRY(::close(fd));
   }
 
  out:
@@ -3580,7 +3578,6 @@ void FileStore::flusher_entry()
 	} else 
 	  dout(10) << "flusher_entry JUST closing " << fd << " (stop=" << stop << ", ep=" << ep
 		   << ", sync_epoch=" << sync_epoch << ")" << dendl;
-	TEMP_FAILURE_RETRY(::close(fd));
       }
       lock.Lock();
       flusher_queue_len -= num;   // they're definitely closed, forget
