@@ -2361,6 +2361,13 @@ int FileStore::queue_transactions(Sequencer *posr, list<Transaction*> &tls,
 				  Context *onreadable_sync,
 				  TrackedOpRef osd_op)
 {
+  if (ondisk)
+    ondisk_finisher.queue(ondisk);
+  if (onreadable_sync)
+    onreadable_sync->complete(0);
+  if (onreadable)
+    op_finisher.queue(onreadable);
+  return 0;
   if (g_conf->filestore_blackhole) {
     dout(0) << "queue_transactions filestore_blackhole = TRUE, dropping transaction" << dendl;
     return 0;
