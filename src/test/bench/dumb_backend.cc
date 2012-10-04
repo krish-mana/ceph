@@ -23,7 +23,7 @@ void DumbBackend::_write(
   }
   ::lseek(fd, offset, SEEK_SET);
   bl.write_fd(fd);
-  on_applied->complete(0);
+  fin.queue(on_applied);
   if (do_fsync)
     ::fsync(fd);
   if (do_sync_file_range)
@@ -32,7 +32,7 @@ void DumbBackend::_write(
   if (do_fadvise)
     ::posix_fadvise(fd, offset, bl.length(),
 		    POSIX_FADV_DONTNEED);
-  on_commit->complete(0);
+  fin.queue(on_commit);
   ::close(fd);
   sem.Put();
   return;

@@ -7,6 +7,7 @@
 #include "include/Context.h"
 #include "os/ObjectStore.h"
 #include "common/WorkQueue.h"
+#include "common/Finisher.h"
 #include "common/Semaphore.h"
 
 #include <deque>
@@ -97,6 +98,7 @@ class DumbBackend : public Backend {
       return item_queue.clear();
     }
   } queue;
+  Finisher fin;
   friend class WriteQueue;
 
   string get_full_path(const string &oid);
@@ -128,9 +130,11 @@ public:
       sync_loop_mutex("DumbBackend::sync_loop_mutex"),
       sync_loop_stop(0),
       pending_commit_mutex("DumbBackend::pending_commit_mutex"),
-      queue(this, 20, &tp) {
+      queue(this, 20, &tp),
+      fin(cct) {
     thread.create();
     tp.start();
+    fin.start();
     for (unsigned i = 0; i < 10*worker_threads; ++i) {
       sem.Put();
     }
@@ -143,6 +147,7 @@ public:
       while (sync_loop_stop < 2)
 	sync_loop_cond.Wait(sync_loop_mutex);
     }
+    fin.stop();
     tp.stop();
     thread.join();
   }
