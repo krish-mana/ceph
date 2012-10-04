@@ -2399,11 +2399,17 @@ int FileStore::queue_transactions(Sequencer *posr, list<Transaction*> &tls,
     } else if (m_filestore_journal_writeahead) {
       dout(5) << "queue_transactions (writeahead) " << o->op << " " << o->tls << dendl;
       
+#if 0
       osr->queue_journal(o->op);
 
       _op_journal_transactions(o->tls, o->op,
 			       new C_JournaledAhead(this, osr, o, ondisk),
 			       osd_op);
+#endif
+      
+      if (ondisk)
+	ondisk_finisher.queue(ondisk);
+      queue_op(osr, o);
     } else {
       assert(0);
     }
