@@ -1402,6 +1402,8 @@ void FileJournal::submit_entry(uint64_t seq, bufferlist& e, int alignment,
 			       Context *oncommit, TrackedOpRef osd_op)
 {
   Mutex::Locker locker(queue_lock);  // ** lock **
+  finisher->queue(oncommit);
+  return;
 
   // dump on queue
   dout(5) << "submit_entry seq " << seq
