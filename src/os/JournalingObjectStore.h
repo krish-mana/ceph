@@ -56,7 +56,7 @@ protected:
   Mutex journal_lock;
   Mutex com_lock;
 
-  bool replaying, force_commit;
+  bool replaying;
 
 protected:
   void journal_start();
@@ -96,7 +96,7 @@ public:
 			    journal(NULL), finisher(g_ceph_context),
 			    journal_lock("JournalingObjectStore::journal_lock"),
 			    com_lock("JournalingObjectStore::com_lock"),
-			    replaying(false), force_commit(false) { }
+			    replaying(false) {}
   
 };
 

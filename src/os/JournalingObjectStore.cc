@@ -200,7 +200,6 @@ bool JournalingObjectStore::commit_start()
     goto out;
   }
 
-  force_commit = false;
 
   com_lock.Lock();
   // we can _only_ read applied_seq here because open_ops == 0 (we've
