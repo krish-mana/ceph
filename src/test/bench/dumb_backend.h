@@ -125,7 +125,7 @@ public:
       do_fadvise(do_fadvise),
       sync_interval(sync_interval),
       sync_fd(sync_fd),
-      tp(cct, "DumbBackend::tp", worker_threads),
+      tp(cct, "DumbBackend::tp", 1),
       thread(this),
       sync_loop_mutex("DumbBackend::sync_loop_mutex"),
       sync_loop_stop(0),
