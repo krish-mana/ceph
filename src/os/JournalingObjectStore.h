@@ -21,9 +21,30 @@
 
 class JournalingObjectStore : public ObjectStore {
 protected:
-  uint64_t op_seq, applied_seq;
+  uint64_t applied_seq;
   uint64_t committing_seq, committed_seq;
   map<version_t, vector<Context*> > commit_waiters;
+
+  class SubmitManager {
+    Mutex lock;
+    uint64_t op_seq;
+    list<uint64_t> ops_submitting;
+  public:
+    SubmitManager() :
+      lock("JOS::SubmitManager::lock"),
+      op_seq(0)
+    {}
+    uint64_t op_submit_start();
+    void op_submit_finish(uint64_t op);
+    void set_op_seq(uint64_t seq) {
+      Mutex::Locker l(lock);
+      seq = op_seq;
+    }
+    uint64_t get_op_seq() {
+      Mutex::Locker l(lock);
+      return op_seq;
+    }
+  } submit_manager;
 
   int open_ops;
   bool blocked;
@@ -34,8 +55,6 @@ protected:
   Cond cond;
   Mutex journal_lock;
   Mutex com_lock;
-
-  list<uint64_t> ops_submitting;
 
   bool replaying, force_commit;
 
@@ -72,8 +91,7 @@ public:
   }
 
 public:
-  JournalingObjectStore() : op_seq(0), 
-			    applied_seq(0), committing_seq(0), committed_seq(0), 
+  JournalingObjectStore() : applied_seq(0), committing_seq(0), committed_seq(0),
 			    open_ops(0), blocked(false),
 			    journal(NULL), finisher(g_ceph_context),
 			    journal_lock("JournalingObjectStore::journal_lock"),
