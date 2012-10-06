@@ -2295,11 +2295,11 @@ void FileStore::_do_op(OpSequencer *osr)
 {
   osr->apply_lock.Lock();
   Op *o = osr->peek_queue();
-  op_apply_start(o->op);
+  apply_manager.op_apply_start(o->op);
 
   dout(5) << "_do_op " << o << " seq " << o->op << " " << *osr << "/" << osr->parent << " start" << dendl;
   int r = do_transactions(o->tls, o->op);
-  op_apply_finish(o->op);
+  apply_manager.op_apply_finish(o->op);
   dout(10) << "_do_op " << o << " seq " << o->op << " r = " << r
 	   << ", finisher " << o->onreadable << " " << o->onreadable_sync << dendl;
   
@@ -2412,7 +2412,7 @@ int FileStore::queue_transactions(Sequencer *posr, list<Transaction*> &tls,
   if (m_filestore_do_dump)
     dump_transactions(tls, op, osr);
 
-  _op_apply_start(op);
+  apply_manager.op_apply_start(op);
   int r = do_transactions(tls, op);
     
   if (r >= 0) {
@@ -2430,7 +2430,7 @@ int FileStore::queue_transactions(Sequencer *posr, list<Transaction*> &tls,
   op_finisher.queue(onreadable, r);
 
   submit_manager.op_submit_finish(op);
-  op_apply_finish(op);
+  apply_manager.op_apply_finish(op);
 
   return r;
 }
@@ -3650,9 +3650,9 @@ void FileStore::sync_entry()
     fin.swap(sync_waiters);
     lock.Unlock();
     
-    if (commit_start()) {
+    if (apply_manager.commit_start()) {
       utime_t start = ceph_clock_now(g_ceph_context);
-      uint64_t cp = committing_seq;
+      uint64_t cp = apply_manager.get_committing_seq();
 
       sync_entry_timeo_lock.Lock();
       SyncEntryTimeout *sync_entry_timeo =
@@ -3700,7 +3700,7 @@ void FileStore::sync_entry()
 
 	  snaps.push_back(cp);
 
-	  commit_started();
+	  apply_manager.commit_started();
 
 	  // wait for commit
 	  dout(20) << " waiting for transid " << async_args.transid << " to complete" << dendl;
@@ -3731,11 +3731,11 @@ void FileStore::sync_entry()
 	  assert(r == 0);
 	  snaps.push_back(cp);
 	  
-	  commit_started();
+	  apply_manager.commit_started();
 	}
       } else
       {
-	commit_started();
+	apply_manager.commit_started();
 
 	if (btrfs) {
 	  dout(15) << "sync_entry doing btrfs SYNC" << dendl;
@@ -3767,7 +3767,7 @@ void FileStore::sync_entry()
       logger->finc(l_os_commit_lat, lat);
       logger->finc(l_os_commit_len, dur);
 
-      commit_finish();
+      apply_manager.commit_finish();
 
       logger->set(l_os_committing, 0);
 
