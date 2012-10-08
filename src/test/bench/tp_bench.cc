@@ -24,6 +24,7 @@
 #include "common/WorkQueue.h"
 #include "common/Semaphore.h"
 #include "common/Finisher.h"
+#include "common/HashWQ.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -104,6 +105,35 @@ public:
     WorkQueue<unsigned>("TestQueue", 100, 100, tp), next(next) {}
 };
 
+class PHash {
+public:
+  unsigned operator()(unsigned *in) {
+    return *in;
+  }
+};
+class ToDo {
+  Queueable *next;
+public:
+  ToDo(Queueable *next) : next(next) {}
+  void operator()(unsigned *in) { next->queue(in); }
+};
+class HashWQWrapper : public Queueable {
+  HashWQ<unsigned*, PHash, ToDo> wq;
+public:
+  HashWQWrapper(CephContext *cct, string name, Queueable *next,
+		unsigned num_threads) :
+    wq(cct, name, num_threads, 0, 0, ToDo(next)) {}
+  void queue(unsigned *in) {
+    wq.queue(in);
+  }
+  void start() {
+    wq.start();
+  }
+  void stop() {
+    wq.stop();
+  }
+};
+
 int main(int argc, char **argv)
 {
   po::options_description desc("Allowed options");
@@ -177,6 +207,11 @@ int main(int argc, char **argv)
       wqs.push_back(
 	new FinisherWrapper(
 	  g_ceph_context, wqs.back()));
+    } else if (*i == 's') {
+      wqs.push_back(
+	new HashWQWrapper(g_ceph_context, ss.str(),
+			  wqs.back(),
+			  vm["num-threads"].as<unsigned>()));
     }
     ++num;
   }
