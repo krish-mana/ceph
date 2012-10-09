@@ -28,6 +28,17 @@
 namespace po = boost::program_options;
 using namespace std;
 
+struct MorePrinting : public DetailedStatCollector::AdditionalPrinting {
+  CephContext *cct;
+  MorePrinting(CephContext *cct) : cct(cct) {}
+  void operator()(std::ostream *out) {
+    bufferlist bl;
+    cct->get_perfcounters_collection()->write_json_to_buf(bl, 0);
+    bl.append('\0');
+    *out << bl.c_str() << std::endl;
+  }
+};
+
 int main(int argc, char **argv)
 {
   po::options_description desc("Allowed options");
@@ -65,6 +76,8 @@ int main(int argc, char **argv)
      "do sequential writes like rbd")
     ("disable-detailed-ops", po::value<bool>()->default_value(false),
      "don't dump per op stats")
+    ("num-writers", po::value<unsigned>()->default_value(1),
+     "num write threads")
     ;
 
   po::variables_map vm;
@@ -116,32 +129,6 @@ int main(int argc, char **argv)
   fs.mkfs();
   fs.mount();
 
-  cout << "Creating objects.." << std::endl;
-  bufferlist bl;
-  for (uint64_t i = 0; i < vm["object-size"].as<unsigned>(); ++i) {
-    bl.append(0);
-  }
-  set<string> objects;
-
-  for (uint64_t num = 0; num < vm["num-objects"].as<unsigned>(); ++num) {
-    unsigned col_num = num % vm["num-colls"].as<unsigned>();
-    stringstream coll, obj;
-    coll << "collection_" << col_num;
-    obj << "obj_" << num;
-    if (num == col_num) {
-      std::cout << "collection " << coll.str() << std::endl;
-      ObjectStore::Transaction t;
-      t.create_collection(coll_t(coll.str()));
-      fs.apply_transaction(t);
-    }
-    objects.insert(coll.str() + "/" + obj.str());
-  }
-  {
-    ObjectStore::Transaction t;
-    t.create_collection(coll_t(string("meta")));
-    fs.apply_transaction(t);
-  }
-
   ostream *detailed_ops = 0;
   ofstream myfile;
   if (vm["disable-detailed-ops"].as<bool>()) {
@@ -153,55 +140,91 @@ int main(int argc, char **argv)
     detailed_ops = &cerr;
   }
 
-  Distribution<
-    boost::tuple<string, uint64_t, uint64_t, Bencher::OpType> > *gen = 0;
-  if (vm["sequential"].as<bool>()) {
-    std::cout << "Using Sequential generator" << std::endl;
-    gen = new SequentialWriteLoad(
-      objects,
-      vm["object-size"].as<unsigned>(),
-      vm["io-size"].as<unsigned>());
-  } else {
-    std::cout << "Using random generator" << std::endl;
-    gen = new FourTupleDist<string, uint64_t, uint64_t, Bencher::OpType>(
-      new RandomDist<string>(rng, objects),
-      new Align(
-	new UniformRandom(
-	  rng,
-	  0,
-	  vm["object-size"].as<unsigned>() - vm["io-size"].as<unsigned>()),
-	vm["offset-align"].as<unsigned>()
-	),
-      new Uniform(vm["io-size"].as<unsigned>()),
-      new WeightedDist<Bencher::OpType>(rng, ops)
-      );
-  }
-
-  struct MorePrinting : public DetailedStatCollector::AdditionalPrinting {
-    CephContext *cct;
-    MorePrinting(CephContext *cct) : cct(cct) {}
-    void operator()(std::ostream *out) {
-      bufferlist bl;
-      cct->get_perfcounters_collection()->write_json_to_buf(bl, 0);
-      bl.append('\0');
-      *out << bl.c_str() << std::endl;
-    }
-  };
-
-  Bencher bencher(
-    gen,
+  std::tr1::shared_ptr<StatCollector> col(
     new DetailedStatCollector(
       1, new JSONFormatter, detailed_ops, &cout,
-      new MorePrinting(g_ceph_context)),
-    new FileStoreBackend(&fs, vm["write-infos"].as<bool>()),
-    vm["num-concurrent-ops"].as<unsigned>(),
-    vm["duration"].as<unsigned>(),
-    vm["max-ops"].as<unsigned>());
+      new MorePrinting(g_ceph_context)));
 
-  bencher.init(objects, vm["object-size"].as<unsigned>(), &std::cout);
-  cout << "Created objects..." << std::endl;
+  cout << "Creating objects.." << std::endl;
+  bufferlist bl;
+  for (uint64_t i = 0; i < vm["object-size"].as<unsigned>(); ++i) {
+    bl.append(0);
+  }
+  
+  for (uint64_t num = 0; num < vm["num-colls"].as<unsigned>(); ++num) {
+    stringstream coll;
+    coll << "collection_" << num;
+    std::cout << "collection " << coll.str() << std::endl;
+    ObjectStore::Transaction t;
+    t.create_collection(coll_t(coll.str()));
+    fs.apply_transaction(t);
+  }
+  {
+    ObjectStore::Transaction t;
+    t.create_collection(coll_t(string("meta")));
+    fs.apply_transaction(t);
+  }
+    
+  vector<std::tr1::shared_ptr<Bencher> > benchers(
+    vm["num-writers"].as<unsigned>());
+  for (vector<std::tr1::shared_ptr<Bencher> >::iterator i = benchers.begin();
+       i != benchers.end();
+       ++i) {
+    set<string> objects;
+    for (uint64_t num = 0; num < vm["num-objects"].as<unsigned>(); ++num) {
+      unsigned col_num = num % vm["num-colls"].as<unsigned>();
+      stringstream coll, obj;
+      coll << "collection_" << col_num;
+      obj << "obj_" << num << "_bencher_" << (i - benchers.begin());
+      objects.insert(coll.str() + string("/") + obj.str());
+    }
+    Distribution<
+      boost::tuple<string, uint64_t, uint64_t, Bencher::OpType> > *gen = 0;
+    if (vm["sequential"].as<bool>()) {
+      std::cout << "Using Sequential generator" << std::endl;
+      gen = new SequentialWriteLoad(
+	objects,
+	vm["object-size"].as<unsigned>(),
+	vm["io-size"].as<unsigned>());
+    } else {
+      std::cout << "Using random generator" << std::endl;
+      gen = new FourTupleDist<string, uint64_t, uint64_t, Bencher::OpType>(
+	new RandomDist<string>(rng, objects),
+	new Align(
+	  new UniformRandom(
+	    rng,
+	    0,
+	    vm["object-size"].as<unsigned>() - vm["io-size"].as<unsigned>()),
+	  vm["offset-align"].as<unsigned>()
+	  ),
+	new Uniform(vm["io-size"].as<unsigned>()),
+	new WeightedDist<Bencher::OpType>(rng, ops)
+	);
+    }
 
-  bencher.run_bench();
+    Bencher *bencher = new Bencher(
+      gen,
+      col,
+      new FileStoreBackend(&fs, vm["write-infos"].as<bool>()),
+      vm["num-concurrent-ops"].as<unsigned>(),
+      vm["duration"].as<unsigned>(),
+      vm["max-ops"].as<unsigned>());
+
+    bencher->init(objects, vm["object-size"].as<unsigned>(), &std::cout);
+    cout << "Created objects..." << std::endl;
+    (*i).reset(bencher);
+  }
+
+  for (vector<std::tr1::shared_ptr<Bencher> >::iterator i = benchers.begin();
+       i != benchers.end();
+       ++i) {
+    (*i)->create();
+  }
+  for (vector<std::tr1::shared_ptr<Bencher> >::iterator i = benchers.begin();
+       i != benchers.end();
+       ++i) {
+    (*i)->join();
+  }
 
   fs.umount();
   if (vm["op-dump-file"].as<string>().size()) {

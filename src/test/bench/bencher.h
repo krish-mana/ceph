@@ -10,13 +10,14 @@
 #include <boost/scoped_ptr.hpp>
 #include "common/Mutex.h"
 #include "common/Cond.h"
+#include "common/Thread.h"
 
 class OnWriteApplied;
 class OnWriteCommit;
 class OnReadComplete;
 class Clenaup;
 
-class Bencher {
+class Bencher : public Thread {
 public:
   enum OpType {
     WRITE,
@@ -26,7 +27,7 @@ public:
 private:
   boost::scoped_ptr<
     Distribution<boost::tuple<std::string,uint64_t,uint64_t, OpType> > > op_dist;
-  boost::scoped_ptr<StatCollector> stat_collector;
+  std::tr1::shared_ptr<StatCollector> stat_collector;
   boost::scoped_ptr<Backend> backend;
   const uint64_t max_in_flight;
   const uint64_t max_duration;
@@ -39,6 +40,22 @@ private:
   void drain_ops();
   void complete_op();
 public:
+  Bencher(
+    Distribution<boost::tuple<std::string, uint64_t, uint64_t, OpType> > *op_gen,
+    std::tr1::shared_ptr<StatCollector> stat_collector,
+    Backend *backend,
+    uint64_t max_in_flight,
+    uint64_t max_duration,
+    uint64_t max_ops) :
+    op_dist(op_gen),
+    stat_collector(stat_collector),
+    backend(backend),
+    max_in_flight(max_in_flight),
+    max_duration(max_duration),
+    max_ops(max_ops),
+    lock("Bencher::lock"),
+    open_ops(0)
+  {}
   Bencher(
     Distribution<boost::tuple<std::string, uint64_t, uint64_t, OpType> > *op_gen,
     StatCollector *stat_collector,
@@ -84,6 +101,10 @@ public:
     );
 
   void run_bench();
+  void *entry() {
+    run_bench();
+    return 0;
+  }
   friend class OnWriteApplied;
   friend class OnWriteCommit;
   friend class OnReadComplete;
