@@ -22,6 +22,30 @@
 
 using namespace ceph;
 
+class SpinLock {
+  pthread_spinlock_t lock;
+public:
+  SpinLock(const char*) {
+    pthread_spin_init(&lock, PTHREAD_PROCESS_PRIVATE);
+  }
+  void Lock() {
+    pthread_spin_lock(&lock);
+  }
+  void Unlock() {
+    pthread_spin_unlock(&lock);
+  }
+  class Locker {
+    SpinLock &lock;
+    Locker(const Locker&);
+    Locker();
+  public:
+    Locker(SpinLock &lock) : lock(lock) {
+      lock.Lock();
+    }
+    ~Locker() { lock.Unlock(); }
+  };
+};
+
 class Mutex {
 private:
   const char *name;
