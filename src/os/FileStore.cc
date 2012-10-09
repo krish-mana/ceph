@@ -803,6 +803,8 @@ FileStore::FileStore(const std::string &base, const std::string &jdev, const cha
   plb.add_fl_avg(l_os_commit_lat, "commitcycle_latency");
   plb.add_u64_counter(l_os_j_full, "journal_full");
 
+  plb.add_u64_counter(l_os_j_finisher_ops, "journal_finisher_q");
+
   logger = plb.create_perf_counters();
 }
 
@@ -2450,6 +2452,7 @@ void FileStore::_journaled_ahead(OpSequencer *osr, Op *o, Context *ondisk)
     dout(10) << " queueing ondisk " << ondisk << dendl;
     ondisk_finisher.queue(ondisk);
   }
+  logger->dec(l_os_j_finisher_ops);
 }
 
 int FileStore::do_transactions(list<Transaction*> &tls, uint64_t op_seq)
