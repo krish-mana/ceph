@@ -725,6 +725,7 @@ FileStore::FileStore(const std::string &base, const std::string &jdev, const cha
   ondisk_finisher(g_ceph_context),
   lock("FileStore::lock"),
   force_sync(false), sync_epoch(0),
+  fd_lock("FileStore::fd_lock"),
   sync_entry_timeo_lock("sync_entry_timeo_lock"),
   timer(g_ceph_context, sync_entry_timeo_lock),
   stop(false), sync_thread(this),
@@ -3195,7 +3196,14 @@ int FileStore::_write(coll_t cid, const hobject_t& oid,
   int64_t actual;
 
   int flags = O_WRONLY|O_CREAT;
-  int fd = lfn_open(cid, oid, flags, 0644);
+  int fd = 0;
+  {
+    Mutex::Locker l(fd_lock);
+    if (fd_cache.count(oid))
+      fd = fd_cache[oid];
+    else
+      fd = fd_cache[oid] = lfn_open(cid, oid, flags, 0644);
+  }
   if (fd < 0) {
     r = fd;
     dout(0) << "write couldn't open " << cid << "/" << oid << " flags " << flags << ": "
@@ -3208,13 +3216,13 @@ int FileStore::_write(coll_t cid, const hobject_t& oid,
   if (actual < 0) {
     r = -errno;
     dout(0) << "write lseek64 to " << offset << " failed: " << cpp_strerror(r) << dendl;
-    TEMP_FAILURE_RETRY(::close(fd));
+    //TEMP_FAILURE_RETRY(::close(fd));
     goto out;
   }
   if (actual != (int64_t)offset) {
     dout(0) << "write lseek64 to " << offset << " gave bad offset " << actual << dendl;
     r = -EIO;
-    TEMP_FAILURE_RETRY(::close(fd));
+    //TEMP_FAILURE_RETRY(::close(fd));
     goto out;
   }
 
@@ -3224,7 +3232,7 @@ int FileStore::_write(coll_t cid, const hobject_t& oid,
     r = bl.length();
 
   // flush?
-  if ((ssize_t)len < m_filestore_flush_min ||
+  if (1 || (ssize_t)len < m_filestore_flush_min ||
 #ifdef HAVE_SYNC_FILE_RANGE
       !m_filestore_flusher || !queue_flusher(fd, offset, len)
 #else
@@ -3233,7 +3241,7 @@ int FileStore::_write(coll_t cid, const hobject_t& oid,
       ) {
     if (m_filestore_sync_flush)
       ::sync_file_range(fd, offset, len, SYNC_FILE_RANGE_WRITE);
-    TEMP_FAILURE_RETRY(::close(fd));
+    //TEMP_FAILURE_RETRY(::close(fd));
   }
 
  out:

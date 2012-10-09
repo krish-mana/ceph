@@ -102,6 +102,10 @@ private:
   Cond sync_cond;
   uint64_t sync_epoch;
 
+  // hacky fd cache
+  Mutex fd_lock;
+  map<hobject_t, int> fd_cache;
+
   Mutex sync_entry_timeo_lock;
   SafeTimer timer;
 
