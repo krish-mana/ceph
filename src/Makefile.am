@@ -994,7 +994,8 @@ AM_CXXFLAGS = $(AM_COMMON_FLAGS) \
 	-DCEPH_LIBDIR=\"${libdir}\" \
 	-Wnon-virtual-dtor \
 	-Wno-invalid-offsetof \
-	-Wstrict-null-sentinel
+	-Wstrict-null-sentinel \
+	-std=c++0x
 # note: this is position dependant, it affects the -l options that
 # come after it on the command line. when you use ${AM_LDFLAGS} in
 # later rules, take care where you place it. for more information, see

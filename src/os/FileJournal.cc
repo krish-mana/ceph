@@ -1662,7 +1662,7 @@ bool FileJournal::read_entry(bufferlist& bl, uint64_t& seq)
 
   // ok!
   seq = h->seq;
-  journalq.push_back(pair<uint64_t,off64_t>(h->seq, read_pos));
+  journalq.push_back(pair<uint64_t,off64_t>((uint64_t)(h->seq), read_pos));
 
   read_pos = pos;
   assert(read_pos % header.alignment == 0);
