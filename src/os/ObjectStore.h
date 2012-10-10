@@ -68,6 +68,8 @@ enum {
   l_os_commit_lat,
   l_os_j_full,
   l_os_j_finisher_ops,
+  l_os_app_fin_ops,
+  l_os_com_fin_ops,
   l_os_last,
 };
 

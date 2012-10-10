@@ -123,6 +123,21 @@ static const __SWORD_TYPE BTRFS_SUPER_MAGIC(0x9123683E);
 #define ALIGNED(x, by) (!((x) % (by)))
 #define ALIGN_UP(x, by) (ALIGNED((x), (by)) ? (x) : (ALIGN_DOWN((x), (by)) + (by)))
 
+struct LoggerWrapper : public Context {
+  Context *inner;
+  unsigned val;
+  PerfCounters *logger;
+  LoggerWrapper(
+    Context *inner, 
+    PerfCounters *logger,
+    unsigned val) : inner(inner), val(val), logger(logger) {
+    logger->inc(val);
+  }
+  void finish(int r) {
+    logger->dec(val);
+    inner->complete(r);
+  }
+};
 
 ostream& operator<<(ostream& out, const FileStore::OpSequencer& s)
 {
@@ -805,6 +820,8 @@ FileStore::FileStore(const std::string &base, const std::string &jdev, const cha
   plb.add_u64_counter(l_os_j_full, "journal_full");
 
   plb.add_u64_counter(l_os_j_finisher_ops, "journal_finisher_q");
+  plb.add_u64_counter(l_os_app_fin_ops, "app_finisher_ops");
+  plb.add_u64_counter(l_os_com_fin_ops, "com_finisher_ops");
 
   logger = plb.create_perf_counters();
 }
@@ -2329,7 +2346,7 @@ void FileStore::_finish_op(OpSequencer *osr)
     o->onreadable_sync->finish(0);
     delete o->onreadable_sync;
   }
-  op_finisher.queue(o->onreadable);
+  op_finisher.queue(new LoggerWrapper(o->onreadable, logger, l_os_app_fin_ops));
   delete o;
 }
 
@@ -2451,7 +2468,8 @@ void FileStore::_journaled_ahead(OpSequencer *osr, Op *o, Context *ondisk)
   // getting blocked behind an ondisk completion.
   if (ondisk) {
     dout(10) << " queueing ondisk " << ondisk << dendl;
-    ondisk_finisher.queue(ondisk);
+    ondisk_finisher.queue(
+      new LoggerWrapper(ondisk, logger, l_os_com_fin_ops));
   }
   logger->dec(l_os_j_finisher_ops);
 }
