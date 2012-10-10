@@ -65,12 +65,15 @@ public:
   deque<write_item> writeq;
   deque<completion_item> completions;
   bool writeq_empty();
+  bool _writeq_empty();
+  bool local_writeq_empty();
   write_item &peek_write();
   void pop_write();
   void submit_entry(uint64_t seq, bufferlist& bl, int alignment,
 		    Context *oncommit,
 		    TrackedOpRef osd_op = TrackedOpRef());
   /// End protected by queue_lock
+  deque<write_item> writeq_local;
 
   /*
    * journal header

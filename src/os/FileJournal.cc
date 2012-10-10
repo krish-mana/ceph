@@ -564,7 +564,9 @@ void FileJournal::close()
   stop_writer();
 
   // close
+  write_lock.Lock();
   assert(writeq_empty());
+  write_lock.Unlock();
   assert(fd >= 0);
   TEMP_FAILURE_RETRY(::close(fd));
   fd = -1;
@@ -771,7 +773,7 @@ int FileJournal::prepare_multi_write(bufferlist& bl, uint64_t& orig_ops, uint64_
   if (full_state != FULL_NOTFULL)
     return -ENOSPC;
   
-  while (!writeq_empty()) {
+  while (!local_writeq_empty()) {
     int r = prepare_single_write(bl, queue_pos, orig_ops, orig_bytes);
     if (r == -ENOSPC) {
       if (orig_ops)
@@ -790,7 +792,7 @@ int FileJournal::prepare_multi_write(bufferlist& bl, uint64_t& orig_ops, uint64_
 	while (!writeq_empty()) {
 	  put_throttle(1, peek_write().bl.length());
 	  pop_write();
-	}  
+	}
 	print_header();
       }
 
@@ -851,8 +853,8 @@ void FileJournal::queue_completions_thru(uint64_t seq)
       logger->finc(l_os_j_lat, lat);
     }
     if (completions.front().finish) {
-      finisher->queue(completions.front().finish);
       logger->inc(l_os_j_finisher_ops);
+      finisher->queue(completions.front().finish);
     }
     if (completions.front().tracked_op)
       completions.front().tracked_op->mark_event("journaled_completion_queued");
@@ -1110,14 +1112,17 @@ void FileJournal::write_thread_entry()
   dout(10) << "write_thread_entry start" << dendl;
   while (1) {
     {
+      Mutex::Locker wlocker(write_lock);
       Mutex::Locker locker(queue_lock);
-      if (writeq.empty()) {
+      if (_writeq_empty()) {
 	if (write_stop)
 	  break;
 	dout(20) << "write_thread_entry going to sleep" << dendl;
 	{
 	  if (writeq.empty()) {
+	    write_lock.Unlock();
 	    queue_cond.Wait(queue_lock);
+	    write_lock.Lock();
 	  }
 	}
 	dout(20) << "write_thread_entry woke up" << dendl;
@@ -1440,24 +1445,40 @@ void FileJournal::submit_entry(uint64_t seq, bufferlist& e, int alignment,
   }
 }
 
+bool FileJournal::_writeq_empty()
+{
+  if (!writeq.empty()) {
+    writeq_local.insert(writeq_local.end(), writeq.begin(), writeq.end());
+    writeq.clear();
+  }
+  return writeq_local.empty();
+}
+
+bool FileJournal::local_writeq_empty()
+{
+  assert(write_lock.is_locked());
+  return writeq_local.empty();
+}
+
 bool FileJournal::writeq_empty()
 {
+  assert(write_lock.is_locked());
+  if (local_writeq_empty())
+    return true;
   Mutex::Locker locker(queue_lock);
-  return writeq.empty();
+  return _writeq_empty();
 }
 
 FileJournal::write_item &FileJournal::peek_write()
 {
   assert(write_lock.is_locked());
-  Mutex::Locker locker(queue_lock);
-  return writeq.front();
+  return writeq_local.front();
 }
 
 void FileJournal::pop_write()
 {
   assert(write_lock.is_locked());
-  Mutex::Locker locker(queue_lock);
-  writeq.pop_front();
+  writeq_local.pop_front();
 }
 
 void FileJournal::commit_start()
