@@ -2246,14 +2246,11 @@ void FileStore::queue_op(OpSequencer *osr, Op *o)
   // mark apply start _now_, because we need to drain the entire apply
   // queue during commit in order to put the store in a consistent
   // state.
-  op_tp.lock();
 
   osr->queue(o);
 
   logger->inc(l_os_ops);
   logger->inc(l_os_bytes, o->bytes);
-
-  op_tp.unlock();
 
   dout(5) << "queue_op " << o << " seq " << o->op
 	  << " " << *osr
