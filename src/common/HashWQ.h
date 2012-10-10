@@ -19,6 +19,7 @@
 #include "Cond.h"
 #include "Thread.h"
 #include "common/config_obs.h"
+#include "common/Channel.h"
 
 class CephContext;
 
@@ -35,7 +36,8 @@ class HashWQ {
     bool stopping;
     bool stopped;
     unsigned tid;
-    list<T> queue;
+    typename Channel<T>::In in;
+    typename Channel<T>::Out out;
     const unsigned timeout_interval;
     const unsigned suicide_interval;
     K k;
@@ -45,27 +47,21 @@ class HashWQ {
       stopping(0), stopped(0), tid(tid),
       timeout_interval(pool->timeout_interval),
       suicide_interval(pool->suicide_interval),
-      k(pool->k) {}
+      k(pool->k) {
+      std::pair<
+	typename Channel<T>::In,
+	typename Channel<T>::Out> val =
+	Channel<T>::make_channel();
+      in = val.first;
+      out = val.second;
+    }
     void *entry() {
 #if 0
       std::stringstream ss;
       ss << pool->name << " thread " << (void*)pthread_self();
 #endif
       while (1) {
-	T next;
-	{
-	  Mutex::Locker l(lock);
-	  while (queue.empty()) {
-	    if (stopping) {
-	      stopped = true;
-	      cond.Signal();
-	      return 0;
-	    }
-	    cond.Wait(lock);
-	  }
-	  next = queue.front();
-	  queue.pop_front();
-	}
+	T next = out->receive();
 	k(next);
       }
       return 0;
@@ -115,11 +111,7 @@ public:
   }
   void queue(T t) {
     unsigned n = c(t) % workers.size();
-    {
-      Mutex::Locker l(workers[n]->lock);
-      workers[n]->queue.push_back(t);
-      workers[n]->cond.Signal();
-    }
+    workers[n]->in->send(t);
   }
   void start() {
     for (typename vector<Worker*>::iterator i = workers.begin();

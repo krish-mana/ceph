@@ -1384,6 +1384,7 @@ noinst_HEADERS = \
 	common/LogEntry.h\
 	common/WorkQueue.h\
 	common/HashWQ.h\
+	common/Channel.h\
 	common/ceph_argparse.h\
 	common/ceph_context.h\
 	common/xattr.h\
