@@ -283,19 +283,22 @@ int FileStore::lfn_open(coll_t cid, const hobject_t& oid, int flags, mode_t mode
   Mutex::Locker l(lfn_cache_lock);
 
   lfn_cache_item *slot;
-  int r = _lfn_find_slot(cid, oid, &slot);
-  if (r >= 0) {
-    if (flags & O_TRUNC)
-      ftruncate(r, 0);
-    return r;
+  int fd = _lfn_find_slot(cid, oid, &slot);
+  if (fd >= 0) {
+    if (flags & O_TRUNC) {
+      int r = ftruncate(fd, 0);
+      if (r < 0)
+	return -errno;
+    }
+    return fd;
   }
 
   Index index2;
   IndexedPath path2;
   if (!path)
     path = &path2;
-  int fd, exist;
-  r = 0;
+  int exist;
+  int r = 0;
   if (!index) {
     index = &index2;
   }
