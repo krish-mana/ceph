@@ -827,6 +827,7 @@ void PG::generate_past_intervals()
       info.history.last_epoch_clean,
       cur_map,
       last_map,
+      info.pgid.pool(),
       &past_intervals,
       &debug);
     if (new_interval) {
@@ -1227,6 +1228,12 @@ bool PG::choose_acting(int& newest_update_osd)
     return false;
   }
 
+  if (want.size() < pool.info.min_size) {
+    want_acting.clear();
+    return false;
+  }
+  assert(pool.info.min_size == 2);
+
   if (want != acting) {
     dout(10) << "choose_acting want " << want << " != acting " << acting
 	     << ", requesting pg_temp change" << dendl;
@@ -1310,6 +1317,7 @@ void PG::activate(ObjectStore::Transaction& t,
 		  map< int, map<pg_t,pg_query_t> >& query_map,
 		  map<int, vector<pair<pg_notify_t, pg_interval_map_t> > > *activator_map)
 {
+  assert(acting.size() > 1);
   assert(!is_active());
 
   // -- crash recovery?
@@ -4334,7 +4342,7 @@ void PG::start_peering_interval(const OSDMapRef lastmap,
       info.history.same_interval_since,
       info.history.last_epoch_clean,
       osdmap,
-      lastmap, &past_intervals);
+      lastmap, info.pgid.pool(), &past_intervals);
     if (new_interval) {
       dout(10) << " noting past " << past_intervals.rbegin()->second << dendl;
       dirty_info = true;
@@ -6108,6 +6116,21 @@ PG::RecoveryState::Incomplete::Incomplete(my_context ctx)
   pg->state_clear(PG_STATE_PEERING);
   pg->state_set(PG_STATE_INCOMPLETE);
   pg->update_stats();
+}
+
+boost::statechart::result PG::RecoveryState::Incomplete::react(
+  const AdvMap &advmap) {
+  PG *pg = context< RecoveryMachine >().pg;
+  int64_t poolnum = pg->info.pgid.pool();
+
+  // Reset if min_size changed, pg might now be able to go active
+  if (advmap.lastmap->get_pools().find(poolnum)->second.min_size !=
+      advmap.osdmap->get_pools().find(poolnum)->second.min_size) {
+    post_event(advmap);
+    return transit< Reset >();
+  }
+
+  return forward_event();
 }
 
 void PG::RecoveryState::Incomplete::exit()

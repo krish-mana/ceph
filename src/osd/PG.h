@@ -1508,7 +1508,11 @@ public:
     };
 
     struct Incomplete : boost::statechart::state< Incomplete, Peering>, NamedState {
+      typedef boost::mpl::list <
+	boost::statechart::custom_reaction< AdvMap >
+	> reactions;
       Incomplete(my_context ctx);
+      boost::statechart::result react(const AdvMap &advmap);
       void exit();
     };
 
