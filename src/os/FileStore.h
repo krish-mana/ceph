@@ -270,6 +270,26 @@ private:
 
   PerfCounters *logger;
 
+private:
+  struct lfn_cache_item {
+    int fd;
+    int nref;
+
+    coll_t cid;
+    hobject_t oid;
+
+    lfn_cache_item() : fd(-1), nref(0) {}
+  };
+
+  Mutex lfn_cache_lock;
+  vector<lfn_cache_item> lfn_cache;
+
+  int _lfn_find_slot(coll_t cid, hobject_t oid,
+		     lfn_cache_item **slot);
+  void _lfn_fill_slot(lfn_cache_item *slot,
+		      int fd, coll_t cid, hobject_t oid);
+  int _lfn_put_fd(int fd);
+
 public:
   int lfn_find(coll_t cid, const hobject_t& oid, IndexedPath *path);
   int lfn_truncate(coll_t cid, const hobject_t& oid, off_t length);
