@@ -171,6 +171,7 @@ int FileStore::_lfn_find_slot(coll_t cid, hobject_t oid,
 		 << " fd " << p->fd
 		 << " slot " << &(*p) << dendl;
 	p->nref++;
+	logger->inc(l_os_fd_cache_hit);
 	return p->fd;
       }
       if (p->nref == 0) {
@@ -178,6 +179,7 @@ int FileStore::_lfn_find_slot(coll_t cid, hobject_t oid,
       }
     }
   }
+  logger->inc(l_os_fd_cache_miss);
 
   if (empty) {
     *slot = empty;
@@ -560,6 +562,9 @@ FileStore::FileStore(const std::string &base, const std::string &jdev, const cha
   plb.add_fl_avg(l_os_commit_len, "commitcycle_interval");
   plb.add_fl_avg(l_os_commit_lat, "commitcycle_latency");
   plb.add_u64_counter(l_os_j_full, "journal_full");
+
+  plb.add_u64_counter(l_os_fd_cache_hit, "fd_cache_hit");
+  plb.add_u64_counter(l_os_fd_cache_miss, "fd_cache_miss");
 
   logger = plb.create_perf_counters();
 }
