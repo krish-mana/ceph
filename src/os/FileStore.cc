@@ -203,20 +203,22 @@ int FileStore::lfn_open(coll_t cid, const hobject_t& oid, int flags, mode_t mode
 			IndexedPath *path,
 			Index *index)
 {
-  Mutex::Locker l(lfn_cache_lock);
 
   FDRef fd;
-  bool found = fd_cache.lookup(oid, &fd);
-  if (found) {
-    if (flags & O_TRUNC) {
-      int r = ftruncate(fd->get_fd(), 0);
-      if (r < 0)
-	return -errno;
+  {
+    Mutex::Locker l(lfn_cache_lock);
+    bool found = fd_cache.lookup(oid, &fd);
+    if (found) {
+      if (flags & O_TRUNC) {
+	int r = ftruncate(fd->get_fd(), 0);
+	if (r < 0)
+	  return -errno;
+      }
+      assert(!(fd_open.count(fd->get_fd())));
+      fd_open[fd->get_fd()] = fd;
+      logger->inc(l_os_fd_cache_hit);
+      return fd->get_fd();
     }
-    assert(!(fd_open.count(fd->get_fd())));
-    fd_open[fd->get_fd()] = fd;
-    logger->inc(l_os_fd_cache_hit);
-    return fd->get_fd();
   }
 
   Index index2;
@@ -264,10 +266,13 @@ int FileStore::lfn_open(coll_t cid, const hobject_t& oid, int flags, mode_t mode
   }
 
   
-  assert(!(fd_open.count(fd->get_fd())));
-  fd_open[fd->get_fd()] = fd;
-  fd_cache.add(oid, fd);
-  logger->inc(l_os_fd_cache_miss);
+  {
+    Mutex::Locker l(lfn_cache_lock);
+    assert(!(fd_open.count(fd->get_fd())));
+    fd_open[fd->get_fd()] = fd;
+    fd_cache.add(oid, fd);
+    logger->inc(l_os_fd_cache_miss);
+  }
   return fd->get_fd();
 
  fail:
@@ -419,7 +424,7 @@ FileStore::FileStore(const std::string &base, const std::string &jdev, const cha
 	g_conf->filestore_op_thread_suicide_timeout, &op_tp),
   flusher_queue_len(0), flusher_thread(this),
   logger(NULL),
-  lfn_cache_lock("FileStore::lfn_cache_lock"),
+  lfn_cache_lock("FileStore::lfn_cache_lock", 0, 1, 0, g_ceph_context),
   fd_cache(g_conf->filestore_fd_cache_size),
   m_filestore_btrfs_clone_range(g_conf->filestore_btrfs_clone_range),
   m_filestore_btrfs_snap (g_conf->filestore_btrfs_snap ),
