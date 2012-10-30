@@ -40,6 +40,7 @@ using namespace __gnu_cxx;
 #include "IndexManager.h"
 #include "ObjectMap.h"
 #include "SequencerPosition.h"
+#include "common/simple_cache.hpp"
 
 #include "include/uuid.h"
 
@@ -282,7 +283,16 @@ private:
   };
 
   Mutex lfn_cache_lock;
-  vector<lfn_cache_item> lfn_cache;
+  class FDHolder {
+    int fd;
+  public:
+    FDHolder(int fd) : fd(fd) {}
+    ~FDHolder() { ::close(fd); }
+    int get_fd() { return fd; }
+  };
+  typedef std::tr1::shared_ptr<FDHolder> FDRef;
+  SimpleLRU<hobject_t, FDRef> fd_cache;
+  map<int, FDRef> fd_open;
 
   int _lfn_find_slot(coll_t cid, hobject_t oid,
 		     lfn_cache_item **slot);

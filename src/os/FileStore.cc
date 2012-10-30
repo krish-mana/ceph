@@ -155,85 +155,6 @@ int FileStore::init_index(coll_t cid)
 
 // -------------------------
 
-int FileStore::_lfn_find_slot(coll_t cid, hobject_t oid,
-			      lfn_cache_item **slot)
-{
-  lfn_cache_item *empty = NULL, *unused = NULL;
-
-  // search for open fd
-  for (vector<lfn_cache_item>::iterator p = lfn_cache.begin(); p != lfn_cache.end(); ++p) {
-    if (p->fd < 0) {
-      empty = &(*p);
-    } else {
-      if (p->oid == oid && p->cid == cid) {
-	dout(10) << "_lfn_find_slot " << cid << " " << oid
-		 << " " << p->nref << " -> " << (p->nref+1)
-		 << " fd " << p->fd
-		 << " slot " << &(*p) << dendl;
-	p->nref++;
-	logger->inc(l_os_fd_cache_hit);
-	return p->fd;
-      }
-      if (p->nref == 0) {
-	unused = &(*p);
-      }
-    }
-  }
-  logger->inc(l_os_fd_cache_miss);
-
-  if (empty) {
-    *slot = empty;
-    dout(10) << "_lfn_find_slot " << cid << " " << oid << " empty slot " << *slot << dendl;
-    return -1;
-  }
-
-  if (unused) {
-    *slot = unused;
-    dout(10) << "_lfn_find_slot " << cid << " " << oid << " reclaimed slot " << *slot << dendl;
-    return -1;
-  }
-
-  // didn't find anything
-  dout(10) << "_lfn_find_slot " << cid << " " << oid << " no slot" << dendl;
-  *slot = NULL;  
-  return -1;
-}
-
-void FileStore::_lfn_fill_slot(lfn_cache_item *slot,
-			       int fd, coll_t cid, hobject_t oid)
-{
-  dout(10) << "_lfn_fill_slot " << slot << " " << cid << " " << oid
-	   << " fd " << fd << " 0 -> 1" << dendl;
-  assert(slot->nref == 0);
-  if (slot->fd >= 0) {
-    dout(10) << "_lfn_fill_slot " << cid << " " << oid << " closing old fd " << slot->fd << dendl;
-    TEMP_FAILURE_RETRY(::close(slot->fd));
-  }
-  slot->fd = fd;
-  slot->nref = 1;
-  slot->cid = cid;
-  slot->oid = oid;
-}
-
-
-int FileStore::_lfn_put_fd(int fd)
-{
-  for (vector<lfn_cache_item>::iterator p = lfn_cache.begin();
-       p != lfn_cache.end();
-       ++p) {
-    if (p->fd == fd) {
-      dout(10) << "_lfn_put_fd " << fd
-	       << " " << p->nref << " -> " << (p->nref-1)
-	       << " slot " << &(*p)
-	       << dendl;
-      assert(p->nref > 0);
-      p->nref--;
-      return 0;
-    }
-  }
-  return -1;
-}
-
 int FileStore::lfn_find(coll_t cid, const hobject_t& oid, IndexedPath *path)
 {
   Index index; 
@@ -284,15 +205,18 @@ int FileStore::lfn_open(coll_t cid, const hobject_t& oid, int flags, mode_t mode
 {
   Mutex::Locker l(lfn_cache_lock);
 
-  lfn_cache_item *slot;
-  int fd = _lfn_find_slot(cid, oid, &slot);
-  if (fd >= 0) {
+  FDRef fd;
+  bool found = fd_cache.lookup(oid, &fd);
+  if (found) {
     if (flags & O_TRUNC) {
-      int r = ftruncate(fd, 0);
+      int r = ftruncate(fd->get_fd(), 0);
       if (r < 0)
 	return -errno;
     }
-    return fd;
+    assert(!(fd_open.count(fd->get_fd())));
+    fd_open[fd->get_fd()] = fd;
+    logger->inc(l_os_fd_cache_hit);
+    return fd->get_fd();
   }
 
   Index index2;
@@ -326,23 +250,25 @@ int FileStore::lfn_open(coll_t cid, const hobject_t& oid, int flags, mode_t mode
 	     << flags << " and mode=" << mode << ": " << cpp_strerror(-r) << dendl;
     goto fail;
   }
-  fd = r;
-  dout(20) << "lfn_open fd " << fd << dendl;
+  fd = FDRef(new FDHolder(r));
+  dout(20) << "lfn_open fd " << fd->get_fd() << dendl;
 
   if ((flags & O_CREAT) && (!exist)) {
     r = (*index)->created(oid, (*path)->path());
     if (r < 0) {
-      TEMP_FAILURE_RETRY(::close(fd));
+      TEMP_FAILURE_RETRY(::close(fd->get_fd()));
       derr << "error creating " << oid << " (" << (*path)->path()
 	   << ") in index: " << cpp_strerror(-r) << dendl;
       goto fail;
     }
   }
 
-  if (slot) {
-    _lfn_fill_slot(slot, fd, cid, oid);
-  }
-  return fd;
+  
+  assert(!(fd_open.count(fd->get_fd())));
+  fd_open[fd->get_fd()] = fd;
+  fd_cache.add(oid, fd);
+  logger->inc(l_os_fd_cache_miss);
+  return fd->get_fd();
 
  fail:
   assert(!m_filestore_fail_eio || r != -EIO);
@@ -368,7 +294,7 @@ void FileStore::lfn_close(int fd)
 {
   dout(10) << "lfn_close " << fd << dendl;
   Mutex::Locker l(lfn_cache_lock);
-  _lfn_put_fd(fd);
+  fd_open.erase(fd);
 }
 
 int FileStore::lfn_link(coll_t c, coll_t cid, const hobject_t& o) 
@@ -494,7 +420,7 @@ FileStore::FileStore(const std::string &base, const std::string &jdev, const cha
   flusher_queue_len(0), flusher_thread(this),
   logger(NULL),
   lfn_cache_lock("FileStore::lfn_cache_lock"),
-  lfn_cache(g_conf->filestore_fd_cache_size),
+  fd_cache(g_conf->filestore_fd_cache_size),
   m_filestore_btrfs_clone_range(g_conf->filestore_btrfs_clone_range),
   m_filestore_btrfs_snap (g_conf->filestore_btrfs_snap ),
   m_filestore_commit_timeout(g_conf->filestore_commit_timeout),
