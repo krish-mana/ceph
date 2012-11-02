@@ -1587,7 +1587,7 @@ void pg_query_t::generate_test_instances(list<pg_query_t*>& o)
 
 void pg_log_entry_t::encode(bufferlist &bl) const
 {
-  ENCODE_START(5, 4, bl);
+  ENCODE_START(6, 4, bl);
   ::encode(op, bl);
   ::encode(soid, bl);
   ::encode(version, bl);
@@ -1596,6 +1596,7 @@ void pg_log_entry_t::encode(bufferlist &bl) const
   ::encode(mtime, bl);
   if (op == CLONE)
     ::encode(snaps, bl);
+  ::encode(reverting_to, bl);
   ENCODE_FINISH(bl);
 }
 
@@ -1622,6 +1623,11 @@ void pg_log_entry_t::decode(bufferlist::iterator &bl)
     ::decode(snaps, bl);
   if (struct_v < 5)
     invalid_pool = true;
+  if (struct_v >= 6) {
+    ::decode(reverting_to, bl);
+  } else {
+    reverting_to = prior_version;
+  }
   DECODE_FINISH(bl);
 }
 
