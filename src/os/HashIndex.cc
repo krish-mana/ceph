@@ -208,14 +208,21 @@ int HashIndex::col_split_level(
     if (r < 0)
       return r;
   }
-       
 
   r = to.set_info(path, to_info);
   if (r < 0)
     return r;
-  r = from.set_info(path, from_info);
-  if (r < 0)
-    return r;
+  if (from_info.hash_level > 0 &&
+      from_info.subdirs == 0 &&
+      from_info.objs == 0) {
+    r = from.remove_path(path);
+    if (r < 0)
+      return r;
+  } else {
+    r = from.set_info(path, from_info);
+    if (r < 0)
+      return r;
+  }
   from.end_split_or_merge(path);
   to.end_split_or_merge(path);
   return 0;
