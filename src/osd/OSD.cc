@@ -5277,11 +5277,6 @@ void OSD::handle_pg_query(OpRequestRef op)
 
     PG *pg = 0;
 
-    if (pending_split(pgid)) {
-      waiting_for_pg[pgid].push_back(op);
-      continue;
-    }
-
     if (pg_map.count(pgid)) {
       pg = _lookup_lock_pg(pgid);
       pg->queue_query(it->second.epoch_sent, it->second.epoch_sent,
