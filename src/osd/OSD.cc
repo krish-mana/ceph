@@ -178,15 +178,28 @@ OSDService::OSDService(OSD *osd) :
   in_progress_split_lock("OSDService::in_progress_split_lock")
 {}
 
-void OSDService::start_split(const set<pg_t> &pgs)
+void OSDService::_start_split(const set<pg_t> &pgs)
 {
-  Mutex::Locker l(in_progress_split_lock);
   for (set<pg_t>::const_iterator i = pgs.begin();
        i != pgs.end();
        ++i) {
     assert(!in_progress_splits.count(*i));
     in_progress_splits.insert(*i);
   }
+}
+
+void OSDService::expand_pg_num(OSDMapRef old_map,
+			       OSDMapRef new_map)
+{
+  Mutex::Locker l(in_progress_split_lock);
+  set<pg_t> children;
+  for (set<pg_t>::iterator i = in_progress_splits.begin();
+       i != in_progress_splits.end();
+       ++i) {
+    i->is_split(old_map->get_pg_num(i->pool()),
+		new_map->get_pg_num(i->pool()), &children);
+  }
+  _start_split(children);
 }
 
 bool OSDService::splitting(pg_t pgid)
@@ -1646,36 +1659,6 @@ void OSD::build_past_intervals_parallel()
     store->apply_transaction(t);
 }
 
-bool OSD::pending_split(pg_t pgid)
-{
-  pg_t parent_pgid(pgid);
-  assert(osd_lock.is_locked());
-  OSDMapRef map = service.get_osdmap();
-  while (parent_pgid.m_seed && !_have_pg(parent_pgid))
-    parent_pgid = parent_pgid.get_parent();
-
-  PG *pg = _lookup_lock_pg(parent_pgid);
-  if (!pg)
-    return false;
-
-  if (service.splitting(pgid)) {
-    pg->unlock();
-    return true;
-  }
-
-  set<pg_t> split_pgs;
-  if (!parent_pgid.is_split(pg->get_osdmap()->get_pg_num(pg->pool.id),
-                            map->get_pg_num(pg->pool.id),
-                            &split_pgs)) {
-    pg->unlock();
-    return false;
-  } else {
-    pg->unlock();
-    return split_pgs.count(pgid);
-  }
-}
-
-
 /*
  * look up a pg.  if we have it, great.  if not, consider creating it IF the pg mapping
  * hasn't changed since the given epoch and we are the primary.
@@ -1702,7 +1685,7 @@ PG *OSD::get_or_create_pg(
       return NULL;
     }
 
-    if (pending_split(info.pgid)) {
+    if (service.splitting(info.pgid)) {
       assert(0);
     }
 
@@ -3939,7 +3922,6 @@ void OSD::advance_pg(
 	lastmap->get_pg_num(pg->pool.id),
 	nextmap->get_pg_num(pg->pool.id),
 	&children)) {
-      service.start_split(children);
       split_pgs(
 	pg, children, new_pgs, lastmap, nextmap,
 	rctx);
@@ -4063,6 +4045,12 @@ void OSD::activate_map()
     else
       num_pg_stray++;
 
+    set<pg_t> split_pgs;
+    if (it->first.is_split(service.get_osdmap()->get_pg_num(it->first.pool()),
+			   osdmap->get_pg_num(it->first.pool()),
+			   &split_pgs))
+      service.start_split(split_pgs);
+
     if (pg->is_primary() && pg->info.history.last_epoch_clean < oldest_last_clean)
       oldest_last_clean = pg->info.history.last_epoch_clean;
 
@@ -4084,6 +4072,8 @@ void OSD::activate_map()
   }
   to_remove.clear();
 
+  service.expand_pg_num(service.get_osdmap(),
+			osdmap);
   service.publish_map(osdmap);
 
   // scan pg's
@@ -4912,7 +4902,7 @@ void OSD::handle_pg_notify(OpRequestRef op)
     }
 
     int created = 0;
-    if (pending_split(it->first.info.pgid)) {
+    if (service.splitting(it->first.info.pgid)) {
       peering_wait_for_split[it->first.info.pgid].push_back(
 	PG::CephPeeringEvtRef(
 	  new PG::CephPeeringEvt(
@@ -4947,7 +4937,7 @@ void OSD::handle_pg_log(OpRequestRef op)
     return;
   }
 
-  if (pending_split(m->info.pgid)) {
+  if (service.splitting(m->info.pgid)) {
     peering_wait_for_split[m->info.pgid].push_back(
       PG::CephPeeringEvtRef(
 	new PG::CephPeeringEvt(
@@ -4990,7 +4980,7 @@ void OSD::handle_pg_info(OpRequestRef op)
       continue;
     }
 
-    if (pending_split(p->first.info.pgid)) {
+    if (service.splitting(p->first.info.pgid)) {
       peering_wait_for_split[p->first.info.pgid].push_back(
 	PG::CephPeeringEvtRef(
 	  new PG::CephPeeringEvt(
@@ -5239,7 +5229,7 @@ void OSD::handle_pg_query(OpRequestRef op)
       continue;
     }
 
-    if (pending_split(pgid)) {
+    if (service.splitting(pgid)) {
       peering_wait_for_split[pgid].push_back(
 	PG::CephPeeringEvtRef(
 	  new PG::CephPeeringEvt(
@@ -5775,7 +5765,7 @@ void OSD::handle_sub_op(OpRequestRef op)
   _share_map_incoming(m->get_source_inst(), m->map_epoch,
 		      (Session*)m->get_connection()->get_priv());
 
-  if (pending_split(pgid)) {
+  if (service.splitting(pgid)) {
     waiting_for_pg[pgid].push_back(op);
     return;
   }
