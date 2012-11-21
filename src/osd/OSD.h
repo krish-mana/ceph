@@ -337,9 +337,15 @@ public:
   // split
   Mutex in_progress_split_lock;
   set<pg_t> in_progress_splits;
-  void start_split(const set<pg_t> &pgs);
+  void _start_split(const set<pg_t> &pgs);
+  void start_split(const set<pg_t> &pgs) {
+    Mutex::Locker l(in_progress_split_lock);
+    return _start_split(pgs);
+  }
   void complete_split(const set<pg_t> &pgs);
   bool splitting(pg_t pgid);
+  void expand_pg_num(OSDMapRef old_map,
+		     OSDMapRef new_map);
 
   OSDService(OSD *osd);
 };
@@ -802,7 +808,6 @@ protected:
   void add_newly_split_pg(PG *pg,
 			  PG::RecoveryCtx *rctx);
 
-  bool pending_split(pg_t pgid);
   PG *get_or_create_pg(const pg_info_t& info,
                        pg_interval_map_t& pi,
                        epoch_t epoch, int from, int& pcreated,
