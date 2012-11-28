@@ -4384,6 +4384,7 @@ void OSD::split_pgs(
        i != childpgids.end();
        ++i) {
     dout(10) << "Splitting " << *parent << " into " << *i << dendl;
+    assert(service.splitting(*i));
     PG* child = _make_pg(nextmap, *i);
     child->lock(true);
     out_pgs->insert(child);
