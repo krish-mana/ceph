@@ -4788,6 +4788,8 @@ std::ostream& operator<<(std::ostream& oss,
 }
 
 /*-------------------------Log Merging--------------------------------*/
+#undef dout_prefix
+#define dout_prefix _prefix(_dout, pg)
 /*
  * merge an old (possibly divergent) log entry into the new log.  this 
  * happens _after_ new log items have been assimilated.  thus, we assume
@@ -4798,6 +4800,7 @@ std::ostream& operator<<(std::ostream& oss,
  */
 bool PG::merge_old_entry(ObjectStore::Transaction& t, pg_log_entry_t& oe)
 {
+  PG *pg = this;
   if (oe.soid > info.last_backfill) {
     dout(20) << "merge_old_entry  had " << oe << " : beyond last_backfill" << dendl;
     return false;
@@ -4881,6 +4884,7 @@ bool PG::merge_old_entry(ObjectStore::Transaction& t, pg_log_entry_t& oe)
  */
 void PG::rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead)
 {
+  PG *pg = this;
   dout(10) << "rewind_divergent_log truncate divergent future " << newhead << dendl;
   assert(newhead > log.tail);
 
@@ -4918,6 +4922,7 @@ void PG::rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead)
 void PG::merge_log(ObjectStore::Transaction& t,
 		   pg_info_t &oinfo, pg_log_t &olog, int fromosd)
 {
+  PG *pg = this;
   dout(10) << "merge_log " << olog << " from osd." << fromosd
            << " into " << log << dendl;
 
