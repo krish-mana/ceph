@@ -338,269 +338,6 @@ void PG::remove_object_with_snap_hardlinks(
 
 
 /*
- * merge an old (possibly divergent) log entry into the new log.  this 
- * happens _after_ new log items have been assimilated.  thus, we assume
- * the index already references newer entries (if present), and missing
- * has been updated accordingly.
- *
- * return true if entry is not divergent.
- */
-bool PG::merge_old_entry(ObjectStore::Transaction& t, pg_log_entry_t& oe)
-{
-  if (oe.soid > info.last_backfill) {
-    dout(20) << "merge_old_entry  had " << oe << " : beyond last_backfill" << dendl;
-    return false;
-  }
-  if (log.objects.count(oe.soid)) {
-    pg_log_entry_t &ne = *log.objects[oe.soid];  // new(er?) entry
-    
-    if (ne.version > oe.version) {
-      dout(20) << "merge_old_entry  had " << oe << " new " << ne << " : older, missing" << dendl;
-      assert(ne.is_delete() || missing.is_missing(ne.soid));
-      return false;
-    }
-    if (ne.version == oe.version) {
-      dout(20) << "merge_old_entry  had " << oe << " new " << ne << " : same" << dendl;
-      return true;
-    }
-    if (oe.is_delete()) {
-      if (ne.is_delete()) {
-	// old and new are delete
-	dout(20) << "merge_old_entry  had " << oe << " new " << ne << " : both deletes" << dendl;
-      } else {
-	// old delete, new update.
-	dout(20) << "merge_old_entry  had " << oe << " new " << ne << " : missing" << dendl;
-	missing.revise_need(ne.soid, ne.version);
-      }
-    } else {
-      if (ne.is_delete()) {
-	// old update, new delete
-	dout(20) << "merge_old_entry  had " << oe << " new " << ne << " : new delete supercedes" << dendl;
-	missing.rm(oe.soid, oe.version);
-      } else {
-	// old update, new update
-	dout(20) << "merge_old_entry  had " << oe << " new " << ne << " : new item supercedes" << dendl;
-	missing.revise_need(ne.soid, ne.version);
-      }
-    }
-  } else if (oe.op == pg_log_entry_t::CLONE) {
-    assert(oe.soid.snap != CEPH_NOSNAP);
-    dout(20) << "merge_old_entry  had " << oe
-	     << ", clone with no non-divergent log entries, "
-	     << "deleting" << dendl;
-    remove_object_with_snap_hardlinks(t, oe.soid);
-    if (missing.is_missing(oe.soid))
-      missing.rm(oe.soid, missing.missing[oe.soid].need);
-  } else if (oe.prior_version > info.log_tail) {
-    /**
-     * oe.prior_version is a previously divergent log entry
-     * oe.soid must have already been handled and the missing
-     * set updated appropriately
-     */
-    dout(20) << "merge_old_entry  had oe " << oe
-	     << " with divergent prior_version " << oe.prior_version
-	     << " oe.soid " << oe.soid
-	     << " must already have been merged" << dendl;
-  } else {
-    if (!oe.is_delete()) {
-      dout(20) << "merge_old_entry  had " << oe << " deleting" << dendl;
-      remove_object_with_snap_hardlinks(t, oe.soid);
-    }
-    dout(20) << "merge_old_entry  had " << oe << " updating missing to "
-	     << oe.prior_version << dendl;
-    if (oe.prior_version > eversion_t()) {
-      ondisklog.add_divergent_prior(oe.prior_version, oe.soid);
-      dirty_log = true;
-      missing.revise_need(oe.soid, oe.prior_version);
-    } else if (missing.is_missing(oe.soid)) {
-      missing.rm(oe.soid, missing.missing[oe.soid].need);
-    }
-  }
-  return false;
-}
-
-/**
- * rewind divergent entries at the head of the log
- *
- * This rewinds entries off the head of our log that are divergent.
- * This is used by replicas during activation.
- *
- * @param t transaction
- * @param newhead new head to rewind to
- */
-void PG::rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead)
-{
-  dout(10) << "rewind_divergent_log truncate divergent future " << newhead << dendl;
-  assert(newhead > log.tail);
-
-  list<pg_log_entry_t>::iterator p = log.log.end();
-  list<pg_log_entry_t> divergent;
-  while (true) {
-    if (p == log.log.begin()) {
-      // yikes, the whole thing is divergent!
-      divergent.swap(log.log);
-      break;
-    }
-    --p;
-    if (p->version == newhead) {
-      ++p;
-      divergent.splice(divergent.begin(), log.log, p, log.log.end());
-      break;
-    }
-    assert(p->version > newhead);
-    dout(10) << "rewind_divergent_log future divergent " << *p << dendl;
-    log.unindex(*p);
-  }
-
-  log.head = newhead;
-  info.last_update = newhead;
-  if (info.last_complete > newhead)
-    info.last_complete = newhead;
-
-  for (list<pg_log_entry_t>::iterator d = divergent.begin(); d != divergent.end(); d++)
-    merge_old_entry(t, *d);
-
-  dirty_info = true;
-  dirty_log = true;
-}
-
-void PG::merge_log(ObjectStore::Transaction& t,
-		   pg_info_t &oinfo, pg_log_t &olog, int fromosd)
-{
-  dout(10) << "merge_log " << olog << " from osd." << fromosd
-           << " into " << log << dendl;
-
-  // Check preconditions
-
-  // If our log is empty, the incoming log needs to have not been trimmed.
-  assert(!log.null() || olog.tail == eversion_t());
-  // The logs must overlap.
-  assert(log.head >= olog.tail && olog.head >= log.tail);
-
-  for (map<hobject_t, pg_missing_t::item>::iterator i = missing.missing.begin();
-       i != missing.missing.end();
-       ++i) {
-    dout(20) << "pg_missing_t sobject: " << i->first << dendl;
-  }
-
-  bool changed = false;
-
-  // extend on tail?
-  //  this is just filling in history.  it does not affect our
-  //  missing set, as that should already be consistent with our
-  //  current log.
-  if (olog.tail < log.tail) {
-    dout(10) << "merge_log extending tail to " << olog.tail << dendl;
-    list<pg_log_entry_t>::iterator from = olog.log.begin();
-    list<pg_log_entry_t>::iterator to;
-    for (to = from;
-	 to != olog.log.end();
-	 to++) {
-      if (to->version > log.tail)
-	break;
-      log.index(*to);
-      dout(15) << *to << dendl;
-    }
-    assert(to != olog.log.end() ||
-	   (olog.head == info.last_update));
-      
-    // splice into our log.
-    log.log.splice(log.log.begin(),
-		   olog.log, from, to);
-      
-    info.log_tail = log.tail = olog.tail;
-    changed = true;
-  }
-
-  if (oinfo.stats.reported < info.stats.reported)   // make sure reported always increases
-    oinfo.stats.reported = info.stats.reported;
-  if (info.last_backfill.is_max())
-    info.stats = oinfo.stats;
-
-  // do we have divergent entries to throw out?
-  if (olog.head < log.head) {
-    rewind_divergent_log(t, olog.head);
-    changed = true;
-  }
-
-  // extend on head?
-  if (olog.head > log.head) {
-    dout(10) << "merge_log extending head to " << olog.head << dendl;
-      
-    // find start point in olog
-    list<pg_log_entry_t>::iterator to = olog.log.end();
-    list<pg_log_entry_t>::iterator from = olog.log.end();
-    eversion_t lower_bound = olog.tail;
-    while (1) {
-      if (from == olog.log.begin())
-	break;
-      from--;
-      dout(20) << "  ? " << *from << dendl;
-      if (from->version <= log.head) {
-	dout(20) << "merge_log cut point (usually last shared) is " << *from << dendl;
-	lower_bound = from->version;
-	from++;
-	break;
-      }
-    }
-
-    // index, update missing, delete deleted
-    for (list<pg_log_entry_t>::iterator p = from; p != to; p++) {
-      pg_log_entry_t &ne = *p;
-      dout(20) << "merge_log " << ne << dendl;
-      log.index(ne);
-      if (ne.soid <= info.last_backfill) {
-	missing.add_next_event(ne);
-	if (ne.is_delete())
-	  remove_object_with_snap_hardlinks(t, ne.soid);
-      }
-    }
-      
-    // move aside divergent items
-    list<pg_log_entry_t> divergent;
-    while (!log.empty()) {
-      pg_log_entry_t &oe = *log.log.rbegin();
-      /*
-       * look at eversion.version here.  we want to avoid a situation like:
-       *  our log: 100'10 (0'0) m 10000004d3a.00000000/head by client4225.1:18529
-       *  new log: 122'10 (0'0) m 10000004d3a.00000000/head by client4225.1:18529
-       *  lower_bound = 100'9
-       * i.e, same request, different version.  If the eversion.version is > the
-       * lower_bound, we it is divergent.
-       */
-      if (oe.version.version <= lower_bound.version)
-	break;
-      dout(10) << "merge_log divergent " << oe << dendl;
-      divergent.push_front(oe);
-      log.unindex(oe);
-      log.log.pop_back();
-    }
-
-    // splice
-    log.log.splice(log.log.end(), 
-		   olog.log, from, to);
-    log.index();   
-
-    info.last_update = log.head = olog.head;
-
-    // process divergent items
-    if (!divergent.empty()) {
-      for (list<pg_log_entry_t>::iterator d = divergent.begin(); d != divergent.end(); d++)
-	merge_old_entry(t, *d);
-    }
-
-    changed = true;
-  }
-  
-  dout(10) << "merge_log result " << log << " " << missing << " changed=" << changed << dendl;
-
-  if (changed) {
-    dirty_info = true;
-    dirty_log = true;
-  }
-}
-
-/*
  * Process information from a replica to determine if it could have any
  * objects that i need.
  *
@@ -5049,6 +4786,271 @@ std::ostream& operator<<(std::ostream& oss,
       << "blocked_by=" << prior.blocked_by << "]";
   return oss;
 }
+
+/*-------------------------Log Merging--------------------------------*/
+/*
+ * merge an old (possibly divergent) log entry into the new log.  this 
+ * happens _after_ new log items have been assimilated.  thus, we assume
+ * the index already references newer entries (if present), and missing
+ * has been updated accordingly.
+ *
+ * return true if entry is not divergent.
+ */
+bool PG::merge_old_entry(ObjectStore::Transaction& t, pg_log_entry_t& oe)
+{
+  if (oe.soid > info.last_backfill) {
+    dout(20) << "merge_old_entry  had " << oe << " : beyond last_backfill" << dendl;
+    return false;
+  }
+  if (log.objects.count(oe.soid)) {
+    pg_log_entry_t &ne = *log.objects[oe.soid];  // new(er?) entry
+    
+    if (ne.version > oe.version) {
+      dout(20) << "merge_old_entry  had " << oe << " new " << ne << " : older, missing" << dendl;
+      assert(ne.is_delete() || missing.is_missing(ne.soid));
+      return false;
+    }
+    if (ne.version == oe.version) {
+      dout(20) << "merge_old_entry  had " << oe << " new " << ne << " : same" << dendl;
+      return true;
+    }
+    if (oe.is_delete()) {
+      if (ne.is_delete()) {
+	// old and new are delete
+	dout(20) << "merge_old_entry  had " << oe << " new " << ne << " : both deletes" << dendl;
+      } else {
+	// old delete, new update.
+	dout(20) << "merge_old_entry  had " << oe << " new " << ne << " : missing" << dendl;
+	missing.revise_need(ne.soid, ne.version);
+      }
+    } else {
+      if (ne.is_delete()) {
+	// old update, new delete
+	dout(20) << "merge_old_entry  had " << oe << " new " << ne << " : new delete supercedes" << dendl;
+	missing.rm(oe.soid, oe.version);
+      } else {
+	// old update, new update
+	dout(20) << "merge_old_entry  had " << oe << " new " << ne << " : new item supercedes" << dendl;
+	missing.revise_need(ne.soid, ne.version);
+      }
+    }
+  } else if (oe.op == pg_log_entry_t::CLONE) {
+    assert(oe.soid.snap != CEPH_NOSNAP);
+    dout(20) << "merge_old_entry  had " << oe
+	     << ", clone with no non-divergent log entries, "
+	     << "deleting" << dendl;
+    remove_object_with_snap_hardlinks(t, oe.soid);
+    if (missing.is_missing(oe.soid))
+      missing.rm(oe.soid, missing.missing[oe.soid].need);
+  } else if (oe.prior_version > info.log_tail) {
+    /**
+     * oe.prior_version is a previously divergent log entry
+     * oe.soid must have already been handled and the missing
+     * set updated appropriately
+     */
+    dout(20) << "merge_old_entry  had oe " << oe
+	     << " with divergent prior_version " << oe.prior_version
+	     << " oe.soid " << oe.soid
+	     << " must already have been merged" << dendl;
+  } else {
+    if (!oe.is_delete()) {
+      dout(20) << "merge_old_entry  had " << oe << " deleting" << dendl;
+      remove_object_with_snap_hardlinks(t, oe.soid);
+    }
+    dout(20) << "merge_old_entry  had " << oe << " updating missing to "
+	     << oe.prior_version << dendl;
+    if (oe.prior_version > eversion_t()) {
+      ondisklog.add_divergent_prior(oe.prior_version, oe.soid);
+      dirty_log = true;
+      missing.revise_need(oe.soid, oe.prior_version);
+    } else if (missing.is_missing(oe.soid)) {
+      missing.rm(oe.soid, missing.missing[oe.soid].need);
+    }
+  }
+  return false;
+}
+
+/**
+ * rewind divergent entries at the head of the log
+ *
+ * This rewinds entries off the head of our log that are divergent.
+ * This is used by replicas during activation.
+ *
+ * @param t transaction
+ * @param newhead new head to rewind to
+ */
+void PG::rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead)
+{
+  dout(10) << "rewind_divergent_log truncate divergent future " << newhead << dendl;
+  assert(newhead > log.tail);
+
+  list<pg_log_entry_t>::iterator p = log.log.end();
+  list<pg_log_entry_t> divergent;
+  while (true) {
+    if (p == log.log.begin()) {
+      // yikes, the whole thing is divergent!
+      divergent.swap(log.log);
+      break;
+    }
+    --p;
+    if (p->version == newhead) {
+      ++p;
+      divergent.splice(divergent.begin(), log.log, p, log.log.end());
+      break;
+    }
+    assert(p->version > newhead);
+    dout(10) << "rewind_divergent_log future divergent " << *p << dendl;
+    log.unindex(*p);
+  }
+
+  log.head = newhead;
+  info.last_update = newhead;
+  if (info.last_complete > newhead)
+    info.last_complete = newhead;
+
+  for (list<pg_log_entry_t>::iterator d = divergent.begin(); d != divergent.end(); d++)
+    merge_old_entry(t, *d);
+
+  dirty_info = true;
+  dirty_log = true;
+}
+
+void PG::merge_log(ObjectStore::Transaction& t,
+		   pg_info_t &oinfo, pg_log_t &olog, int fromosd)
+{
+  dout(10) << "merge_log " << olog << " from osd." << fromosd
+           << " into " << log << dendl;
+
+  // Check preconditions
+
+  // If our log is empty, the incoming log needs to have not been trimmed.
+  assert(!log.null() || olog.tail == eversion_t());
+  // The logs must overlap.
+  assert(log.head >= olog.tail && olog.head >= log.tail);
+
+  for (map<hobject_t, pg_missing_t::item>::iterator i = missing.missing.begin();
+       i != missing.missing.end();
+       ++i) {
+    dout(20) << "pg_missing_t sobject: " << i->first << dendl;
+  }
+
+  bool changed = false;
+
+  // extend on tail?
+  //  this is just filling in history.  it does not affect our
+  //  missing set, as that should already be consistent with our
+  //  current log.
+  if (olog.tail < log.tail) {
+    dout(10) << "merge_log extending tail to " << olog.tail << dendl;
+    list<pg_log_entry_t>::iterator from = olog.log.begin();
+    list<pg_log_entry_t>::iterator to;
+    for (to = from;
+	 to != olog.log.end();
+	 to++) {
+      if (to->version > log.tail)
+	break;
+      log.index(*to);
+      dout(15) << *to << dendl;
+    }
+    assert(to != olog.log.end() ||
+	   (olog.head == info.last_update));
+      
+    // splice into our log.
+    log.log.splice(log.log.begin(),
+		   olog.log, from, to);
+      
+    info.log_tail = log.tail = olog.tail;
+    changed = true;
+  }
+
+  if (oinfo.stats.reported < info.stats.reported)   // make sure reported always increases
+    oinfo.stats.reported = info.stats.reported;
+  if (info.last_backfill.is_max())
+    info.stats = oinfo.stats;
+
+  // do we have divergent entries to throw out?
+  if (olog.head < log.head) {
+    rewind_divergent_log(t, olog.head);
+    changed = true;
+  }
+
+  // extend on head?
+  if (olog.head > log.head) {
+    dout(10) << "merge_log extending head to " << olog.head << dendl;
+      
+    // find start point in olog
+    list<pg_log_entry_t>::iterator to = olog.log.end();
+    list<pg_log_entry_t>::iterator from = olog.log.end();
+    eversion_t lower_bound = olog.tail;
+    while (1) {
+      if (from == olog.log.begin())
+	break;
+      from--;
+      dout(20) << "  ? " << *from << dendl;
+      if (from->version <= log.head) {
+	dout(20) << "merge_log cut point (usually last shared) is " << *from << dendl;
+	lower_bound = from->version;
+	from++;
+	break;
+      }
+    }
+
+    // index, update missing, delete deleted
+    for (list<pg_log_entry_t>::iterator p = from; p != to; p++) {
+      pg_log_entry_t &ne = *p;
+      dout(20) << "merge_log " << ne << dendl;
+      log.index(ne);
+      if (ne.soid <= info.last_backfill) {
+	missing.add_next_event(ne);
+	if (ne.is_delete())
+	  remove_object_with_snap_hardlinks(t, ne.soid);
+      }
+    }
+      
+    // move aside divergent items
+    list<pg_log_entry_t> divergent;
+    while (!log.empty()) {
+      pg_log_entry_t &oe = *log.log.rbegin();
+      /*
+       * look at eversion.version here.  we want to avoid a situation like:
+       *  our log: 100'10 (0'0) m 10000004d3a.00000000/head by client4225.1:18529
+       *  new log: 122'10 (0'0) m 10000004d3a.00000000/head by client4225.1:18529
+       *  lower_bound = 100'9
+       * i.e, same request, different version.  If the eversion.version is > the
+       * lower_bound, we it is divergent.
+       */
+      if (oe.version.version <= lower_bound.version)
+	break;
+      dout(10) << "merge_log divergent " << oe << dendl;
+      divergent.push_front(oe);
+      log.unindex(oe);
+      log.log.pop_back();
+    }
+
+    // splice
+    log.log.splice(log.log.end(), 
+		   olog.log, from, to);
+    log.index();   
+
+    info.last_update = log.head = olog.head;
+
+    // process divergent items
+    if (!divergent.empty()) {
+      for (list<pg_log_entry_t>::iterator d = divergent.begin(); d != divergent.end(); d++)
+	merge_old_entry(t, *d);
+    }
+
+    changed = true;
+  }
+  
+  dout(10) << "merge_log result " << log << " " << missing << " changed=" << changed << dendl;
+
+  if (changed) {
+    dirty_info = true;
+    dirty_log = true;
+  }
+}
+
 
 /*------------ Recovery State Machine----------------*/
 #undef dout_prefix
