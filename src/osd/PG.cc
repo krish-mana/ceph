@@ -4893,9 +4893,15 @@ bool PG::merge_old_entry(
  * @param t transaction
  * @param newhead new head to rewind to
  */
-void PG::rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead)
+void PG::rewind_divergent_log(
+  pg_info_t &info,
+  IndexedLog &log,
+  pg_missing_t &missing,
+  eversion_t newhead,
+  PG *pg,
+  OndiskLog *ondisklog,
+  ObjectStore::Transaction *t)
 {
-  PG *pg = this;
   dout(10) << "rewind_divergent_log truncate divergent future " << newhead << dendl;
   assert(newhead > log.tail);
 
@@ -4924,10 +4930,7 @@ void PG::rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead)
     info.last_complete = newhead;
 
   for (list<pg_log_entry_t>::iterator d = divergent.begin(); d != divergent.end(); d++)
-    merge_old_entry(info, log, missing, *d, this, &ondisklog, &t);
-
-  dirty_info = true;
-  dirty_log = true;
+    merge_old_entry(info, log, missing, *d, pg, ondisklog, t);
 }
 
 void PG::merge_log(ObjectStore::Transaction& t,
@@ -4986,7 +4989,7 @@ void PG::merge_log(ObjectStore::Transaction& t,
 
   // do we have divergent entries to throw out?
   if (olog.head < log.head) {
-    rewind_divergent_log(t, olog.head);
+    rewind_divergent_log(info, log, missing, olog.head, this, &ondisklog, &t);
     changed = true;
   }
 
@@ -6187,8 +6190,16 @@ boost::statechart::result PG::RecoveryState::Stray::react(const MInfoRec& infoev
 
   if (pg->info.last_update > infoevt.info.last_update) {
     // rewind divergent log entries
-    pg->rewind_divergent_log(*context< RecoveryMachine >().get_cur_transaction(),
-			     infoevt.info.last_update);
+    PG::rewind_divergent_log(
+      pg->info,
+      pg->log,
+      pg->missing,
+      infoevt.info.last_update,
+      pg,
+      &(pg->ondisklog),
+      context< RecoveryMachine >().get_cur_transaction());
+    pg->dirty_info = true;
+    pg->dirty_log = true;
     pg->info.stats = infoevt.info.stats;
   }
   

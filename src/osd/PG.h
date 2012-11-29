@@ -749,7 +749,15 @@ public:
    * @param [in] from peer which sent the information
    */
   void merge_log(ObjectStore::Transaction& t, pg_info_t &oinfo, pg_log_t &olog, int from);
-  void rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead);
+  static void rewind_divergent_log(
+    pg_info_t &info,
+    IndexedLog &log,
+    pg_missing_t &missing,
+    eversion_t newhead,
+    PG *pg,
+    OndiskLog *ondisklog,
+    ObjectStore::Transaction *t
+    );
   bool search_for_missing(const pg_info_t &oinfo, const pg_missing_t *omissing,
 			  int fromosd);
 
