@@ -1795,6 +1795,7 @@ void OSD::project_pg_history(pg_t pgid, pg_history_t& h, epoch_t from,
        e--) {
     // verify during intermediate epoch (e-1)
     OSDMapRef oldmap = get_map(e-1);
+    assert(oldmap->have_pg_pool(pgid.pool()));
 
     vector<int> up, acting;
     oldmap->pg_to_up_acting_osds(pgid, up, acting);
@@ -1805,6 +1806,12 @@ void OSD::project_pg_history(pg_t pgid, pg_history_t& h, epoch_t from,
 	       << " from " << acting << "/" << up
 	       << " -> " << currentacting << "/" << currentup
 	       << dendl;
+      h.same_interval_since = e;
+    }
+    // split?
+    if (pgid.is_split(oldmap->get_pg_num(pgid.pool()),
+		      osdmap->get_pg_num(pgid.pool()),
+		      0)) {
       h.same_interval_since = e;
     }
     // up set change?
