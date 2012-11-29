@@ -1811,6 +1811,12 @@ void OSD::project_pg_history(pg_t pgid, pg_history_t& h, epoch_t from,
 	       << dendl;
       h.same_interval_since = e;
     }
+    // split?
+    if (pgid.is_split(oldmap->get_pg_num(pgid.pool()),
+		      osdmap->get_pg_num(pgid.pool()),
+		      0)) {
+      h.same_interval_since = e;
+    }
     // up set change?
     if (up != currentup && e > h.same_up_since) {
       dout(15) << "project_pg_history " << pgid << " up changed in " << e 
