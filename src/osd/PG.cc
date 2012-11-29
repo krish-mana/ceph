@@ -4798,9 +4798,18 @@ std::ostream& operator<<(std::ostream& oss,
  *
  * return true if entry is not divergent.
  */
-bool PG::merge_old_entry(ObjectStore::Transaction& t, pg_log_entry_t& oe)
+bool PG::merge_old_entry(
+  pg_info_t &info,
+  IndexedLog &log,
+  pg_missing_t &missing,
+  pg_log_entry_t& oe,
+  PG *pg,
+  OndiskLog *ondisklog,
+  ObjectStore::Transaction *t)
 {
-  PG *pg = this;
+  if (t) assert(ondisklog);
+  if (ondisklog) assert(t);
+
   if (oe.soid > info.last_backfill) {
     dout(20) << "merge_old_entry  had " << oe << " : beyond last_backfill" << dendl;
     return false;
@@ -4842,7 +4851,8 @@ bool PG::merge_old_entry(ObjectStore::Transaction& t, pg_log_entry_t& oe)
     dout(20) << "merge_old_entry  had " << oe
 	     << ", clone with no non-divergent log entries, "
 	     << "deleting" << dendl;
-    remove_object_with_snap_hardlinks(t, oe.soid);
+    if (t)
+      pg->remove_object_with_snap_hardlinks(*t, oe.soid);
     if (missing.is_missing(oe.soid))
       missing.rm(oe.soid, missing.missing[oe.soid].need);
   } else if (oe.prior_version > info.log_tail) {
@@ -4858,12 +4868,14 @@ bool PG::merge_old_entry(ObjectStore::Transaction& t, pg_log_entry_t& oe)
   } else {
     if (!oe.is_delete()) {
       dout(20) << "merge_old_entry  had " << oe << " deleting" << dendl;
-      remove_object_with_snap_hardlinks(t, oe.soid);
+      if (t)
+	pg->remove_object_with_snap_hardlinks(*t, oe.soid);
     }
     dout(20) << "merge_old_entry  had " << oe << " updating missing to "
 	     << oe.prior_version << dendl;
     if (oe.prior_version > eversion_t()) {
-      ondisklog.add_divergent_prior(oe.prior_version, oe.soid);
+      if (t)
+	ondisklog->add_divergent_prior(oe.prior_version, oe.soid);
       missing.revise_need(oe.soid, oe.prior_version);
     } else if (missing.is_missing(oe.soid)) {
       missing.rm(oe.soid, missing.missing[oe.soid].need);
@@ -4912,7 +4924,7 @@ void PG::rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead)
     info.last_complete = newhead;
 
   for (list<pg_log_entry_t>::iterator d = divergent.begin(); d != divergent.end(); d++)
-    merge_old_entry(t, *d);
+    merge_old_entry(info, log, missing, *d, this, &ondisklog, &t);
 
   dirty_info = true;
   dirty_log = true;
@@ -5041,7 +5053,7 @@ void PG::merge_log(ObjectStore::Transaction& t,
     // process divergent items
     if (!divergent.empty()) {
       for (list<pg_log_entry_t>::iterator d = divergent.begin(); d != divergent.end(); d++)
-	merge_old_entry(t, *d);
+	merge_old_entry(info, log, missing, *d, this, &ondisklog, &t);
     }
 
     changed = true;

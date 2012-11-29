@@ -731,7 +731,14 @@ public:
   bool proc_replica_info(int from, const pg_info_t &info);
   void remove_object_with_snap_hardlinks(
     ObjectStore::Transaction& t, const hobject_t& soid);
-  bool merge_old_entry(ObjectStore::Transaction& t, pg_log_entry_t& oe);
+  static bool merge_old_entry(
+    pg_info_t &info,
+    IndexedLog &log,
+    pg_missing_t &missing,
+    pg_log_entry_t& oe,
+    PG *pg,
+    OndiskLog *ondisklog,
+    ObjectStore::Transaction *t);
 
   /**
    * Merges authoratative log/info into current log/info/store
