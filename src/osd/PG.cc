@@ -4864,7 +4864,6 @@ bool PG::merge_old_entry(ObjectStore::Transaction& t, pg_log_entry_t& oe)
 	     << oe.prior_version << dendl;
     if (oe.prior_version > eversion_t()) {
       ondisklog.add_divergent_prior(oe.prior_version, oe.soid);
-      dirty_log = true;
       missing.revise_need(oe.soid, oe.prior_version);
     } else if (missing.is_missing(oe.soid)) {
       missing.rm(oe.soid, missing.missing[oe.soid].need);
