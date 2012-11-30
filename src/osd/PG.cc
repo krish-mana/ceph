@@ -186,10 +186,14 @@ void PG::proc_replica_log(ObjectStore::Transaction& t,
 {
   dout(10) << "proc_replica_log for osd." << from << ": "
 	   << oinfo << " " << olog << " " << omissing << dendl;
-  IndexedLog _olog;
-  _olog.claim_log(olog);
-  merge_log(oinfo, _olog, omissing, info, log, from, this, 0, 0);
-  _olog.unclaim_log(olog);
+  if (oinfo.last_update > info.log_tail) {
+    IndexedLog _olog;
+    _olog.claim_log(olog);
+    merge_log(oinfo, _olog, omissing, info, log, from, this, 0, 0);
+    _olog.unclaim_log(olog);
+  } else {
+    oinfo.last_backfill = hobject_t();
+  }
   peer_info[from] = oinfo;
   dout(10) << " peer osd." << from << " now " << oinfo << " " << omissing << dendl;
   might_have_unfound.insert(from);
@@ -1135,7 +1139,7 @@ void PG::activate(ObjectStore::Transaction& t,
 
       bool needs_past_intervals = pi.dne();
 
-      if (pi.last_update == info.last_update) {
+      if (pi.last_complete == info.last_update) {
         // empty log
 	if (!pi.is_empty() && activator_map) {
 	  dout(10) << "activate peer osd." << peer << " is up to date, queueing in pending_activators" << dendl;
@@ -1175,7 +1179,7 @@ void PG::activate(ObjectStore::Transaction& t,
 	assert(log.tail <= pi.last_update);
 	m = new MOSDPGLog(get_osdmap()->get_epoch(), info);
 	// send new stuff to append to replicas log
-	m->log.copy_after(log, pi.last_update);
+	m->log.copy_after(log, pi.last_complete);
       }
 
       // share past_intervals if we are creating the pg on the replica
@@ -1193,8 +1197,6 @@ void PG::activate(ObjectStore::Transaction& t,
 	osd->cluster_messenger->send_message(m, get_osdmap()->get_cluster_inst(peer));
       }
 
-      // peer now has 
-      pi.last_update = info.last_update;
 
       // update our missing
       if (pm.num_missing() == 0) {
