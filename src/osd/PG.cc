@@ -4964,6 +4964,10 @@ void PG::merge_log(
       log.log.pop_back();
     }
 
+    eversion_t last_common = log.log.empty() ? log.log.front().version : log.tail;
+    if (info.last_complete > last_common)
+      info.last_complete = last_common;
+
     // splice
     log.log.insert(log.log.end(), 
 		   from, to);
