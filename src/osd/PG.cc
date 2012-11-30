@@ -6565,8 +6565,11 @@ PG::RecoveryState::GetMissing::GetMissing(my_context ctx)
        ++i) {
     const pg_info_t& pi = pg->peer_info[*i];
 
-    if (pi.is_empty())
+    if (pi.is_empty()) {
+      ObjectStore::Transaction t;
+      proc_replica_log(t, pi, pg_log_t(), pg_missing_t(), *i);
       continue;                                // no pg data, nothing divergent
+    }
 
     if (pi.last_update < pg->log.tail) {
       dout(10) << " osd." << *i << " is not contiguous, will restart backfill" << dendl;
