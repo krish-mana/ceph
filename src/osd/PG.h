@@ -748,7 +748,16 @@ public:
    * @param [in,out] olog recieved authoritative log
    * @param [in] from peer which sent the information
    */
-  void merge_log(ObjectStore::Transaction& t, pg_info_t &oinfo, pg_log_t &olog, int from);
+  static void merge_log(
+    pg_info_t &info,
+    IndexedLog &log,
+    pg_missing_t &missing,
+    pg_info_t &oinfo,
+    pg_log_t &olog,
+    int fromosd,
+    PG *pg,
+    OndiskLog *ondisklog,
+    ObjectStore::Transaction *t);
   static void rewind_divergent_log(
     pg_info_t &info,
     IndexedLog &log,

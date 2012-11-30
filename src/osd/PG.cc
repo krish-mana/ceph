@@ -170,7 +170,9 @@ void PG::proc_master_log(ObjectStore::Transaction& t, pg_info_t &oinfo, pg_log_t
   // make any adjustments to their missing map; we are taking their
   // log to be authoritative (i.e., their entries are by definitely
   // non-divergent).
-  merge_log(t, oinfo, olog, from);
+  merge_log(info, log, missing, oinfo, olog, from, this, &ondisklog, &t);
+  dirty_info = true;
+  dirty_log = true;
   peer_info[from] = oinfo;
   dout(10) << " peer osd." << from << " now " << oinfo << " " << omissing << dendl;
   might_have_unfound.insert(from);
@@ -4933,10 +4935,17 @@ void PG::rewind_divergent_log(
     merge_old_entry(info, log, missing, *d, pg, ondisklog, t);
 }
 
-void PG::merge_log(ObjectStore::Transaction& t,
-		   pg_info_t &oinfo, pg_log_t &olog, int fromosd)
+void PG::merge_log(
+  pg_info_t &info,
+  IndexedLog &log,
+  pg_missing_t &missing,
+  pg_info_t &oinfo,
+  pg_log_t &olog,
+  int fromosd,
+  PG *pg,
+  OndiskLog *ondisklog,
+  ObjectStore::Transaction *t)
 {
-  PG *pg = this;
   dout(10) << "merge_log " << olog << " from osd." << fromosd
            << " into " << log << dendl;
 
@@ -4953,7 +4962,6 @@ void PG::merge_log(ObjectStore::Transaction& t,
     dout(20) << "pg_missing_t sobject: " << i->first << dendl;
   }
 
-  bool changed = false;
 
   // extend on tail?
   //  this is just filling in history.  it does not affect our
@@ -4979,7 +4987,6 @@ void PG::merge_log(ObjectStore::Transaction& t,
 		   olog.log, from, to);
       
     info.log_tail = log.tail = olog.tail;
-    changed = true;
   }
 
   if (oinfo.stats.reported < info.stats.reported)   // make sure reported always increases
@@ -4989,8 +4996,7 @@ void PG::merge_log(ObjectStore::Transaction& t,
 
   // do we have divergent entries to throw out?
   if (olog.head < log.head) {
-    rewind_divergent_log(info, log, missing, olog.head, this, &ondisklog, &t);
-    changed = true;
+    rewind_divergent_log(info, log, missing, olog.head, pg, ondisklog, t);
   }
 
   // extend on head?
@@ -5021,8 +5027,8 @@ void PG::merge_log(ObjectStore::Transaction& t,
       log.index(ne);
       if (ne.soid <= info.last_backfill) {
 	missing.add_next_event(ne);
-	if (ne.is_delete())
-	  remove_object_with_snap_hardlinks(t, ne.soid);
+	if (ne.is_delete() && t)
+	  pg->remove_object_with_snap_hardlinks(*t, ne.soid);
       }
     }
       
@@ -5056,18 +5062,11 @@ void PG::merge_log(ObjectStore::Transaction& t,
     // process divergent items
     if (!divergent.empty()) {
       for (list<pg_log_entry_t>::iterator d = divergent.begin(); d != divergent.end(); d++)
-	merge_old_entry(info, log, missing, *d, this, &ondisklog, &t);
+	merge_old_entry(info, log, missing, *d, pg, ondisklog, t);
     }
-
-    changed = true;
   }
   
-  dout(10) << "merge_log result " << log << " " << missing << " changed=" << changed << dendl;
-
-  if (changed) {
-    dirty_info = true;
-    dirty_log = true;
-  }
+  dout(10) << "merge_log result " << log << " " << missing << dendl;
 }
 
 
@@ -6093,8 +6092,16 @@ boost::statechart::result PG::RecoveryState::ReplicaActive::react(const MLogRec&
 {
   PG *pg = context< RecoveryMachine >().pg;
   dout(10) << "received log from " << logevt.from << dendl;
-  pg->merge_log(*context<RecoveryMachine>().get_cur_transaction(),
-		logevt.msg->info, logevt.msg->log, logevt.from);
+  pg->merge_log(
+    pg->info,
+    pg->log,
+    pg->missing,
+    logevt.msg->info, logevt.msg->log, logevt.from,
+    pg,
+    &(pg->ondisklog),
+    context<RecoveryMachine>().get_cur_transaction());
+  pg->dirty_info = true;
+  pg->dirty_log= true;
 
   assert(pg->log.head == pg->info.last_update);
 
@@ -6173,8 +6180,16 @@ boost::statechart::result PG::RecoveryState::Stray::react(const MLogRec& logevt)
     pg->log.claim_log(msg->log);
     pg->missing.clear();
   } else {
-    pg->merge_log(*context<RecoveryMachine>().get_cur_transaction(),
-		  msg->info, msg->log, logevt.from);
+    pg->merge_log(
+      pg->info,
+      pg->log,
+      pg->missing,
+      msg->info, msg->log, logevt.from,
+      pg,
+      &(pg->ondisklog),
+      context<RecoveryMachine>().get_cur_transaction());
+    pg->dirty_info = true;
+    pg->dirty_log = true;
   }
 
   assert(pg->log.head == pg->info.last_update);
