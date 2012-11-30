@@ -173,11 +173,17 @@ public:
     /****/
     IndexedLog() : last_requested(0) {}
 
-    void claim_log(const pg_log_t& o) {
-      log = o.log;
+    void claim_log(pg_log_t &o) {
+      log.swap(o.log);
       head = o.head;
       tail = o.tail;
       index();
+    }
+
+    void unclaim_log(pg_log_t &o) {
+      log.swap(o.log);
+      o.head = head;
+      o.tail = tail;
     }
 
     void split_into(

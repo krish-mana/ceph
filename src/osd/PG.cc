@@ -186,93 +186,10 @@ void PG::proc_replica_log(ObjectStore::Transaction& t,
 {
   dout(10) << "proc_replica_log for osd." << from << ": "
 	   << oinfo << " " << olog << " " << omissing << dendl;
-
-  /*
-    basically what we're doing here is rewinding the remote log,
-    dropping divergent entries, until we find something that matches
-    our master log.  we then reset last_update to reflect the new
-    point up to which missing is accurate.
-
-    later, in activate(), missing will get wound forward again and
-    we will send the peer enough log to arrive at the same state.
-  */
-
-  for (map<hobject_t, pg_missing_t::item>::iterator i = omissing.missing.begin();
-       i != omissing.missing.end();
-       ++i) {
-    dout(20) << " before missing " << i->first << " need " << i->second.need
-	     << " have " << i->second.have << dendl;
-  }
-
-  list<pg_log_entry_t>::const_reverse_iterator pp = olog.log.rbegin();
-  eversion_t lu(oinfo.last_update);
-  while (true) {
-    if (pp == olog.log.rend()) {
-      if (pp != olog.log.rbegin())   // no last_update adjustment if we discard nothing!
-	lu = olog.tail;
-      break;
-    }
-    const pg_log_entry_t& oe = *pp;
-
-    // don't continue past the tail of our log.
-    if (oe.version <= log.tail)
-      break;
-
-    if (!log.objects.count(oe.soid)) {
-      dout(10) << " had " << oe << " new dne : divergent, ignoring" << dendl;
-      ++pp;
-      continue;
-    }
-      
-    pg_log_entry_t& ne = *log.objects[oe.soid];
-    if (ne.version == oe.version) {
-      dout(10) << " had " << oe << " new " << ne << " : match, stopping" << dendl;
-      lu = pp->version;
-      break;
-    }
-
-    if (oe.soid > oinfo.last_backfill) {
-      // past backfill line, don't care
-      dout(10) << " had " << oe << " beyond last_backfill : skipping" << dendl;
-      ++pp;
-      continue;
-    }
-
-    if (ne.version > oe.version) {
-      dout(10) << " had " << oe << " new " << ne << " : new will supercede" << dendl;
-    } else {
-      if (oe.is_delete()) {
-	if (ne.is_delete()) {
-	  // old and new are delete
-	  dout(10) << " had " << oe << " new " << ne << " : both deletes" << dendl;
-	} else {
-	  // old delete, new update.
-	  dout(10) << " had " << oe << " new " << ne << " : missing" << dendl;
-	  omissing.add(ne.soid, ne.version, eversion_t());
-	}
-      } else {
-	if (ne.is_delete()) {
-	  // old update, new delete
-	  dout(10) << " had " << oe << " new " << ne << " : new will supercede" << dendl;
-	  omissing.rm(oe.soid, oe.version);
-	} else {
-	  // old update, new update
-	  dout(10) << " had " << oe << " new " << ne << " : new will supercede" << dendl;
-	  omissing.revise_need(ne.soid, ne.version);
-	}
-      }
-    }
-
-    ++pp;
-  }    
-
-  if (lu < oinfo.last_update) {
-    dout(10) << " peer osd." << from << " last_update now " << lu << dendl;
-    oinfo.last_update = lu;
-    if (lu < oinfo.last_complete)
-      oinfo.last_complete = lu;
-  }
-
+  IndexedLog _olog;
+  _olog.claim_log(olog);
+  merge_log(oinfo, _olog, omissing, info, log, from, this, 0, 0);
+  _olog.unclaim_log(olog);
   peer_info[from] = oinfo;
   dout(10) << " peer osd." << from << " now " << oinfo << " " << omissing << dendl;
   might_have_unfound.insert(from);
@@ -1270,15 +1187,6 @@ void PG::activate(ObjectStore::Transaction& t,
       if (pi.last_backfill == hobject_t::get_max())
 	active++;
 
-      // update local version of peer's missing list!
-      if (m && pi.last_backfill != hobject_t()) {
-        for (list<pg_log_entry_t>::iterator p = m->log.log.begin();
-             p != m->log.log.end();
-             p++)
-	  if (p->soid <= pi.last_backfill)
-	    pm.add_next_event(*p);
-      }
-      
       if (m) {
 	dout(10) << "activate peer osd." << peer << " sending " << m->log << dendl;
 	//m->log.print(cout);
