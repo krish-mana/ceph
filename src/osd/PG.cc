@@ -4939,9 +4939,9 @@ void PG::merge_log(
   pg_info_t &info,
   IndexedLog &log,
   pg_missing_t &missing,
-  pg_info_t &oinfo,
-  pg_log_t &olog,
-  int fromosd,
+  const pg_info_t &oinfo,
+  const pg_log_t &olog,
+  const int fromosd,
   PG *pg,
   OndiskLog *ondisklog,
   ObjectStore::Transaction *t)
@@ -4969,8 +4969,8 @@ void PG::merge_log(
   //  current log.
   if (olog.tail < log.tail) {
     dout(10) << "merge_log extending tail to " << olog.tail << dendl;
-    list<pg_log_entry_t>::iterator from = olog.log.begin();
-    list<pg_log_entry_t>::iterator to;
+    list<pg_log_entry_t>::const_iterator from = olog.log.begin();
+    list<pg_log_entry_t>::const_iterator to;
     for (to = from;
 	 to != olog.log.end();
 	 to++) {
@@ -4982,17 +4982,19 @@ void PG::merge_log(
     assert(to != olog.log.end() ||
 	   (olog.head == info.last_update));
       
-    // splice into our log.
-    log.log.splice(log.log.begin(),
-		   olog.log, from, to);
+    // insert into our log.
+    log.log.insert(log.log.begin(),
+		   from, to);
       
     info.log_tail = log.tail = olog.tail;
   }
 
-  if (oinfo.stats.reported < info.stats.reported)   // make sure reported always increases
-    oinfo.stats.reported = info.stats.reported;
+  eversion_t max_rep = MAX(
+    oinfo.stats.reported,
+    info.stats.reported);
   if (info.last_backfill.is_max())
     info.stats = oinfo.stats;
+  info.stats.reported = max_rep;
 
   // do we have divergent entries to throw out?
   if (olog.head < log.head) {
@@ -5004,8 +5006,8 @@ void PG::merge_log(
     dout(10) << "merge_log extending head to " << olog.head << dendl;
       
     // find start point in olog
-    list<pg_log_entry_t>::iterator to = olog.log.end();
-    list<pg_log_entry_t>::iterator from = olog.log.end();
+    list<pg_log_entry_t>::const_iterator to = olog.log.end();
+    list<pg_log_entry_t>::const_iterator from = olog.log.end();
     eversion_t lower_bound = olog.tail;
     while (1) {
       if (from == olog.log.begin())
@@ -5021,8 +5023,8 @@ void PG::merge_log(
     }
 
     // index, update missing, delete deleted
-    for (list<pg_log_entry_t>::iterator p = from; p != to; p++) {
-      pg_log_entry_t &ne = *p;
+    for (list<pg_log_entry_t>::const_iterator p = from; p != to; p++) {
+      const pg_log_entry_t &ne = *p;
       dout(20) << "merge_log " << ne << dendl;
       log.index(ne);
       if (ne.soid <= info.last_backfill) {
@@ -5053,8 +5055,8 @@ void PG::merge_log(
     }
 
     // splice
-    log.log.splice(log.log.end(), 
-		   olog.log, from, to);
+    log.log.insert(log.log.end(), 
+		   from, to);
     log.index();   
 
     info.last_update = log.head = olog.head;

@@ -222,7 +222,7 @@ public:
       }
     }
 
-    void index(pg_log_entry_t& e) {
+    void index(pg_log_entry_t e) {
       if (objects.count(e.soid) == 0 || 
           objects[e.soid]->version < e.version)
         objects[e.soid] = &e;
@@ -752,9 +752,9 @@ public:
     pg_info_t &info,
     IndexedLog &log,
     pg_missing_t &missing,
-    pg_info_t &oinfo,
-    pg_log_t &olog,
-    int fromosd,
+    const pg_info_t &oinfo,
+    const pg_log_t &olog,
+    const int fromosd,
     PG *pg,
     OndiskLog *ondisklog,
     ObjectStore::Transaction *t);
