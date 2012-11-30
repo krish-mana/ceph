@@ -6567,7 +6567,7 @@ PG::RecoveryState::GetMissing::GetMissing(my_context ctx)
 
     if (pi.is_empty()) {
       ObjectStore::Transaction t;
-      pg_info_t einfo(&pi);
+      pg_info_t einfo(pi);
       pg_log_t elog;
       pg_missing_t emissing;
       proc_replica_log(t, einfo, elog, emissing, *i);
