@@ -6567,7 +6567,9 @@ PG::RecoveryState::GetMissing::GetMissing(my_context ctx)
 
     if (pi.is_empty()) {
       ObjectStore::Transaction t;
-      proc_replica_log(t, pi, pg_log_t(), pg_missing_t(), *i);
+      pg_log_t elog;
+      pg_info_t einfo;
+      proc_replica_log(t, pi, elog, einfo, *i);
       continue;                                // no pg data, nothing divergent
     }
 
