@@ -58,6 +58,42 @@ static pthread_mutex_t cleanup_lock = PTHREAD_MUTEX_INITIALIZER;
 static std::vector <const char*> cleanup_files;
 static bool cleanup_atexit = false;
 
+AdminStreamHook::~AdminStreamHook() {
+  for (std::set<int>::iterator i = fds.begin();
+       i != fds.end();
+       fds.erase(i++)) {
+    TEMP_FAILURE_RETRY(::close(*i));
+  }
+}
+
+void AdminStreamHook::connect(int conn_fd)
+{
+  Mutex::Locker l(lock);
+  fds.insert(conn_fd);
+}
+
+AdminStreamHook &AdminStreamHook::operator<<(const std::string &in)
+{
+  Mutex::Locker l(lock);
+  for (set<int>::iterator i = fds.begin();
+       i != fds.end();
+       ) {
+    uint32_t len = htonl(in.size());
+    int r = safe_write(*i, &len, sizeof(len));
+    if (r < 0)
+      goto CLOSE;
+    r = safe_write(*i, in.c_str(), in.size());
+    if (r < 0)
+      goto CLOSE;
+    ++i;
+    continue;
+    CLOSE:
+    TEMP_FAILURE_RETRY(close(*i));
+    fds.erase(i++);
+  }
+  return *this;
+}
+
 static void remove_cleanup_file(const char *file)
 {
   pthread_mutex_lock(&cleanup_lock);
@@ -317,10 +353,14 @@ bool AdminSocket::do_accept()
 
   m_lock.Lock();
   map<string,AdminSocketHook*>::iterator p;
+  map<string,AdminStreamHook*>::iterator q;
   string match = c;
   while (match.size()) {
     p = m_hooks.find(match);
     if (p != m_hooks.end())
+      break;
+    q = m_streams.find(match);
+    if (q != m_streams.end())
       break;
     
     // drop right-most word
@@ -334,9 +374,7 @@ bool AdminSocket::do_accept()
   }
 
   bufferlist out;
-  if (p == m_hooks.end()) {
-    lderr(m_cct) << "AdminSocket: request '" << c << "' not defined" << dendl;
-  } else {
+  if (p != m_hooks.end()) {
     string args;
     if (match != c)
       args = c.substr(match.length() + 1);
@@ -360,10 +398,14 @@ bool AdminSocket::do_accept()
       if (ret >= 0)
 	rval = true;
     }
+    TEMP_FAILURE_RETRY(close(connection_fd));
+  } else if (q != m_streams.end()) {
+    q->second->connect(connection_fd);
+  } else {
+    lderr(m_cct) << "AdminSocket: request '" << c << "' not defined" << dendl;
+    TEMP_FAILURE_RETRY(close(connection_fd));
   }
   m_lock.Unlock();
-
-  TEMP_FAILURE_RETRY(close(connection_fd));
   return rval;
 }
 
@@ -371,7 +413,7 @@ int AdminSocket::register_command(std::string command, AdminSocketHook *hook, st
 {
   int ret;
   m_lock.Lock();
-  if (m_hooks.count(command)) {
+  if (m_hooks.count(command) || m_streams.count(command)) {
     ldout(m_cct, 5) << "register_command " << command << " hook " << hook << " EEXIST" << dendl;
     ret = -EEXIST;
   } else {
@@ -381,6 +423,41 @@ int AdminSocket::register_command(std::string command, AdminSocketHook *hook, st
       m_help[command] = help;
     ret = 0;
   }  
+  m_lock.Unlock();
+  return ret;
+}
+
+int AdminSocket::register_stream(std::string command, AdminStreamHook *hook, std::string help)
+{
+  int ret;
+  m_lock.Lock();
+  if (m_hooks.count(command) || m_streams.count(command)) {
+    ldout(m_cct, 5) << "register_stream " << command << " hook " << hook << " EEXIST" << dendl;
+    ret = -EEXIST;
+  } else {
+    ldout(m_cct, 5) << "register_stream " << command << " hook " << hook << dendl;
+    m_streams[command] = hook;
+    if (help.length())
+      m_help[command] = help;
+    ret = 0;
+  }
+  m_lock.Unlock();
+  return ret;
+}
+
+int AdminSocket::unregister_stream(std::string command)
+{
+  int ret;
+  m_lock.Lock();
+  if (m_streams.count(command)) {
+    ldout(m_cct, 5) << "unregister_stream " << command << dendl;
+    m_streams.erase(command);
+    m_help.erase(command);
+    ret = 0;
+  } else {
+    ldout(m_cct, 5) << "unregister_stream " << command << " ENOENT" << dendl;
+    ret = -ENOENT;
+  }
   m_lock.Unlock();
   return ret;
 }

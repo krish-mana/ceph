@@ -20,6 +20,7 @@
 
 #include <string>
 #include <map>
+#include <set>
 #include "include/buffer.h"
 
 class AdminSocket;
@@ -31,6 +32,19 @@ class AdminSocketHook {
 public:
   virtual bool call(std::string command, std::string args, bufferlist& out) = 0;
   virtual ~AdminSocketHook() {};
+};
+
+class AdminStreamHook {
+  std::string name;
+  Mutex lock;
+  std::set<int> fds;
+  void connect(int conn_fd);
+public:
+  ~AdminStreamHook();
+  AdminStreamHook(const std::string &name) :
+    name(name), lock(std::string(name + "::lock").c_str()) {}
+  AdminStreamHook &operator<<(const std::string &in);
+  friend class AdminSocket;
 };
 
 class AdminSocket : public Thread
@@ -60,12 +74,28 @@ public:
   int register_command(std::string command, AdminSocketHook *hook, std::string help);
 
   /**
+   * register an admin stream
+   */
+  int register_stream(
+    std::string command,
+    AdminStreamHook *stream,
+    std::string help);
+
+  /**
    * unregister an admin socket command
    *
    * @param command command string
    * @return 0 on succest, -ENOENT if command dne.
    */
   int unregister_command(std::string command);
+
+  /**
+   * unregister an admin stream command
+   *
+   * @param command command string
+   * @return 0 on succest, -ENOENT if command dne.
+   */
+  int unregister_stream(std::string command);
 
   bool init(const std::string &path);
   
@@ -91,6 +121,7 @@ private:
   AdminSocketHook *m_version_hook, *m_help_hook;
 
   std::map<std::string,AdminSocketHook*> m_hooks;
+  std::map<std::string,AdminStreamHook*> m_streams;
   std::map<std::string,std::string> m_help;
 
   friend class AdminSocketTest;

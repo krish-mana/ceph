@@ -228,27 +228,29 @@ int do_admin_socket(string path, string cmd)
     goto out;
   }
   
-  r = safe_read(fd, &len, sizeof(len));
-  if (r < 0) {
-    cerr << "read " << len << " length from " << path << " failed with " << cpp_strerror(errno) << std::endl;
-    goto out;
-  }
-  if (r < 4) {
-    cerr << "read only got " << r << " bytes of 4 expected for response length; invalid command?" << std::endl;
-    goto out;
-  }
-  len = ntohl(len);
+  while (true) {
+    r = safe_read(fd, &len, sizeof(len));
+    if (r < 0) {
+      goto out;
+    }
+    if (r < 4) {
+      cerr << "read only got " << r << " bytes of 4 expected for response length; invalid command?" << std::endl;
+      goto out;
+    }
+    len = ntohl(len);
 
-  buf = new char[len+1];
-  r = safe_read(fd, buf, len);
-  if (r < 0) {
-    cerr << "read " << len << " bytes from " << path << " failed with " << cpp_strerror(errno) << std::endl;
-    goto out;
-  }
-  buf[len] = '\0';
+    buf = new char[len+1];
+    r = safe_read(fd, buf, len);
+    if (r < 0) {
+      cerr << "read " << len << " bytes from " << path << " failed with " << cpp_strerror(errno) << std::endl;
+      goto out;
+    }
+    buf[len] = '\0';
 
-  cout << buf << std::endl;
-  r = 0;
+    cout << buf << std::endl;
+    delete [] buf;
+    r = 0;
+  }
 
  out:
   ::close(fd);
