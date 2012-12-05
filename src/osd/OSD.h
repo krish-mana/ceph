@@ -16,6 +16,7 @@
 #define CEPH_OSD_H
 
 #include "boost/tuple/tuple.hpp"
+#include "boost/scoped_ptr.hpp"
 
 #include "PG.h"
 
@@ -364,6 +365,27 @@ public:
 
   void init();
   void shutdown();
+
+  // Debug/perf streams
+  class PerfDumper : public OpTracker::OpDumpStream {
+    uint64_t perf_op_num;
+    Mutex lock;
+    AdminStreamHook osd_evt_stream;
+    friend class OSDService;
+  public:
+    PerfDumper();
+    uint64_t start_op();
+    void end_op(uint64_t opnum);
+    void dump_event(uint64_t opnum, const std::string &evt);
+    void describe_op(
+      uint64_t opnum,
+      const std::string &trait,
+      const std::string &val);
+    void describe_op(
+      uint64_t opnum,
+      const std::string &trait,
+      int64_t val);
+  } perf_dumper;
 
   OSDService(OSD *osd);
 };

@@ -200,6 +200,10 @@ void OSDService::shutdown()
   watch_timer.shutdown();
   watch_lock.Unlock();
 
+  AdminSocket *admin_socket = osd->cct->get_admin_socket();
+  int r = admin_socket->unregister_stream("osd_events");
+  assert(r == 0);
+
   delete watch;
 }
 
@@ -208,6 +212,99 @@ void OSDService::init()
   reserver_finisher.start();
   watch_timer.init();
   watch = new Watch();
+
+  AdminSocket *admin_socket = osd->cct->get_admin_socket();
+  int r = admin_socket->register_stream("osd_events", &(perf_dumper.osd_evt_stream),
+					"json stream of osd events");
+  assert(r == 0);
+  osd->op_tracker.set_dumper(&perf_dumper);
+}
+
+OSDService::PerfDumper::PerfDumper() :
+  perf_op_num(0),
+  lock("OSDService::PerfDumper::lock"),
+  osd_evt_stream(string("OSDService::osd_evt_stream")) {}
+
+uint64_t OSDService::PerfDumper::start_op() {
+  Mutex::Locker l(lock);
+  utime_t now = ceph_clock_now(g_ceph_context);
+  JSONFormatter jf(false);
+  jf.open_object_section("start");
+  jf.dump_stream("type") << "start_op";
+  jf.dump_int("opnum", perf_op_num);
+  jf.dump_stream("time") << now;
+  jf.close_section();
+  stringstream ss;
+  jf.flush(ss);
+  osd_evt_stream << ss.str();
+  return perf_op_num++;
+}
+
+void OSDService::PerfDumper::end_op(uint64_t opnum) {
+  Mutex::Locker l(lock);
+  utime_t now = ceph_clock_now(g_ceph_context);
+  JSONFormatter jf(false);
+  jf.open_object_section("end");
+  jf.dump_stream("type") << "end_op";
+  jf.dump_int("opnum", opnum);
+  jf.dump_stream("time") << now;
+  jf.close_section();
+  stringstream ss;
+  jf.flush(ss);
+  osd_evt_stream << ss.str();
+}
+
+void OSDService::PerfDumper::dump_event(uint64_t opnum, const std::string &evt) {
+  Mutex::Locker l(lock);
+  utime_t now = ceph_clock_now(g_ceph_context);
+  JSONFormatter jf(false);
+  jf.open_object_section("dump");
+  jf.dump_stream("type") << "event";
+  jf.dump_int("opnum", opnum);
+  jf.dump_stream("time") << now;
+  jf.dump_stream("event") << evt;
+  jf.close_section();
+  stringstream ss;
+  jf.flush(ss);
+  osd_evt_stream << ss.str();
+}
+
+void OSDService::PerfDumper::describe_op(
+  uint64_t opnum,
+  const std::string &trait,
+  int64_t val) {
+  Mutex::Locker l(lock);
+  utime_t now = ceph_clock_now(g_ceph_context);
+  JSONFormatter jf(false);
+  jf.open_object_section("desc");
+  jf.dump_stream("type") << "trait";
+  jf.dump_int("opnum", opnum);
+  jf.dump_stream("time") << now;
+  jf.dump_stream("trait") << trait;
+  jf.dump_int("val", val);
+  jf.close_section();
+  stringstream ss;
+  jf.flush(ss);
+  osd_evt_stream << ss.str();
+}
+
+void OSDService::PerfDumper::describe_op(
+  uint64_t opnum,
+  const std::string &trait,
+  const std::string &val) {
+  Mutex::Locker l(lock);
+  utime_t now = ceph_clock_now(g_ceph_context);
+  JSONFormatter jf(false);
+  jf.open_object_section("desc");
+  jf.dump_stream("type") << "trait";
+  jf.dump_int("opnum", opnum);
+  jf.dump_stream("time") << now;
+  jf.dump_stream("trait") << trait;
+  jf.dump_stream("val") << val;
+  jf.close_section();
+  stringstream ss;
+  jf.flush(ss);
+  osd_evt_stream << ss.str();
 }
 
 ObjectStore *OSD::create_object_store(const std::string &dev, const std::string &jdev)

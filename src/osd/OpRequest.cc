@@ -99,7 +99,26 @@ void OpTracker::register_inflight_op(xlist<OpRequest*>::item *i)
 {
   Mutex::Locker locker(ops_in_flight_lock);
   ops_in_flight.push_back(i);
-  ops_in_flight.back()->seq = seq++;
+  uint64_t seq = dumper->start_op();
+  ops_in_flight.back()->seq = seq;
+
+  stringstream desc;
+  desc << *(ops_in_flight.back()->request);
+  dumper->describe_op(seq, "desc", desc.str());
+
+  stringstream tid;
+  tid << ops_in_flight.back()->request->get_tid();
+  dumper->describe_op(seq, "tid", tid.str());
+
+  stringstream client;
+  client << ops_in_flight.back()->request->get_orig_source();
+  dumper->describe_op(seq, "client", client.str());
+
+  dumper->describe_op(seq, "priority",
+		      ops_in_flight.back()->request->get_priority());
+
+  dumper->describe_op(seq, "size",
+		      ops_in_flight.back()->request->get_data().length());
 }
 
 void OpTracker::unregister_inflight_op(OpRequest *i)
@@ -107,6 +126,7 @@ void OpTracker::unregister_inflight_op(OpRequest *i)
   Mutex::Locker locker(ops_in_flight_lock);
   assert(i->xitem.get_list() == &ops_in_flight);
   utime_t now = ceph_clock_now(g_ceph_context);
+  dumper->end_op(i->seq);
   i->xitem.remove_myself();
   i->request->clear_data();
   history.insert(now, i);
@@ -219,6 +239,7 @@ void OpTracker::_mark_event(OpRequest *op, const string &evt,
   dout(5) << "reqid: " << op->get_reqid() << ", seq: " << op->seq
 	  << ", time: " << time << ", event: " << evt
 	  << ", request: " << *op->request << dendl;
+  dumper->dump_event(op->seq, evt);
 }
 
 void OpTracker::RemoveOnDelete::operator()(OpRequest *op) {

@@ -16,6 +16,7 @@
 #include <sstream>
 #include <stdint.h>
 #include <vector>
+#include <boost/scoped_ptr.hpp>
 
 #include <include/utime.h>
 #include "common/Mutex.h"
@@ -24,6 +25,7 @@
 #include <tr1/memory>
 #include "common/TrackedOp.h"
 #include "osd/osd_types.h"
+#include "common/admin_socket.h"
 
 class OpRequest;
 class OpHistory {
@@ -52,7 +54,26 @@ class OpTracker {
   OpHistory history;
 
 public:
-  OpTracker() : seq(0), ops_in_flight_lock("OpTracker mutex") {}
+  struct OpDumpStream {
+    virtual ~OpDumpStream() {}
+    virtual uint64_t start_op() = 0;
+    virtual void end_op(uint64_t opnum) = 0;
+    virtual void dump_event(uint64_t opnum, const std::string &evt) = 0;
+    virtual void describe_op(
+      uint64_t opnum,
+      const std::string &trait,
+      const std::string &val) = 0;
+    virtual void describe_op(
+      uint64_t opnum,
+      const std::string &trait,
+      int64_t val) = 0;
+  } *dumper;
+  OpTracker() :
+    seq(0), ops_in_flight_lock("OpTracker mutex"), dumper(0) {}
+  void set_dumper(OpDumpStream *stream) {
+    Mutex::Locker locker(ops_in_flight_lock);
+    dumper = stream;
+  }
   void dump_ops_in_flight(std::ostream& ss);
   void dump_historic_ops(std::ostream& ss);
   void register_inflight_op(xlist<OpRequest*>::item *i);
