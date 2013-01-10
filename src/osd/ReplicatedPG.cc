@@ -1345,16 +1345,42 @@ ReplicatedPG::RepGather *ReplicatedPG::trim_object(const hobject_t &coid,
     ::encode(coi, bl);
     t->setattr(coll, coid, OI_ATTR, bl);
 
-    if (oldsnaps[0] != snaps[0]) {
-      t->collection_remove(coll_t(info.pgid, oldsnaps[0]), coid);
-      if (oldsnaps.size() > 1 && oldsnaps[snaps.size() - 1] != snaps[0] && snaps.size() > 1)
-	t->collection_add(coll_t(info.pgid, snaps[0]), coll, coid);
+    set<snapid_t> old_snapdirs, new_snapdirs;
+
+    old_snapdirs.insert(oldsnaps[0]);
+    old_snapdirs.insert(*(oldsnaps.rbegin()));
+
+    new_snapdirs.insert(snaps[0]);
+    new_snapdirs.insert(*(snaps.rbegin()));
+
+    set<snapid_t> to_remove, to_create;
+    std::set_difference(
+      old_snapdirs.begin(),
+      old_snapdirs.end(),
+      new_snapdirs.begin(),
+      new_snapdirs.end(),
+      to_remove.begin());
+    std::set_difference(
+      new_snapdirs.begin(),
+      new_snapdirs.end(),
+      old_snapdirs.begin(),
+      old_snapdirs.end(),
+      to_create.begin());
+
+    dout(10) << "removing coid " << coid << " from snap collections "
+	     << to_remove << " and adding to snap collections "
+	     << to_add << dendl;
+
+    for (set<snapid_t>::iterator i = to_remove.begin();
+	 i != to_remove.end();
+	 ++i) {
+      t->collection_remove(coll_t(info.pgid, *i), coid);
     }
-    if (oldsnaps.size() > 1 && oldsnaps[oldsnaps.size()-1] != snaps[snaps.size()-1]) {
-      t->collection_remove(coll_t(info.pgid, oldsnaps[oldsnaps.size()-1]), coid);
-      if (snaps.size() > 1)
-	t->collection_add(coll_t(info.pgid, snaps[snaps.size()-1]), coll, coid);
-    }	      
+    for (set<snapid_t>::iterator i = to_create.begin();
+	 i != to_create.end();
+	 ++i) {
+      t->collection_add(coll_t(info.pgid, *i), coll, coid);
+    }
 
     ctx->log.push_back(pg_log_entry_t(pg_log_entry_t::MODIFY, coid, coi.version, coi.prior_version,
 				  osd_reqid_t(), ctx->mtime));
