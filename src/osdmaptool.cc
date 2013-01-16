@@ -246,6 +246,10 @@ int main(int argc, const char **argv)
 
   if (!test_map_object.empty()) {
     object_t oid(test_map_object);
+    if (!osdmap.have_pg_pool(pool)) {
+      cerr << "There is no pool " << pool << std::endl;
+      exit(1);
+    }
     object_locator_t loc(pool);
     pg_t raw_pgid = osdmap.object_locator_to_pg(oid, loc);
     pg_t pgid = osdmap.raw_pg_to_pg(raw_pgid);
