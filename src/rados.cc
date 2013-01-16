@@ -1546,8 +1546,9 @@ static int rados_tool_common(const std::map < std::string, std::string > &opts,
       usage_exit();
 
     string oid(nargs[1]);
+    string key(nargs[2]);
     set<string> keys;
-    keys.insert(nargs[2]);
+    keys.insert(key);
 
     map<string, bufferlist> values;
     ret = io_ctx.omap_get_vals_by_keys(oid, keys, &values);
