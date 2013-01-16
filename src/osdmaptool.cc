@@ -246,11 +246,10 @@ int main(int argc, const char **argv)
 
   if (!test_map_object.empty()) {
     object_t oid(test_map_object);
-    ceph_object_layout ol = osdmap.make_object_layout(oid, pool);
+    object_locator_t loc(pool);
+    pg_t raw_pgid = osdmap.object_locator_to_pg(oid, loc);
+    pg_t pgid = osdmap.raw_pg_to_pg(raw_pgid);
     
-    pg_t pgid;
-    pgid = ol.ol_pgid;
-
     vector<int> acting;
     osdmap.pg_to_acting_osds(pgid, acting);
     cout << " object '" << oid
