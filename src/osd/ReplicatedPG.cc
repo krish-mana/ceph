@@ -5418,14 +5418,15 @@ void ReplicatedPG::handle_pull_response(OpRequestRef op)
   int r = osd->store->
     queue_transaction(osr.get(), t,
 		      onreadable,
-		      new C_OSD_CommittedPushedObject(this, op,
-						      info.history.same_interval_since,
-						      info.last_complete),
+		      new C_OSD_CommittedPushedObject(
+			this, op,
+			info.history.same_interval_since,
+			info.last_complete,
+			complete),
 		      onreadable_sync);
   assert(r == 0);
 
   if (complete) {
-    finish_recovery_op(hoid);
     pulling.erase(hoid);
     pull_from_peer[m->get_source().num()].erase(hoid);
     update_stats();
@@ -5490,7 +5491,9 @@ void ReplicatedPG::handle_push(OpRequestRef op)
 		      new C_OSD_CommittedPushedObject(
 			this, op,
 			info.history.same_interval_since,
-			info.last_complete, on_complete),
+			info.last_complete,
+			false,
+			on_complete),
 		      onreadable_sync);
   assert(r == 0);
 
@@ -5753,11 +5756,19 @@ void ReplicatedPG::sub_op_pull(OpRequestRef op)
 }
 
 
-void ReplicatedPG::_committed_pushed_object(OpRequestRef op, epoch_t same_since, eversion_t last_complete)
+void ReplicatedPG::_committed_pushed_object(
+  OpRequestRef op, epoch_t same_since, eversion_t last_complete,
+   bool finished_op)
 {
   lock();
   if (same_since == info.history.same_interval_since) {
     dout(10) << "_committed_pushed_object last_complete " << last_complete << " now ondisk" << dendl;
+
+    if (finished_op) {
+      MOSDSubOp *subop = (MOSDSubOp*)op->request;
+      finish_recovery_op(subop->poid);
+    }
+
     last_complete_ondisk = last_complete;
 
     if (last_complete_ondisk == info.last_update) {
@@ -6569,12 +6580,14 @@ int ReplicatedPG::recover_primary(int max)
 
 	      ++active_pushes;
 
-	      osd->store->queue_transaction(osr.get(), t,
-					    new C_OSD_AppliedRecoveredObject(this, t, obc),
-					    new C_OSD_CommittedPushedObject(this, OpRequestRef(),
-									    info.history.same_interval_since,
-									    info.last_complete),
-					    new C_OSD_OndiskWriteUnlock(obc));
+	      osd->store->queue_transaction(
+		osr.get(), t,
+		new C_OSD_AppliedRecoveredObject(this, t, obc),
+		new C_OSD_CommittedPushedObject(this, OpRequestRef(),
+						info.history.same_interval_since,
+						info.last_complete,
+						false),
+		new C_OSD_OndiskWriteUnlock(obc));
 	      continue;
 	    }
 	  } else {
