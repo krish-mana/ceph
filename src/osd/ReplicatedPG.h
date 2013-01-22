@@ -577,6 +577,8 @@ protected:
     ObjectRecoveryProgress recovery_progress;
     ObjectRecoveryInfo recovery_info;
     int priority;
+    uint64_t opnum;
+    OpTracker::OpDumpStream *opdump;
 
     void dump(Formatter *f) const {
       {
@@ -590,6 +592,12 @@ protected:
 	f->close_section();
       }
     }
+    PushInfo() : priority(0), opnum(0), opdump(0) {}
+    ~PushInfo() {
+      if (opdump && opnum) {
+	opdump->end_op(opnum);
+      }
+    }
   };
   map<hobject_t, map<int, PushInfo> > pushing;
 
@@ -598,6 +606,8 @@ protected:
     ObjectRecoveryProgress recovery_progress;
     ObjectRecoveryInfo recovery_info;
     int priority;
+    uint64_t opnum;
+    OpTracker::OpDumpStream *opdump;
 
     void dump(Formatter *f) const {
       {
@@ -614,6 +624,19 @@ protected:
 
     bool is_complete() const {
       return recovery_progress.is_complete(recovery_info);
+    }
+
+    PullInfo() : priority(0), opnum(0), opdump(0) {}
+    ~PullInfo() {
+      if (opdump && opnum) {
+	stringstream ss;
+	ss << recovery_progress.data_recovered_to;
+	opdump->describe_op(
+	  opnum,
+	  "size",
+	  ss.str());
+	opdump->end_op(opnum);
+      }
     }
   };
   map<hobject_t, PullInfo> pulling;

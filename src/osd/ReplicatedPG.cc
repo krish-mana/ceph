@@ -4966,6 +4966,28 @@ int ReplicatedPG::pull(
   pi.recovery_info = recovery_info;
   pi.recovery_progress = progress;
   pi.priority = priority;
+
+  pi.opdump = &(osd->perf_dumper);
+  pi.opnum = osd->perf_dumper.start_op();
+
+  stringstream oidstr;
+  oidstr << soid;
+  osd->perf_dumper.describe_op(
+    pi.opnum,
+    "oid",
+    oidstr.str());
+
+  osd->perf_dumper.describe_op(
+    pi.opnum,
+    "optype",
+    "pull");
+
+  osd->perf_dumper.describe_op(
+    pi.opnum,
+    "priority",
+    priority);
+
+
   send_pull(priority, fromosd, recovery_info, progress);
 
   start_recovery_op(soid);
@@ -5089,6 +5111,33 @@ void ReplicatedPG::push_start(
   pi.recovery_progress.data_complete = 0;
   pi.recovery_progress.omap_complete = 0;
   pi.priority = prio;
+
+  pi.opdump = &(osd->perf_dumper);
+  pi.opnum = osd->perf_dumper.start_op();
+
+  stringstream oidstr;
+  oidstr << soid;
+  osd->perf_dumper.describe_op(
+    pi.opnum,
+    "oid",
+    oidstr.str());
+
+  stringstream size;
+  size << data_subset.size();
+  osd->perf_dumper.describe_op(
+    pi.opnum,
+    "size",
+    size.str());
+
+  osd->perf_dumper.describe_op(
+    pi.opnum,
+    "optype",
+    "push");
+
+  osd->perf_dumper.describe_op(
+    pi.opnum,
+    "priority",
+    prio);
 
   ObjectRecoveryProgress new_progress;
   send_push(pi.priority,
