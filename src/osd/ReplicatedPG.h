@@ -872,6 +872,21 @@ protected:
 	(*p)->ondisk_write_unlock();
     }
   };
+
+  struct OnPushComplete {
+    OSDService *osd;
+    Message *reply;
+    ConnectionRef conn;
+    OnPushComplete(
+      OSDService *osd,
+      Message *reply,
+      ConnectionRef conn) : osd(osd), reply(reply), conn(conn) {}
+    ~OnPushComplete() {
+      osd->send_message_osd_cluster(reply, conn.get());
+    }
+  };
+  typedef std::tr1::shared_ptr<OnPushComplete> OnPushCompleteRef;
+
   struct C_OSD_AppliedRecoveredObject : public Context {
     boost::intrusive_ptr<ReplicatedPG> pg;
     ObjectStore::Transaction *t;
@@ -882,12 +897,17 @@ protected:
       pg->_applied_recovered_object(t, obc);
     }
   };
+
   struct C_OSD_CommittedPushedObject : public Context {
     ReplicatedPG *pg;
     OpRequestRef op;
     epoch_t same_since;
     eversion_t last_complete;
-    C_OSD_CommittedPushedObject(ReplicatedPG *p, OpRequestRef o, epoch_t ss, eversion_t lc) : pg(p), op(o), same_since(ss), last_complete(lc) {
+    OnPushCompleteRef on_complete;
+    C_OSD_CommittedPushedObject(
+      ReplicatedPG *p, OpRequestRef o, epoch_t ss, eversion_t lc,
+      OnPushCompleteRef on_complete = OnPushCompleteRef()) :
+      pg(p), op(o), same_since(ss), last_complete(lc), on_complete(on_complete) {
       pg->get();
     }
     void finish(int r) {
@@ -898,8 +918,11 @@ protected:
   struct C_OSD_AppliedRecoveredObjectReplica : public Context {
     boost::intrusive_ptr<ReplicatedPG> pg;
     ObjectStore::Transaction *t;
-    C_OSD_AppliedRecoveredObjectReplica(ReplicatedPG *p, ObjectStore::Transaction *tt) :
-      pg(p), t(tt) {}
+    OnPushCompleteRef on_complete;
+    C_OSD_AppliedRecoveredObjectReplica(
+      ReplicatedPG *p, ObjectStore::Transaction *tt,
+      OnPushCompleteRef on_complete) :
+      pg(p), t(tt), on_complete(on_complete) {}
     void finish(int r) {
       pg->_applied_recovered_object_replica(t);
     }

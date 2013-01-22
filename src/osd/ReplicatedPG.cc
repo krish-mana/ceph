@@ -5463,7 +5463,14 @@ void ReplicatedPG::handle_push(OpRequestRef op)
   // keep track of active pushes for scrub
   ++active_pushes;
 
-  Context *onreadable = new C_OSD_AppliedRecoveredObjectReplica(this, t);
+  MOSDSubOpReply *reply = new MOSDSubOpReply(
+    m, 0, get_osdmap()->get_epoch(), CEPH_OSD_FLAG_ACK);
+  assert(entity_name_t::TYPE_OSD == m->get_connection()->peer_type);
+  OnPushCompleteRef on_complete(
+    new OnPushComplete(osd, reply, m->get_connection()));
+
+  Context *onreadable = new C_OSD_AppliedRecoveredObjectReplica(
+    this, t, on_complete);
   Context *onreadable_sync = 0;
   submit_push_data(m->recovery_info,
 		   first,
@@ -5483,17 +5490,13 @@ void ReplicatedPG::handle_push(OpRequestRef op)
 		      new C_OSD_CommittedPushedObject(
 			this, op,
 			info.history.same_interval_since,
-			info.last_complete),
+			info.last_complete, on_complete),
 		      onreadable_sync);
   assert(r == 0);
 
   osd->logger->inc(l_osd_push_in);
   osd->logger->inc(l_osd_push_inb, m->ops[0].indata.length());
 
-  MOSDSubOpReply *reply = new MOSDSubOpReply(
-    m, 0, get_osdmap()->get_epoch(), CEPH_OSD_FLAG_ACK);
-  assert(entity_name_t::TYPE_OSD == m->get_connection()->peer_type);
-  osd->send_message_osd_cluster(reply, m->get_connection());
 }
 
 int ReplicatedPG::send_push(int prio, int peer,
