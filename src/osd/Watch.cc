@@ -168,9 +168,6 @@ Watch::~Watch() {
   pg->put_object_context(obc);
 }
 
-void Watch::lock_pg() { pg->lock(); }
-void Watch::unlock_pg() { pg->unlock(); }
-
 bool Watch::connected() { return conn; }
 
 class HandleWatchTimeout : public Context {
@@ -359,11 +356,13 @@ void WatchConState::reset()
   }
   for (set<WatchRef>::iterator i = _watches.begin();
        i != _watches.end();
-       ++i) {
-    (*i)->lock_pg();
+       ) {
+    boost::intrusive_ptr<ReplicatedPG> pg((*i).get_pg());
+    pg->lock();
     if (!(*i)->isdiscarded()) {
       (*i)->disconnect();
     }
-    (*i)->unlock_pg();
+    _watches.erase(i++); // drop reference while holding the pg lock
+    pg->unlock();
   }
 }

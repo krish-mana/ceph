@@ -149,13 +149,11 @@ public:
     self = _self;
   }
 
+  boost::intrusive_ptr<ReplicatedPG> get_pg() { return pg; }
   ObjectContext *get_obc();
   uint64_t get_cookie() const { return cookie; }
   entity_name_t get_entity() const { return entity; }
   Context *get_cb();
-
-  void lock_pg();
-  void unlock_pg();
 
   bool connected();
   void connect(ConnectionRef con);
