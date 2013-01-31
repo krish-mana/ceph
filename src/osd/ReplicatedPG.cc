@@ -3301,6 +3301,7 @@ void ReplicatedPG::do_osd_op_effects(OpContext *ctx)
 	   ctx->obc->watchers.begin();
 	 i != ctx->obc->watchers.end();
 	 ++i) {
+      dout(10) << "starting notify on watch " << i->first << dendl;
       i->second->start_notify(p->cookie, notif);
     }
     notif->init();
@@ -3315,6 +3316,7 @@ void ReplicatedPG::do_osd_op_effects(OpContext *ctx)
 	 i != ctx->obc->watchers.end();
 	 ++i) {
       if (i->first.second != entity) continue;
+      dout(10) << "acking notify on watch " << i->first << dendl;
       i->second->notify_ack(*p);
     }
   }
