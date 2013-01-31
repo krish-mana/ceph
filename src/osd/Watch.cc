@@ -125,7 +125,8 @@ static ostream& _prefix(
 string Watch::gen_dbg_prefix() {
   stringstream ss;
   ss << pg->gen_prefix() << " -- Watch(" 
-     << make_pair(cookie, entity);
+     << make_pair(cookie, entity)
+     << ") ";
   return ss.str();
 }
 
