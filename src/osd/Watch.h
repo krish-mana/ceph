@@ -77,6 +77,7 @@ class Notify {
     uint64_t notify_id,
     uint64_t version,
     OSDService *osd);
+public:
   string gen_dbg_prefix() {
     stringstream ss;
     ss << "Notify(" << make_pair(cookie, notify_id) << " "
@@ -84,7 +85,6 @@ class Notify {
        << ") ";
     return ss.str();
   }
-public:
   void set_self(NotifyRef _self) {
     self = _self;
   }
