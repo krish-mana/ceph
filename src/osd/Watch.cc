@@ -357,7 +357,7 @@ void WatchConState::reset()
   for (set<WatchRef>::iterator i = _watches.begin();
        i != _watches.end();
        ) {
-    boost::intrusive_ptr<ReplicatedPG> pg((*i).get_pg());
+    boost::intrusive_ptr<ReplicatedPG> pg((*i)->get_pg());
     pg->lock();
     if (!(*i)->isdiscarded()) {
       (*i)->disconnect();
