@@ -1035,4 +1035,7 @@ inline ostream& operator<<(ostream& out, ReplicatedPG::AccessMode& mode)
   return out;
 }
 
+void intrusive_ptr_add_ref(ReplicatedPG *pg);
+void intrusive_ptr_release(ReplicatedPG *pg);
+
 #endif
