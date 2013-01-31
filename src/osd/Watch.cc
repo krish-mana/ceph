@@ -12,6 +12,16 @@
 
 #include "common/config.h"
 
+#define dout_subsys ceph_subsys_osd
+#undef dout_prefix
+#define dout_prefix _prefix(_dout, this)
+
+static ostream& _prefix(
+  std::ostream* _dout,
+  Notify *notify) {
+  return *_dout << notify->gen_dbg_prefix();
+}
+
 Notify::Notify(
   ConnectionRef client,
   unsigned num_watchers,
@@ -65,6 +75,7 @@ public:
 void Notify::do_timeout()
 {
   Mutex::Locker l(lock);
+  dout(10) << "timeout" << dendl;
   cb = 0;
   if (discarded || complete)
     return;
@@ -77,6 +88,7 @@ void Notify::do_timeout()
 void Notify::complete_watcher()
 {
   Mutex::Locker l(lock);
+  dout(10) << "complete_watcher" << dendl;
   if (should_discard())
     return;
   assert(in_progress_watchers > 0);
@@ -86,6 +98,9 @@ void Notify::complete_watcher()
 
 void Notify::maybe_complete_notify()
 {
+  dout(10) << "maybe_complete_notify -- "
+	   in_progress_watchers
+	   << " in progress watchers " << dendl;
   if (!in_progress_watchers) {
     MWatchNotify *reply(new MWatchNotify(cookie, version, notify_id,
 					 WATCH_NOTIFY, payload));
