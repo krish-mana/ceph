@@ -11,95 +11,162 @@
  * Foundation.  See file COPYING.
  * 
  */
-
-
 #ifndef CEPH_WATCH_H
 #define CEPH_WATCH_H
 
-#include <map>
+#include <boost/intrusive_ptr.hpp>
+#include <tr1/memory>
+#include <set>
 
-#include "OSD.h"
-#include "common/config.h"
+#include "msg/Messenger.h"
+#include "include/Context.h"
+#include "common/Mutex.h"
 
-class MWatchNotify;
-
-/* keeps track and accounts sessions, watchers and notifiers */
-class Watch {
-  uint64_t notif_id;
-
-public:
-  enum WatcherState {
-    WATCHER_PENDING,
-    WATCHER_NOTIFIED,
-  };
-
-  struct Notification {
-    std::map<entity_name_t, WatcherState> watchers;
-    entity_name_t name;
-    uint64_t id;
-    OSD::Session *session;
-    uint64_t cookie;
-    MWatchNotify *reply;
-    Context *timeout;
-    void *obc;
-    pg_t pgid;
-    bufferlist bl;
-
-    void add_watcher(const entity_name_t& name, WatcherState state) {
-      watchers[name] = state;
-    }
-
-    Notification(entity_name_t& n, OSD::Session *s, uint64_t c, bufferlist& b)
-      : name(n), id(0), session(s), cookie(c), reply(0), timeout(0),
-	obc(0), bl(b) { }
-  };
-
-  class C_NotifyTimeout : public Context {
-    OSD *osd;
-    Notification *notif;
-  public:
-    C_NotifyTimeout(OSD *_osd, Notification *_notif) : osd(_osd), notif(_notif) {}
-    void finish(int r);
-  };
-
-  class C_WatchTimeout : public Context {
-    OSD *osd;
-    void *obc;
-    void *pg;
-    entity_name_t entity;
-  public:
-    utime_t expire;
-    C_WatchTimeout(OSD *_osd, void *_obc, void *_pg,
-		   entity_name_t _entity, utime_t _expire) :
-      osd(_osd), obc(_obc), pg(_pg), entity(_entity), expire(_expire) {}
-    void finish(int r);
-  };
-
-private:
-  std::map<uint64_t, Notification *> notifs; /* notif_id to notifications */
-
-public:
-  Watch() : notif_id(0) {}
-
-  void add_notification(Notification *notif) {
-    notif->id = ++notif_id;
-    notifs[notif->id] = notif;
-  }
-  Notification *get_notif(uint64_t id) {
-    map<uint64_t, Notification *>::iterator iter = notifs.find(id);
-    if (iter != notifs.end())
-      return iter->second;
-    return NULL;
-  }
-  void remove_notification(Notification *notif) {
-    map<uint64_t, Notification *>::iterator iter = notifs.find(notif->id);
-    if (iter != notifs.end())
-      notifs.erase(iter);
-  }
-
-  bool ack_notification(entity_name_t& watcher, Notification *notif);
+enum WatcherState {
+  WATCHER_PENDING,
+  WATCHER_NOTIFIED,
 };
 
+class OSDService;
+class PG;
+void intrusive_ptr_add_ref(PG *pg);
+void intrusive_ptr_release(PG *pg);
+class ObjectContext;
+class MWatchNotify;
 
+class Watch;
+typedef std::tr1::shared_ptr<Watch> WatchRef;
+typedef std::tr1::weak_ptr<Watch> WWatchRef;
+
+class Notify;
+typedef std::tr1::shared_ptr<Notify> NotifyRef;
+typedef std::tr1::weak_ptr<Notify> WNotifyRef;
+
+/**
+ * Notify tracks the progress of a particular notify
+ *
+ * References are held by Watch and the timeout callback
+ */
+class NotifyTimeoutCB;
+class Notify {
+  friend class NotifyTimeoutCB;
+  friend class Watch;
+  WNotifyRef self;
+  ConnectionRef client;
+  unsigned in_progress_watchers;
+  bool complete;
+  bool discarded;
+
+  bufferlist payload;
+  uint32_t timeout;
+  uint64_t cookie;
+  uint64_t notify_id;
+  uint64_t version;
+
+  OSDService *osd;
+  Context *cb;
+  Mutex lock;
+  void maybe_complete_notify();
+  void do_timeout();
+  Notify(
+    ConnectionRef client,
+    unsigned num_watchers,
+    bufferlist &payload,
+    uint32_t timeout,
+    uint64_t cookie,
+    uint64_t notify_id,
+    uint64_t version,
+    OSDService *osd);
+public:
+  void set_self(NotifyRef _self) {
+    self = _self;
+  }
+  static NotifyRef makeNotifyRef(
+    ConnectionRef client,
+    unsigned num_watchers,
+    bufferlist &payload,
+    uint32_t timeout,
+    uint64_t cookie,
+    uint64_t notify_id,
+    uint64_t version,
+    OSDService *osd);
+
+  void init();
+  void complete_watcher();
+  void discard();
+  bool should_discard();
+};
+/**
+ * Watch is a mapping between a Connection and an ObjectContext
+ *
+ * References are held by ObjectContext and the timeout callback
+ */
+class HandleWatchTimeout;
+class Watch {
+  WWatchRef self;
+  friend class HandleWatchTimeout;
+  ConnectionRef conn;
+  HandleWatchTimeout *cb;
+
+  OSDService *osd;
+  boost::intrusive_ptr<PG> pg;
+  ObjectContext *obc;
+
+  std::map<uint64_t, NotifyRef> in_progress_notifies;
+
+  bool canceled;
+  uint32_t timeout;
+  uint64_t cookie;
+  entity_name_t entity;
+  bool discarded;
+
+  Watch(
+    PG *pg, OSDService *osd,
+    ObjectContext *obc, uint32_t timeout,
+    uint64_t cookie, entity_name_t entity);
+  void clear_discarded_notifies();
+  void register_cb();
+  void unregister_cb();
+  void send_notify(NotifyRef notif);
+public:
+  static WatchRef makeWatchRef(
+    PG *pg, OSDService *osd,
+    ObjectContext *obc, uint32_t timeout, uint64_t cookie, entity_name_t entity);
+  void set_self(WatchRef _self) {
+    self = _self;
+  }
+
+  ObjectContext *get_obc();
+  uint64_t get_cookie() const { return cookie; }
+  entity_name_t get_entity() const { return entity; }
+  Context *get_cb();
+
+  void lock_pg();
+  void unlock_pg();
+
+  bool connected();
+  void connect(ConnectionRef con);
+  void disconnect();
+
+  void discard();
+  bool isdiscarded();
+  void remove();
+
+  void start_notify(uint64_t notify_id, NotifyRef notif);
+  void notify_ack(uint64_t notify_id);
+};
+
+/**
+ * Holds weak refs to Watch structures
+ */
+class WatchConState {
+  Mutex lock;
+  std::set<WWatchRef> watches;
+public:
+  WatchConState() : lock("WatchConState") {}
+  void addWatch(WatchRef watch);
+  void removeWatch(WatchRef watch);
+  void reset();
+};
 
 #endif

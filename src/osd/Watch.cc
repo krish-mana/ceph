@@ -1,36 +1,317 @@
-
+// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
 #include "PG.h"
 
 #include "include/types.h"
+#include "messages/MWatchNotify.h"
 
 #include <map>
 
 #include "OSD.h"
-#include "ReplicatedPG.h"
+#include "PG.h"
 #include "Watch.h"
 
 #include "common/config.h"
 
-bool Watch::ack_notification(entity_name_t& watcher, Notification *notif)
-{
-  map<entity_name_t, WatcherState>::iterator iter = notif->watchers.find(watcher);
+Notify::Notify(
+  ConnectionRef client,
+  unsigned num_watchers,
+  bufferlist &payload,
+  uint32_t timeout,
+  uint64_t cookie,
+  uint64_t notify_id,
+  uint64_t version,
+  OSDService *osd)
+  : client(client),
+    in_progress_watchers(num_watchers),
+    complete(false),
+    discarded(false),
+    payload(payload),
+    timeout(timeout),
+    cookie(cookie),
+    notify_id(notify_id),
+    version(version),
+    osd(osd),
+    cb(0),
+    lock("Notify::lock") {}
 
-  if (iter == notif->watchers.end()) // client was not suppose to ack this notification
-    return false;
-
-  notif->watchers.erase(iter);
-
-  return notif->watchers.empty(); // true if there are no more watchers
+NotifyRef Notify::makeNotifyRef(
+  ConnectionRef client,
+  unsigned num_watchers,
+  bufferlist &payload,
+  uint32_t timeout,
+  uint64_t cookie,
+  uint64_t notify_id,
+  uint64_t version,
+  OSDService *osd) {
+  NotifyRef ret(
+    new Notify(
+      client, num_watchers,
+      payload, timeout,
+      cookie, notify_id,
+      version, osd));
+  ret->set_self(ret);
+  return ret;
 }
 
-void Watch::C_NotifyTimeout::finish(int r)
+class NotifyTimeoutCB : public Context {
+  NotifyRef notif;
+public:
+  NotifyTimeoutCB(NotifyRef notif) : notif(notif) {}
+  void finish(int) {
+    notif->do_timeout();
+  }
+};
+
+void Notify::do_timeout()
 {
-  osd->handle_notify_timeout(notif);
+  Mutex::Locker l(lock);
+  cb = 0;
+  if (discarded || complete)
+    return;
+  discarded = true;
+
+  in_progress_watchers = 0; // we give up TODO: we should return an error code
+  maybe_complete_notify();
 }
 
-void Watch::C_WatchTimeout::finish(int r)
+void Notify::complete_watcher()
 {
-  osd->handle_watch_timeout(obc, static_cast<ReplicatedPG *>(pg), entity,
-			    expire);
+  Mutex::Locker l(lock);
+  if (should_discard())
+    return;
+  assert(in_progress_watchers > 0);
+  --in_progress_watchers;
+  maybe_complete_notify();
 }
 
+void Notify::maybe_complete_notify()
+{
+  if (!in_progress_watchers) {
+    MWatchNotify *reply(new MWatchNotify(cookie, version, notify_id,
+					 WATCH_NOTIFY, payload));
+    osd->send_message_osd_client(reply, client.get());
+    complete = true;
+  }
+}
+
+bool Notify::should_discard()
+{
+  Mutex::Locker l(lock);
+  return discarded || complete;
+}
+
+void Notify::discard()
+{
+  Mutex::Locker l(lock);
+  discarded = true;
+}
+
+void Notify::init()
+{
+  Mutex::Locker l(lock);
+  maybe_complete_notify();
+}
+
+Watch::Watch(
+  PG *pg,
+  OSDService *osd,
+  ObjectContext *obc,
+  uint32_t timeout,
+  uint64_t cookie,
+  entity_name_t entity)
+  : cb(0),
+    osd(osd),
+    pg(pg),
+    obc(obc),
+    canceled(false),
+    timeout(timeout),
+    cookie(cookie),
+    entity(entity),
+    discarded(false) {}
+
+void Watch::lock_pg() { pg->lock(); }
+void Watch::unlock_pg() { pg->unlock(); }
+
+bool Watch::connected() { return conn; }
+
+class HandleWatchTimeout : public Context {
+  WatchRef watch;
+public:
+  bool canceled;
+  HandleWatchTimeout(WatchRef watch) : watch(watch), canceled(true) {}
+  void finish(int) { /* not used */ }
+  void complete(int) {
+    watch->osd->watch_lock.Unlock();
+    watch->pg->lock();
+    bool done = true;
+    if (!watch->isdiscarded() && !canceled)
+      done = watch->pg->handle_watch_timeout(watch);
+    watch->cb = 0;
+    watch->pg->unlock();
+    watch->osd->watch_lock.Lock();
+    if (done)
+      delete this;
+  }
+};
+
+Context *Watch::get_cb()
+{
+  return cb;
+}
+
+ObjectContext *Watch::get_obc()
+{
+  obc->get();
+  return obc;
+}
+
+void Watch::register_cb()
+{
+  Mutex::Locker l(osd->watch_lock);
+  cb = new HandleWatchTimeout(self.lock());
+  osd->watch_timer.add_event_after(
+    timeout,
+    cb);
+}
+
+void Watch::unregister_cb()
+{
+  if (!cb)
+    return;
+  cb->canceled = true;
+  {
+    Mutex::Locker l(osd->watch_lock);
+    osd->watch_timer.cancel_event(cb);
+  }
+  cb = 0;
+}
+
+void Watch::connect(ConnectionRef con)
+{
+  conn = con;
+  static_cast<OSD::Session*>(con->get_priv())->wstate.addWatch(self.lock());
+  for (map<uint64_t, NotifyRef>::iterator i = in_progress_notifies.begin();
+       i != in_progress_notifies.end();
+       ++i) {
+    send_notify(i->second);
+  }
+  unregister_cb();
+}
+
+void Watch::disconnect()
+{
+  conn = ConnectionRef();
+  register_cb();
+}
+
+void Watch::clear_discarded_notifies()
+{
+  for (map<uint64_t, NotifyRef>::iterator i = in_progress_notifies.begin();
+       i != in_progress_notifies.end();
+       ) {
+    if (i->second->should_discard())
+      in_progress_notifies.erase(i++);
+    else
+      ++i;
+  }
+}
+
+void Watch::discard() {
+  for (map<uint64_t, NotifyRef>::iterator i = in_progress_notifies.begin();
+       i != in_progress_notifies.end();
+       ) {
+    i->second->discard();
+  }
+  in_progress_notifies.clear();
+  unregister_cb();
+  discarded = true;
+}
+
+bool Watch::isdiscarded()
+{
+  return discarded;
+}
+
+void Watch::remove()
+{
+  for (map<uint64_t, NotifyRef>::iterator i = in_progress_notifies.begin();
+       i != in_progress_notifies.end();
+       ++i) {
+    i->second->complete_watcher();
+  }
+  in_progress_notifies.clear();
+  unregister_cb();
+  discarded = true;
+  static_cast<OSD::Session*>(conn->get_priv())->wstate.removeWatch(self.lock());
+  conn = ConnectionRef();
+}
+
+void Watch::start_notify(uint64_t notify_id, NotifyRef notif)
+{
+  assert(in_progress_notifies.find(notify_id) == in_progress_notifies.end());
+  in_progress_notifies[notify_id] = notif;
+  if (connected())
+    send_notify(notif);
+  clear_discarded_notifies();
+}
+void Watch::send_notify(NotifyRef notif)
+{
+  MWatchNotify *notify_msg = new MWatchNotify(
+    cookie, notif->version, notif->notify_id,
+    WATCH_NOTIFY, notif->payload);
+  osd->send_message_osd_client(notify_msg, conn.get());
+}
+void Watch::notify_ack(uint64_t notify_id)
+{
+  map<uint64_t, NotifyRef>::iterator i = in_progress_notifies.find(notify_id);
+  if (i != in_progress_notifies.end()) {
+    i->second->complete_watcher();
+    in_progress_notifies.erase(i);
+  }
+  clear_discarded_notifies();
+}
+
+WatchRef Watch::makeWatchRef(
+  PG *pg, OSDService *osd,
+  ObjectContext *obc, uint32_t timeout, uint64_t cookie, entity_name_t entity)
+{
+  WatchRef ret(new Watch(pg, osd, obc, timeout, cookie, entity));
+  ret->set_self(ret);
+  return ret;
+}
+
+void WatchConState::addWatch(WatchRef watch)
+{
+  Mutex::Locker l(lock);
+  watches.insert(watch);
+}
+
+void WatchConState::removeWatch(WatchRef watch)
+{
+  Mutex::Locker l(lock);
+  watches.erase(watch);
+}
+
+void WatchConState::reset()
+{
+  set<WatchRef> _watches;
+  {
+    Mutex::Locker l(lock);
+    for (set<WWatchRef>::iterator i = watches.begin();
+	 i != watches.end();
+	 ++i) {
+      WatchRef watch(i->lock());
+      _watches.insert(watch);
+    }
+    watches.clear();
+  }
+  for (set<WatchRef>::iterator i = _watches.begin();
+       i != _watches.end();
+       ++i) {
+    (*i)->lock_pg();
+    if (!(*i)->isdiscarded()) {
+      (*i)->disconnect();
+    }
+    (*i)->unlock_pg();
+  }
+}
