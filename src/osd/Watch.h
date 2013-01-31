@@ -124,12 +124,12 @@ class Watch {
     ReplicatedPG *pg, OSDService *osd,
     ObjectContext *obc, uint32_t timeout,
     uint64_t cookie, entity_name_t entity);
-  ~Watch();
   void clear_discarded_notifies();
   void register_cb();
   void unregister_cb();
   void send_notify(NotifyRef notif);
 public:
+  ~Watch();
   string gen_dbg_prefix();
   static WatchRef makeWatchRef(
     ReplicatedPG *pg, OSDService *osd,
