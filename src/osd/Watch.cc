@@ -7,7 +7,7 @@
 #include <map>
 
 #include "OSD.h"
-#include "PG.h"
+#include "ReplicatedPG.h"
 #include "Watch.h"
 
 #include "common/config.h"
@@ -131,7 +131,7 @@ string Watch::gen_dbg_prefix() {
 }
 
 Watch::Watch(
-  PG *pg,
+  ReplicatedPG *pg,
   OSDService *osd,
   ObjectContext *obc,
   uint32_t timeout,
@@ -145,7 +145,14 @@ Watch::Watch(
     timeout(timeout),
     cookie(cookie),
     entity(entity),
-    discarded(false) {}
+    discarded(false) {
+  obc->get();
+}
+
+Watch::~Watch() {
+  assert(pg->is_locked());
+  pg->put_object_context(
+}
 
 void Watch::lock_pg() { pg->lock(); }
 void Watch::unlock_pg() { pg->unlock(); }
@@ -301,7 +308,7 @@ void Watch::notify_ack(uint64_t notify_id)
 }
 
 WatchRef Watch::makeWatchRef(
-  PG *pg, OSDService *osd,
+  ReplicatedPG *pg, OSDService *osd,
   ObjectContext *obc, uint32_t timeout, uint64_t cookie, entity_name_t entity)
 {
   WatchRef ret(new Watch(pg, osd, obc, timeout, cookie, entity));

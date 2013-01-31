@@ -28,9 +28,9 @@ enum WatcherState {
 };
 
 class OSDService;
-class PG;
-void intrusive_ptr_add_ref(PG *pg);
-void intrusive_ptr_release(PG *pg);
+class ReplicatedPG;
+void intrusive_ptr_add_ref(ReplicatedPG *pg);
+void intrusive_ptr_release(ReplicatedPG *pg);
 class ObjectContext;
 class MWatchNotify;
 
@@ -109,7 +109,7 @@ class Watch {
   HandleWatchTimeout *cb;
 
   OSDService *osd;
-  boost::intrusive_ptr<PG> pg;
+  boost::intrusive_ptr<ReplicatedPG> pg;
   ObjectContext *obc;
 
   std::map<uint64_t, NotifyRef> in_progress_notifies;
@@ -121,9 +121,10 @@ class Watch {
   bool discarded;
 
   Watch(
-    PG *pg, OSDService *osd,
+    ReplicatedPG *pg, OSDService *osd,
     ObjectContext *obc, uint32_t timeout,
     uint64_t cookie, entity_name_t entity);
+  ~Watch();
   void clear_discarded_notifies();
   void register_cb();
   void unregister_cb();
@@ -131,7 +132,7 @@ class Watch {
 public:
   string gen_dbg_prefix();
   static WatchRef makeWatchRef(
-    PG *pg, OSDService *osd,
+    ReplicatedPG *pg, OSDService *osd,
     ObjectContext *obc, uint32_t timeout, uint64_t cookie, entity_name_t entity);
   void set_self(WatchRef _self) {
     self = _self;
