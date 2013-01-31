@@ -112,6 +112,23 @@ void Notify::init()
   maybe_complete_notify();
 }
 
+#define dout_subsys ceph_subsys_osd
+#undef dout_prefix
+#define dout_prefix _prefix(_dout, this)
+
+static ostream& _prefix(
+  std::ostream* _dout,
+  Watch *watch) {
+  return *_dout << watch->gen_dbg_prefix();
+}
+
+string Watch::gen_dbg_prefix() {
+  stringstream ss;
+  ss << pg->gen_prefix() << " -- Watch(" 
+     << make_pair(cookie, entity);
+  return ss.str();
+}
+
 Watch::Watch(
   PG *pg,
   OSDService *osd,
@@ -168,6 +185,7 @@ ObjectContext *Watch::get_obc()
 void Watch::register_cb()
 {
   Mutex::Locker l(osd->watch_lock);
+  dout(15) << "registering callback" << dendl;
   cb = new HandleWatchTimeout(self.lock());
   osd->watch_timer.add_event_after(
     timeout,
@@ -176,8 +194,10 @@ void Watch::register_cb()
 
 void Watch::unregister_cb()
 {
+  dout(15) << "unregister_cb" << dendl;
   if (!cb)
     return;
+  dout(15) << "actually registered, cancelling" << dendl;
   cb->canceled = true;
   {
     Mutex::Locker l(osd->watch_lock);
@@ -188,6 +208,7 @@ void Watch::unregister_cb()
 
 void Watch::connect(ConnectionRef con)
 {
+  dout(10) << "connecting" << dendl;
   conn = con;
   static_cast<OSD::Session*>(con->get_priv())->wstate.addWatch(self.lock());
   for (map<uint64_t, NotifyRef>::iterator i = in_progress_notifies.begin();
@@ -200,6 +221,7 @@ void Watch::connect(ConnectionRef con)
 
 void Watch::disconnect()
 {
+  dout(10) << "disconnect" << dendl;
   conn = ConnectionRef();
   register_cb();
 }
@@ -217,6 +239,7 @@ void Watch::clear_discarded_notifies()
 }
 
 void Watch::discard() {
+  dout(10) << "discard" << dendl;
   for (map<uint64_t, NotifyRef>::iterator i = in_progress_notifies.begin();
        i != in_progress_notifies.end();
        ) {
@@ -234,6 +257,7 @@ bool Watch::isdiscarded()
 
 void Watch::remove()
 {
+  dout(10) << "remove" << dendl;
   for (map<uint64_t, NotifyRef>::iterator i = in_progress_notifies.begin();
        i != in_progress_notifies.end();
        ++i) {
@@ -248,6 +272,7 @@ void Watch::remove()
 
 void Watch::start_notify(uint64_t notify_id, NotifyRef notif)
 {
+  dout(10) << "start_notify " << make_pair(notify_id, notif) << dendl;
   assert(in_progress_notifies.find(notify_id) == in_progress_notifies.end());
   in_progress_notifies[notify_id] = notif;
   if (connected())
@@ -256,13 +281,16 @@ void Watch::start_notify(uint64_t notify_id, NotifyRef notif)
 }
 void Watch::send_notify(NotifyRef notif)
 {
+  dout(10) << "send_notify" << dendl;
   MWatchNotify *notify_msg = new MWatchNotify(
     cookie, notif->version, notif->notify_id,
     WATCH_NOTIFY, notif->payload);
   osd->send_message_osd_client(notify_msg, conn.get());
 }
+
 void Watch::notify_ack(uint64_t notify_id)
 {
+  dout(10) << "notify_ack" << dendl;
   map<uint64_t, NotifyRef>::iterator i = in_progress_notifies.find(notify_id);
   if (i != in_progress_notifies.end()) {
     i->second->complete_watcher();

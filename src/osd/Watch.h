@@ -129,6 +129,7 @@ class Watch {
   void unregister_cb();
   void send_notify(NotifyRef notif);
 public:
+  string gen_dbg_prefix();
   static WatchRef makeWatchRef(
     PG *pg, OSDService *osd,
     ObjectContext *obc, uint32_t timeout, uint64_t cookie, entity_name_t entity);
