@@ -151,7 +151,7 @@ Watch::Watch(
 
 Watch::~Watch() {
   assert(pg->is_locked());
-  pg->put_object_context(
+  pg->put_object_context(obc);
 }
 
 void Watch::lock_pg() { pg->lock(); }
