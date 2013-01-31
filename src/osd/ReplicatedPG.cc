@@ -2475,6 +2475,7 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	    t.nop();  // update oi on disk
 
 	    ctx->watch_disconnect = true;
+	    ctx->watch_info = w;
 	  } else {
 	    dout(10) << " can't remove: no watch by " << entity << dendl;
 	  }
