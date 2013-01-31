@@ -301,7 +301,8 @@ void WatchConState::reset()
 	 i != watches.end();
 	 ++i) {
       WatchRef watch(i->lock());
-      _watches.insert(watch);
+      if (watch)
+	_watches.insert(watch);
     }
     watches.clear();
   }
