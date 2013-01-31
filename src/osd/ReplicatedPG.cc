@@ -3294,7 +3294,7 @@ void ReplicatedPG::do_osd_op_effects(OpContext *ctx)
 	p->bl,
 	p->timeout,
 	p->cookie,
-	0,
+	osd->get_next_id(get_osdmap()->get_epoch()),
 	ctx->obc->obs.oi.user_version.version,
 	osd));
     for (map<pair<uint64_t, entity_name_t>, WatchRef>::iterator i =
@@ -3302,7 +3302,7 @@ void ReplicatedPG::do_osd_op_effects(OpContext *ctx)
 	 i != ctx->obc->watchers.end();
 	 ++i) {
       dout(10) << "starting notify on watch " << i->first << dendl;
-      i->second->start_notify(p->cookie, notif);
+      i->second->start_notify(notif);
     }
     notif->init();
   }

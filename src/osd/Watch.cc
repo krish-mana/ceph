@@ -293,11 +293,12 @@ void Watch::remove()
   conn = ConnectionRef();
 }
 
-void Watch::start_notify(uint64_t notify_id, NotifyRef notif)
+void Watch::start_notify(NotifyRef notif)
 {
-  dout(10) << "start_notify " << make_pair(notify_id, notif) << dendl;
-  assert(in_progress_notifies.find(notify_id) == in_progress_notifies.end());
-  in_progress_notifies[notify_id] = notif;
+  dout(10) << "start_notify " << notif->notify_id << dendl;
+  assert(in_progress_notifies.find(notif->notify_id) ==
+	 in_progress_notifies.end());
+  in_progress_notifies[notif->notify_id] = notif;
   if (connected())
     send_notify(notif);
   clear_discarded_notifies();

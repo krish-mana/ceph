@@ -161,7 +161,7 @@ public:
   bool isdiscarded();
   void remove();
 
-  void start_notify(uint64_t notify_id, NotifyRef notif);
+  void start_notify(NotifyRef notif);
   void notify_ack(uint64_t notify_id);
 };
 
