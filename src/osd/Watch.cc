@@ -89,7 +89,7 @@ void Notify::complete_watcher()
 {
   Mutex::Locker l(lock);
   dout(10) << "complete_watcher" << dendl;
-  if (should_discard())
+  if (_should_discard())
     return;
   assert(in_progress_watchers > 0);
   --in_progress_watchers;
@@ -109,9 +109,8 @@ void Notify::maybe_complete_notify()
   }
 }
 
-bool Notify::should_discard()
+bool Notify::_should_discard()
 {
-  Mutex::Locker l(lock);
   return discarded || complete;
 }
 

@@ -77,6 +77,7 @@ class Notify {
     uint64_t notify_id,
     uint64_t version,
     OSDService *osd);
+  bool _should_discard();
 public:
   string gen_dbg_prefix() {
     stringstream ss;
@@ -101,7 +102,10 @@ public:
   void init();
   void complete_watcher();
   void discard();
-  bool should_discard();
+  bool should_discard() {
+    Mutex::Locker l(lock);
+    return _should_discard();
+  }
 };
 /**
  * Watch is a mapping between a Connection and an ObjectContext
