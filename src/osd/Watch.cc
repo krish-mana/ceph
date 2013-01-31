@@ -99,7 +99,7 @@ void Notify::complete_watcher()
 void Notify::maybe_complete_notify()
 {
   dout(10) << "maybe_complete_notify -- "
-	   in_progress_watchers
+	   << in_progress_watchers
 	   << " in progress watchers " << dendl;
   if (!in_progress_watchers) {
     MWatchNotify *reply(new MWatchNotify(cookie, version, notify_id,
