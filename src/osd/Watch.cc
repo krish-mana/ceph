@@ -285,8 +285,11 @@ void Watch::remove()
   in_progress_notifies.clear();
   unregister_cb();
   discarded = true;
-  static_cast<OSD::Session*>(conn->get_priv())->wstate.removeWatch(self.lock());
-  conn = ConnectionRef();
+  if (conn) {
+    static_cast<OSD::Session*>(
+      conn->get_priv())->wstate.removeWatch(self.lock());
+    conn = ConnectionRef();
+  }
 }
 
 void Watch::start_notify(NotifyRef notif)
