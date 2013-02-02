@@ -7575,4 +7575,5 @@ boost::statechart::result ReplicatedPG::WaitingOnReplicas::react(const SnapTrim&
   return transit< NotTrimming >();
 }
 
-
+void intrusive_ptr_add_ref(ReplicatedPG *pg) { pg->get(); }
+void intrusive_ptr_release(ReplicatedPG *pg) { pg->put(); }
