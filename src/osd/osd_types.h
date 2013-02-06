@@ -509,9 +509,11 @@ struct osd_stat_t {
   int64_t kb, kb_used, kb_avail;
   vector<int> hb_in, hb_out;
   int32_t snap_trim_queue_len, num_snap_trimming;
+  double latency_estimate;
 
   osd_stat_t() : kb(0), kb_used(0), kb_avail(0),
-		 snap_trim_queue_len(0), num_snap_trimming(0) {}
+		 snap_trim_queue_len(0), num_snap_trimming(0),
+		 latency_estimate(0) {}
 
   void add(const osd_stat_t& o) {
     kb += o.kb;

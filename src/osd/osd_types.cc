@@ -110,11 +110,12 @@ void osd_stat_t::dump(Formatter *f) const
   f->close_section();
   f->dump_int("snap_trim_queue_len", snap_trim_queue_len);
   f->dump_int("num_snap_trimming", num_snap_trimming);
+  f->dump_stream("latency_estimate") << latency_estimate;
 }
 
 void osd_stat_t::encode(bufferlist &bl) const
 {
-  ENCODE_START(2, 2, bl);
+  ENCODE_START(3, 2, bl);
   ::encode(kb, bl);
   ::encode(kb_used, bl);
   ::encode(kb_avail, bl);
@@ -122,12 +123,13 @@ void osd_stat_t::encode(bufferlist &bl) const
   ::encode(num_snap_trimming, bl);
   ::encode(hb_in, bl);
   ::encode(hb_out, bl);
+  ::encode(latency_estimate, bl);
   ENCODE_FINISH(bl);
 }
 
 void osd_stat_t::decode(bufferlist::iterator &bl)
 {
-  DECODE_START_LEGACY_COMPAT_LEN(2, 2, 2, bl);
+  DECODE_START_LEGACY_COMPAT_LEN(3, 2, 2, bl);
   ::decode(kb, bl);
   ::decode(kb_used, bl);
   ::decode(kb_avail, bl);
@@ -135,6 +137,8 @@ void osd_stat_t::decode(bufferlist::iterator &bl)
   ::decode(num_snap_trimming, bl);
   ::decode(hb_in, bl);
   ::decode(hb_out, bl);
+  if (struct_v > 2)
+    ::decode(latency_estimate, bl);
   DECODE_FINISH(bl);
 }
 
