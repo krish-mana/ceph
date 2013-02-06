@@ -23,7 +23,7 @@
 
 class MOSDPing : public Message {
 
-  static const int HEAD_VERSION = 2;
+  static const int HEAD_VERSION = 3;
   static const int COMPAT_VERSION = 1;
 
  public:
@@ -52,18 +52,30 @@ class MOSDPing : public Message {
   __u8 op;
   osd_peer_stat_t peer_stat;
   utime_t stamp;
+  double latency_estimate;
 
+  MOSDPing(const uuid_d& f, epoch_t e, __u8 o, utime_t s, double lat)
+    : Message(MSG_OSD_PING, HEAD_VERSION, COMPAT_VERSION),
+      fsid(f), map_epoch(e), peer_as_of_epoch(0), op(o), stamp(s),
+      latency_estimate(lat)
+  { assert(op == PING_REPLY); }
   MOSDPing(const uuid_d& f, epoch_t e, __u8 o, utime_t s)
     : Message(MSG_OSD_PING, HEAD_VERSION, COMPAT_VERSION),
-      fsid(f), map_epoch(e), peer_as_of_epoch(0), op(o), stamp(s)
-  { }
+      fsid(f), map_epoch(e), peer_as_of_epoch(0), op(o), stamp(s),
+      latency_estimate(0)
+  { assert(op == PING); }
   MOSDPing()
-    : Message(MSG_OSD_PING, HEAD_VERSION, COMPAT_VERSION)
+    : Message(MSG_OSD_PING, HEAD_VERSION, COMPAT_VERSION),
+      map_epoch(0), peer_as_of_epoch(0), latency_estimate(0)
   {}
 private:
   ~MOSDPing() {}
 
 public:
+  double get_latency() {
+    assert(op == PING_REPLY);
+    return latency_estimate;
+  }
   void decode_payload() {
     bufferlist::iterator p = payload.begin();
     ::decode(fsid, p);
@@ -73,6 +85,8 @@ public:
     ::decode(peer_stat, p);
     if (header.version >= 2)
       ::decode(stamp, p);
+    if (header.version >= 3)
+      ::decode(latency_estimate, p);
   }
   void encode_payload(uint64_t features) {
     ::encode(fsid, payload);
@@ -81,6 +95,7 @@ public:
     ::encode(op, payload);
     ::encode(peer_stat, payload);
     ::encode(stamp, payload);
+    ::encode(latency_estimate, payload);
   }
 
   const char *get_type_name() const { return "osd_ping"; }
