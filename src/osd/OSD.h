@@ -405,6 +405,37 @@ public:
   void tick_delay_estimate();
   double estimate_latency();
 
+  // peer latency
+  Mutex peer_latency_lock;
+  map<int, double> peer_latencies;
+  void update_peer_latency(int peer, double latency) {
+    Mutex::Locker l(peer_latency_lock);
+    peer_latencies[peer] = latency;
+  }
+  double get_peer_latency(int peer) {
+    Mutex::Locker l(peer_latency_lock);
+    map<int, double>::iterator i = peer_latencies.find(peer);
+    if (i == peer.end())
+      return 0;
+    else
+      return i->second;
+  }
+  void prune_peer_latency(const map<int, HeartbeatInfo> &hb_peers) {
+    Mutex::Locker l(peer_latency_lock);
+    for (map<int, double>::iterator i = peer_latencies.begin();
+	 i != peer_latencies.end();
+	 ) {
+      if (hb_peers.find(i->first) == hb_peers.end())
+	peer_latencies.erase(i++);
+      else
+	++i;
+    }
+  }
+  void clear_peer_latency() {
+    Mutex::Locker l(peer_latency_lock);
+    peer_latencies.clear();
+  }
+
   // split
   Mutex in_progress_split_lock;
   set<pg_t> in_progress_splits;

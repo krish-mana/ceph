@@ -1935,7 +1935,7 @@ void OSD::update_osd_stat()
   osd_stat.kb = stbuf.f_blocks * stbuf.f_bsize / 1024;
   osd_stat.kb_used = (stbuf.f_blocks - stbuf.f_bfree) * stbuf.f_bsize / 1024;
   osd_stat.kb_avail = stbuf.f_bavail * stbuf.f_bsize / 1024;
-  osd_stat.latency_estimate = service.estimate_delay();
+  osd_stat.latency_estimate = service.estimate_latency();
 
   osd_stat.hb_in.clear();
   for (map<int,HeartbeatInfo>::iterator p = heartbeat_peers.begin(); p != heartbeat_peers.end(); p++)
@@ -2021,6 +2021,7 @@ void OSD::maybe_update_heartbeat_peers()
       ++p;
     }
   }
+  service.prune_peer_latency(heartbeat_peers);
   dout(10) << "maybe_update_heartbeat_peers " << heartbeat_peers.size() << " peers" << dendl;
 }
 
@@ -2034,6 +2035,7 @@ void OSD::reset_heartbeat_peers()
     heartbeat_peers.erase(heartbeat_peers.begin());
   }
   failure_queue.clear();
+  service.clear_peer_latency();
   heartbeat_lock.Unlock();
 }
 
@@ -2086,7 +2088,8 @@ void OSD::handle_osd_ping(MOSDPing *m)
       Message *r = new MOSDPing(monc->get_fsid(),
 				curmap->get_epoch(),
 				MOSDPing::PING_REPLY,
-				m->stamp);
+	                        m->stamp,
+	                        service.estimate_delay());
       hbserver_messenger->send_message(r, m->get_connection());
 
       if (curmap->is_up(from)) {
@@ -2123,6 +2126,7 @@ void OSD::handle_osd_ping(MOSDPing *m)
 	  }
 	}
       }
+      service.update_peer_latency(m->get_latency());
 
       // Cancel false reports
       if (failure_queue.count(from))
