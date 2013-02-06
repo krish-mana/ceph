@@ -1133,6 +1133,8 @@ void ReplicatedPG::do_sub_op_reply(OpRequestRef op)
 {
   MOSDSubOpReply *r = (MOSDSubOpReply *)op->request;
   assert(r->get_header().type == MSG_OSD_SUBOPREPLY);
+
+  osd->update_peer_latency(r->get_source().num());
   if (r->ops.size() >= 1) {
     OSDOp& first = r->ops[0];
     switch (first.op.op) {
@@ -4719,7 +4721,9 @@ void ReplicatedPG::sub_op_modify_applied(RepModify *rm)
     
     if (!rm->committed) {
       // send ack to acker only if we haven't sent a commit already
-      MOSDSubOpReply *ack = new MOSDSubOpReply(m, 0, get_osdmap()->get_epoch(), CEPH_OSD_FLAG_ACK);
+      MOSDSubOpReply *ack = new MOSDSubOpReply(
+	m, 0, get_osdmap()->get_epoch(), CEPH_OSD_FLAG_ACK,
+	osd->estimate_latency());
       ack->set_priority(CEPH_MSG_PRIO_HIGH); // this better match commit priority!
       osd->send_message_osd_cluster(rm->ackerosd, ack, get_osdmap()->get_epoch());
     }
@@ -4762,7 +4766,10 @@ void ReplicatedPG::sub_op_modify_commit(RepModify *rm)
     
     if (get_osdmap()->is_up(rm->ackerosd)) {
       last_complete_ondisk = rm->last_complete;
-      MOSDSubOpReply *commit = new MOSDSubOpReply((MOSDSubOp*)rm->op->request, 0, get_osdmap()->get_epoch(), CEPH_OSD_FLAG_ONDISK);
+      MOSDSubOpReply *commit = new MOSDSubOpReply(
+	(MOSDSubOp*)rm->op->request, 0, get_osdmap()->get_epoch(),
+	CEPH_OSD_FLAG_ONDISK,
+	osd->estimate_latency());
       commit->set_last_complete_ondisk(rm->last_complete);
       commit->set_priority(CEPH_MSG_PRIO_HIGH); // this better match ack priority!
       osd->send_message_osd_cluster(rm->ackerosd, commit, get_osdmap()->get_epoch());
@@ -5475,7 +5482,8 @@ void ReplicatedPG::handle_push(OpRequestRef op)
   ++active_pushes;
 
   MOSDSubOpReply *reply = new MOSDSubOpReply(
-    m, 0, get_osdmap()->get_epoch(), CEPH_OSD_FLAG_ACK);
+    m, 0, get_osdmap()->get_epoch(), CEPH_OSD_FLAG_ACK,
+    osd->estimate_latency());
   assert(entity_name_t::TYPE_OSD == m->get_connection()->peer_type);
 
   Context *oncomplete = new C_OSD_CompletedPushedObjectReplica(
