@@ -271,6 +271,14 @@ private:
   PerfCounters *logger;
 
 public:
+  pair<double, uint64_t> get_commit_latency() {
+    pair<utime_t, uint64_t> log(logger->tget_with_count(l_os_j_lat));
+    return make_pair(double(log.first), log.second);
+  }
+  pair<double, uint64_t> get_apply_latency() {
+    pair<utime_t, uint64_t> log(logger->tget_with_count(l_os_apply_lat));
+    return make_pair(double(log.first), log.second);
+  }
   int lfn_find(coll_t cid, const hobject_t& oid, IndexedPath *path);
   int lfn_truncate(coll_t cid, const hobject_t& oid, off_t length);
   int lfn_stat(coll_t cid, const hobject_t& oid, struct stat *buf);

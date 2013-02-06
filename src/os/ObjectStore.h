@@ -689,6 +689,14 @@ public:
   virtual ~ObjectStore() {}
 
   // mgmt
+  /// Returns pair<uint64_t, latency_sum>
+  virtual pair<double, uint64_t> get_commit_latency() {
+    return make_pair(0, 1);
+  }
+  virtual pair<double, uint64_t> get_apply_latency() {
+    return make_pair(0, 1);
+  }
+
   virtual int version_stamp_is_valid(uint32_t *version) { return 1; }
   virtual int update_version_stamp() = 0;
   virtual bool test_mount_in_use() = 0;

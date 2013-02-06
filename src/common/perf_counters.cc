@@ -189,6 +189,24 @@ void PerfCounters::tset(int idx, utime_t amt)
     assert(0);
 }
 
+pair<utime_t, uint64_t> PerfCounters::tget_with_count(int idx) const
+{
+  if (!m_cct->_conf->perf)
+    return make_pair(utime_t(), 1);
+
+  Mutex::Locker lck(m_lock);
+  assert(idx > m_lower_bound);
+  assert(idx < m_upper_bound);
+  const perf_counter_data_any_d& data(m_data[idx - m_lower_bound - 1]);
+  if (!(data.type & PERFCOUNTER_TIME))
+    assert(0);
+  if (!(data.type & PERFCOUNTER_LONGRUNAVG))
+    assert(0);
+  return make_pair(
+    utime_t(data.u64 / 1000000000ull, data.u64 % 1000000000ull),
+    data.avgcount);
+}
+
 utime_t PerfCounters::tget(int idx) const
 {
   if (!m_cct->_conf->perf)

@@ -75,6 +75,7 @@ public:
   void tset(int idx, utime_t v);
   void tinc(int idx, utime_t v);
   utime_t tget(int idx) const;
+  pair<utime_t, uint64_t> tget_with_count(int idx) const;
 
   void write_json_to_buf(ceph::bufferlist& bl, bool schema);
 

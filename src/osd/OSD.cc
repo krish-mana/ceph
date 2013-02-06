@@ -260,6 +260,24 @@ void OSDService::init()
   watch = new Watch();
 }
 
+void OSDService::tick_delay_estimate()
+{
+  commit_lat_tracker.tick_estimate(
+    osd->store->get_commit_latency(),
+    g_conf->osd_latency_estimate_samples);
+  apply_lat_tracker.tick_estimate(
+    osd->store->get_apply_latency(),
+    g_conf->osd_latency_estimate_samples);
+}
+
+double OSDService::estimate_latency()
+{
+  return MAX(
+    commit_lat_tracker.estimate_latency(),
+    apply_lat_tracker.estimate_latency()
+    );
+}
+
 ObjectStore *OSD::create_object_store(const std::string &dev, const std::string &jdev)
 {
   struct stat st;
@@ -2274,6 +2292,7 @@ void OSD::tick()
 {
   assert(osd_lock.is_locked());
   dout(5) << "tick" << dendl;
+  service.tick_delay_estimate();
 
   logger->set(l_osd_buf, buffer::get_total_alloc());
 

@@ -380,6 +380,31 @@ public:
   void init();
   void shutdown();
 
+  // latency estimate
+  struct LatencyTracker {
+    Mutex lock;
+    LatencyTracker() : lock("LatencyTracker") {}
+    list<pair<double, uint64_t> > latencies;
+    void tick_estimate(pair<double, uint64_t> sample, uint64_t num_to_keep) {
+      Mutex::Locker l(lock);
+      latencies.push_front(sample);
+      while (latencies.size() > num_to_keep)
+	latencies.pop_back();
+    }
+    double estimate_latency() {
+      Mutex::Locker l(lock);
+      if (latencies.size() < 2) {
+	return 0;
+      } else {
+	double time = latencies.begin()->first - latencies.rbegin()->first;
+	uint64_t count = latencies.begin()->second - latencies.rbegin()->second;
+	return count ? (time/count) : 0;
+      }
+    }
+  } commit_lat_tracker, apply_lat_tracker;
+  void tick_delay_estimate();
+  double estimate_latency();
+
   // split
   Mutex in_progress_split_lock;
   set<pg_t> in_progress_splits;

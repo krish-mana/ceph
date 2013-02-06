@@ -284,6 +284,9 @@ OPTION(mds_standby_for_name, OPT_STR, "")
 OPTION(mds_standby_for_rank, OPT_INT, -1)
 OPTION(mds_standby_replay, OPT_BOOL, false)
 
+// Sets number of samples to avg over for latency estimate
+OPTION(osd_latency_estimate_samples, OPT_U64, 10)
+
 // If true, uses tmap as initial value for omap on old objects
 OPTION(osd_auto_upgrade_tmap, OPT_BOOL, true)
 
