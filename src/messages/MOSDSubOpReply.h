@@ -30,6 +30,8 @@
  */
 
 class MOSDSubOpReply : public Message {
+  static const int HEAD_VERSION = 2;
+  static const int COMPAT_VERSION = 1;
 public:
   epoch_t map_epoch;
   
@@ -47,6 +49,7 @@ public:
   // piggybacked osd state
   eversion_t last_complete_ondisk;
   osd_peer_stat_t peer_stat;
+  double latency_estimate;
 
   map<string,bufferptr> attrset;
 
@@ -71,6 +74,8 @@ public:
 
     if (poid.pool == -1)
       poid.pool = pgid.pool();
+    if (header.version >= 2)
+      ::decode(latency_estimate, p);
   }
   virtual void encode_payload(uint64_t features) {
     ::encode(map_epoch, payload);
@@ -87,6 +92,7 @@ public:
     ::encode(last_complete_ondisk, payload);
     ::encode(peer_stat, payload);
     ::encode(attrset, payload);
+    ::encode(latency_estimate, payload);
   }
 
   epoch_t get_map_epoch() { return map_epoch; }
@@ -99,6 +105,7 @@ public:
   bool is_onnvram() { return ack_type & CEPH_OSD_FLAG_ONNVRAM; }
 
   int get_result() { return result; }
+  double get_peer_latency() { return latency_estimate; }
 
   void set_last_complete_ondisk(eversion_t v) { last_complete_ondisk = v; }
   eversion_t get_last_complete_ondisk() { return last_complete_ondisk; }
@@ -110,19 +117,22 @@ public:
   map<string,bufferptr>& get_attrset() { return attrset; } 
 
 public:
-  MOSDSubOpReply(MOSDSubOp *req, int result_, epoch_t e, int at) :
-    Message(MSG_OSD_SUBOPREPLY),
+  MOSDSubOpReply(
+    MOSDSubOp *req, int result_, epoch_t e, int at,
+    double latency_estimate) :
+    Message(MSG_OSD_SUBOPREPLY, HEAD_VERSION, COMPAT_VERSION),
     map_epoch(e),
     reqid(req->reqid),
     pgid(req->pgid),
     poid(req->poid),
     ops(req->ops),
     ack_type(at),
-    result(result_) {
+    result(result_),
+    latency_estimate(latency_estimate) {
     memset(&peer_stat, 0, sizeof(peer_stat));
     set_tid(req->get_tid());
   }
-  MOSDSubOpReply() : Message(MSG_OSD_SUBOPREPLY) {}
+  MOSDSubOpReply() : Message(MSG_OSD_SUBOPREPLY, HEAD_VERSION, COMPAT_VERSION) {}
 private:
   ~MOSDSubOpReply() {}
 
@@ -140,6 +150,7 @@ public:
     if (ack_type & CEPH_OSD_FLAG_ACK)
       out << " ack";
     out << ", result = " << result;
+    out << ", latency = " << latency_estimate;
     out << ")";
   }
 
