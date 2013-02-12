@@ -5334,6 +5334,7 @@ PG::RecoveryState::Started::react(const FlushedEvt&)
 {
   PG *pg = context< RecoveryMachine >().pg;
   pg->flushed = true;
+  pg->on_flushed();
   pg->requeue_ops(pg->waiting_for_active);
   return discard_event();
 }
