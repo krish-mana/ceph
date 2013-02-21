@@ -3,6 +3,53 @@
 #include "hobject.h"
 #include "common/Formatter.h"
 
+static void append_escaped(const string &in, string *out)
+{
+  for (string::const_iterator i = in.begin(); i != in.end(); ++i) {
+    if (*i == '%') {
+      out->push_back('%');
+      out->push_back('p');
+    } else if (*i == '.') {
+      out->push_back('%');
+      out->push_back('e');
+    } else if (*i == '_') {
+      out->push_back('%');
+      out->push_back('u');
+    } else {
+      out->push_back(*i);
+    }
+  }
+}
+
+string hobject_t::to_str() const
+{
+  string out;
+  append_escaped(oid.name, &out);
+  out.push_back('.');
+  append_escaped(get_key(), &out);
+  out.push_back('.');
+  append_escaped(nspace, &out);
+  out.push_back('.');
+
+  char snap_with_hash[1000];
+  char *t = snap_with_hash;
+  char *end = t + sizeof(snap_with_hash);
+  if (snap == CEPH_NOSNAP)
+    t += snprintf(t, end - t, "head");
+  else if (snap == CEPH_SNAPDIR)
+    t += snprintf(t, end - t, "snapdir");
+  else
+    t += snprintf(t, end - t, "%llx", (long long unsigned)snap);
+
+  if (pool == -1)
+    t += snprintf(t, end - t, ".none");
+  else
+    t += snprintf(t, end - t, ".%llx", (long long unsigned)pool);
+  snprintf(t, end - t, ".%.*X", (int)(sizeof(hash)*2), hash);
+  out += string(snap_with_hash);
+  return out;
+}
+
 void hobject_t::encode(bufferlist& bl) const
 {
   ENCODE_START(4, 3, bl);
