@@ -44,6 +44,8 @@ public:
   const string &get_key() const {
     return key;
   }
+
+  string to_str() const;
   
   hobject_t() : snap(0), hash(0), max(false), pool(-1) {}
 

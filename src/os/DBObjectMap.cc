@@ -132,31 +132,7 @@ bool DBObjectMap::check(std::ostream &out)
 
 string DBObjectMap::hobject_key(const hobject_t &hoid)
 {
-  string out;
-  append_escaped(hoid.oid.name, &out);
-  out.push_back('.');
-  append_escaped(hoid.get_key(), &out);
-  out.push_back('.');
-  append_escaped(hoid.nspace, &out);
-  out.push_back('.');
-
-  char snap_with_hash[1000];
-  char *t = snap_with_hash;
-  char *end = t + sizeof(snap_with_hash);
-  if (hoid.snap == CEPH_NOSNAP)
-    t += snprintf(t, end - t, "head");
-  else if (hoid.snap == CEPH_SNAPDIR)
-    t += snprintf(t, end - t, "snapdir");
-  else
-    t += snprintf(t, end - t, "%llx", (long long unsigned)hoid.snap);
-
-  if (hoid.pool == -1)
-    t += snprintf(t, end - t, ".none");
-  else
-    t += snprintf(t, end - t, ".%llx", (long long unsigned)hoid.pool);
-  snprintf(t, end - t, ".%.*X", (int)(sizeof(hoid.hash)*2), hoid.hash);
-  out += string(snap_with_hash);
-  return out;
+  return hoid.to_str();
 }
 
 string DBObjectMap::hobject_key_v0(coll_t c, const hobject_t &hoid)
