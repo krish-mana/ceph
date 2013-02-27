@@ -492,11 +492,48 @@ public:
 	  &t);
 	driver->submit(&t);
       }
+      if (j->second.empty()) {
+	hobject_to_snap.erase(j);
+      }
       hoid = hobject_t::get_max();
     }
     assert(hobjects.empty());
 
     snap_to_hobject.erase(snap);
+  }
+
+  void remove_oid() {
+    if (hobject_to_snap.empty())
+      return;
+    map<hobject_t, set<snapid_t> >::iterator obj =
+      rand_choose(hobject_to_snap);
+    for (set<snapid_t>::iterator i = obj->second.begin();
+	 i != obj->second.end();
+	 ++i) {
+      map<snapid_t, set<hobject_t> >::iterator j =
+	snap_to_hobject.find(*i);
+      assert(j->second.count(obj->first));
+      j->second.erase(obj->first);
+    }
+    {
+      PausyAsyncMap::Transaction t;
+      mapper->remove_oid(
+	obj->first,
+	&t);
+      driver->submit(&t);
+    }
+    hobject_to_snap.erase(obj);
+  }
+
+  void check_oid() {
+    if (hobject_to_snap.empty())
+      return;
+    map<hobject_t, set<snapid_t> >::iterator obj =
+      rand_choose(hobject_to_snap);
+    set<snapid_t> snaps;
+    int r = mapper->get_snaps(obj->first, &snaps);
+    assert(r == 0);
+    ASSERT_EQ(snaps, obj->second);
   }
 
   virtual void SetUp() {
@@ -522,7 +559,7 @@ TEST_F(SnapMapperTest, More) {
   for (int i = 0; i < 1000; ++i) {
     if (!(i % 50))
       std::cout << i << std::endl;
-    switch (rand() % 3) {
+    switch (rand() % 5) {
     case 0:
       create_snap();
       break;
@@ -531,6 +568,12 @@ TEST_F(SnapMapperTest, More) {
       break;
     case 2:
       trim_snap();
+      break;
+    case 3:
+      check_oid();
+      break;
+    case 4:
+      remove_oid();
       break;
     }
   }
