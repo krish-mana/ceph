@@ -107,16 +107,21 @@ private:
   std::string to_object_key(const hobject_t &hoid);
 
   int get_snaps(const hobject_t &oid, object_snaps *out);
+
   void set_snaps(
     const hobject_t &oid,
     const object_snaps &out,
+    MapCacher::Transaction<std::string, bufferlist> *t);
+
+  void clear_snaps(
+    const hobject_t &oid,
     MapCacher::Transaction<std::string, bufferlist> *t);
 
 public:
   SnapMapper(MapCacher::StoreDriver<std::string, bufferlist> *driver)
     : backend(driver) {}
 
-  void update_snaps(
+  int update_snaps(
     const hobject_t &oid,       ///< [in] oid to update
     const std::set<snapid_t> &new_snaps, ///< [in] new snap set
     const std::set<snapid_t> *old_snaps, ///< [in] old snaps (for debugging)
@@ -133,6 +138,16 @@ public:
     snapid_t snap,              ///< [in] snap to check
     hobject_t *hoid             ///< [out] next hoid to trim
     );  ///< @return error, -ENOENT if no more snaps
+
+  int remove_oid(
+    const hobject_t &oid,    ///< [in] oid to remove
+    MapCacher::Transaction<std::string, bufferlist> *t ///< [out] transaction
+    );
+
+  int get_snaps(
+    const hobject_t &oid,     ///< [in] oid to get snaps for
+    std::set<snapid_t> *snaps ///< [out] snaps
+    ); ///< @return error, -ENOENT if oid is not recorded
 };
 WRITE_CLASS_ENCODER(SnapMapper::object_snaps)
 
