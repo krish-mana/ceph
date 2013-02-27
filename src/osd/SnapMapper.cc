@@ -144,8 +144,18 @@ int SnapMapper::get_snaps(
   if (out) {
     bufferlist::iterator bp = got.begin()->second.begin();
     ::decode(*out, bp);
+    assert(!out->snaps.empty());
   }
   return 0;
+}
+
+void SnapMapper::clear_snaps(
+  const hobject_t &oid,
+  MapCacher::Transaction<std::string, bufferlist> *t)
+{
+  set<string> to_remove;
+  to_remove.insert(to_object_key(oid));
+  backend.remove_keys(to_remove, t);
 }
 
 void SnapMapper::set_snaps(
@@ -160,18 +170,21 @@ void SnapMapper::set_snaps(
   backend.set_keys(to_set, t);
 }
 
-void SnapMapper::update_snaps(
+int SnapMapper::update_snaps(
   const hobject_t &oid,
   const set<snapid_t> &new_snaps,
   const set<snapid_t> *old_snaps_check,
   MapCacher::Transaction<std::string, bufferlist> *t)
 {
+  if (new_snaps.empty())
+    return remove_oid(oid, t);
+
   object_snaps out;
   int r = get_snaps(oid, &out);
-  assert(r == 0);
-  if (old_snaps_check) {
+  if (r < 0)
+    return r;
+  if (old_snaps_check)
     assert(out.snaps == *old_snaps_check);
-  }
 
   object_snaps in(oid, new_snaps);
   set_snaps(oid, in, t);
@@ -185,6 +198,7 @@ void SnapMapper::update_snaps(
     }
   }
   backend.remove_keys(to_remove, t);
+  return 0;
 }
 
 void SnapMapper::add_oid(
@@ -232,5 +246,40 @@ int SnapMapper::get_next_object_to_trim(
 
   if (hoid)
     *hoid = next_decoded.second;
+  return 0;
+}
+
+
+int SnapMapper::remove_oid(
+  const hobject_t &oid,
+  MapCacher::Transaction<std::string, bufferlist> *t)
+{
+  object_snaps out;
+  int r = get_snaps(oid, &out);
+  if (r < 0)
+    return r;
+
+  clear_snaps(oid, t);
+
+  set<string> to_remove;
+  for (set<snapid_t>::iterator i = out.snaps.begin();
+       i != out.snaps.end();
+       ++i) {
+    to_remove.insert(to_raw_key(make_pair(*i, oid)));
+  }
+  backend.remove_keys(to_remove, t);
+  return 0;
+}
+
+int SnapMapper::get_snaps(
+  const hobject_t &oid,
+  std::set<snapid_t> *snaps)
+{
+  object_snaps out;
+  int r = get_snaps(oid, &out);
+  if (r < 0)
+    return r;
+  if (snaps)
+    snaps->swap(out.snaps);
   return 0;
 }
