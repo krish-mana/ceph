@@ -25,6 +25,56 @@
 #include "include/buffer.h"
 #include "include/encoding.h"
 #include "include/object.h"
+#include "os/ObjectStore.h"
+
+class OSDriver : public MapCacher::StoreDriver<std::string, bufferlist> {
+  ObjectStore *os;
+  coll_t cid;
+  hobject_t hoid;
+
+public:
+  class OSTransaction : public MapCacher::Transaction<std::string, bufferlist> {
+    friend class OSDriver;
+    coll_t cid;
+    hobject_t hoid;
+    ObjectStore::Transaction *t;
+    std::list<Context *> *contexts;
+    OSTransaction(
+      coll_t cid,
+      const hobject_t &hoid,
+      ObjectStore::Transaction *t,
+      std::list<Context *> *contexts)
+      : cid(cid), hoid(hoid), t(t), contexts(contexts) {}
+  public:
+    void set_keys(
+      const std::map<std::string, bufferlist> &to_set) {
+      t->omap_setkeys(cid, hoid, to_set);
+    }
+    void remove_keys(
+      const std::set<std::string> &to_remove) {
+      t->omap_rmkeys(cid, hoid, to_remove);
+    }
+    void add_callback(
+      Context *c) {
+      contexts->push_back(c);
+    }
+  };
+
+  OSTransaction get_transaction(
+    ObjectStore::Transaction *t,
+    list<Context *> *contexts) {
+    return OSTransaction(cid, hoid, t, contexts);
+  }
+
+  OSDriver(ObjectStore *os, coll_t cid, const hobject_t &hoid) :
+    os(os), cid(cid), hoid(hoid) {}
+  int get_keys(
+    const std::set<std::string> &keys,
+    std::map<std::string, bufferlist> *out);
+  int get_next(
+    const std::string &key,
+    pair<std::string, bufferlist> *next);
+};
 
 class SnapMapper {
 public:
