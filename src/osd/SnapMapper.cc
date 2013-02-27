@@ -19,6 +19,33 @@ using std::string;
 const string SnapMapper::MAPPING_PREFIX = "MAP_";
 const string SnapMapper::OBJECT_PREFIX = "OBJ_";
 
+int OSDriver::get_keys(
+  const std::set<std::string> &keys,
+  std::map<std::string, bufferlist> *out)
+{
+  return os->omap_get_values(cid, hoid, keys, out);
+}
+
+int OSDriver::get_next(
+  const std::string &key,
+  pair<std::string, bufferlist> *next)
+{
+  ObjectMap::ObjectMapIterator iter =
+    os->get_omap_iterator(cid, hoid);
+  if (!iter) {
+    assert(0);
+    return -EINVAL;
+  }
+  iter->upper_bound(key);
+  if (iter->valid()) {
+    if (next)
+      *next = make_pair(iter->key(), iter->value());
+    return 0;
+  } else {
+    return -ENOENT;
+  }
+}
+
 struct Mapping {
   snapid_t snap;
   hobject_t hoid;
