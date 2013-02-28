@@ -127,21 +127,21 @@ public:
     finish_contexts(cct, contexts, r);
   }
   bool empty() { return contexts.empty(); }
-};
 
-Context *list_to_context(list<Context *> &cs) {
-  if (cs.size() == 0) {
-    return 0;
-  } else if (cs.size() == 1) {
-    Context *c = cs.front();
-    cs.clear();
-    return c;
-  } else {
-    C_Contexts *c(new C_Contexts(0));
-    c->take(cs);
-    return c;
+  static Context *list_to_context(list<Context *> &cs) {
+    if (cs.size() == 0) {
+      return 0;
+    } else if (cs.size() == 1) {
+      Context *c = cs.front();
+      cs.clear();
+      return c;
+    } else {
+      C_Contexts *c(new C_Contexts(0));
+      c->take(cs);
+      return c;
+    }
   }
-}
+};
 
 
 /*
