@@ -13,6 +13,7 @@
  */
 
 #include "PG.h"
+#include "common/errno.h"
 #include "common/config.h"
 #include "OSD.h"
 #include "OpRequest.h"
@@ -61,7 +62,13 @@ void PGPool::update(OSDMapRef map)
 PG::PG(OSDService *o, OSDMapRef curmap,
        const PGPool &_pool, pg_t p, const hobject_t& loid,
        const hobject_t& ioid) :
-  osd(o), osdmap_ref(curmap), pool(_pool),
+  osd(o),
+  osdriver(osd->store, coll_t(), OSD::make_snapmapper_oid()),
+  snap_mapper(
+    &osdriver,
+    p.m_seed,
+    p.get_split_bits(curmap->get_pg_num(_pool.id))),
+  osdmap_ref(curmap), pool(_pool),
   _lock("PG::_lock"),
   ref(0), deleting(false), dirty_info(false), dirty_big_info(false), dirty_log(false),
   info(p),
@@ -346,15 +353,14 @@ void PG::remove_object_with_snap_hardlinks(
   ObjectStore::Transaction& t, const hobject_t& soid)
 {
   t.remove(coll, soid);
+  OSDriver::OSTransaction _t(osdriver.get_transaction(&t));
   if (soid.snap < CEPH_MAXSNAP) {
-    bufferlist ba;
-    int r = osd->store->getattr(coll, soid, OI_ATTR, ba);
-    if (r >= 0) {
-      // grr, need first snap bound, too.
-      object_info_t oi(ba);
-      if (oi.snaps.size() > 1)
-	t.remove(coll_t(info.pgid, oi.snaps[oi.snaps.size() - 1]), soid);
-      t.remove(coll_t(info.pgid, oi.snaps[0]), soid);
+    int r = snap_mapper.remove_oid(
+      soid,
+      &_t);
+    if (!(r == 0 || r == -ENOENT)) {
+      derr << __func__ << ": remove_oid returned " << cpp_strerror(r) << dendl;
+      assert(0);
     }
   }
 }
@@ -1454,9 +1460,6 @@ void PG::activate(ObjectStore::Transaction& t,
       queue_snap_trim();
   }
 
-  // Check local snaps
-  adjust_local_snaps();
-
   // init complete pointer
   if (missing.num_missing() == 0) {
     dout(10) << "activate - no missing, moving last_complete " << info.last_complete 
@@ -2046,6 +2049,7 @@ void PG::split_ops(PG *child, unsigned split_bits) {
 
 void PG::split_into(pg_t child_pgid, PG *child, unsigned split_bits)
 {
+  child->update_snap_mapper_bits(split_bits);
   child->osdmap_ref = osdmap_ref;
 
   child->pool = pool;
@@ -2728,20 +2732,6 @@ void PG::log_weirdness()
   }
 }
 
-coll_t PG::make_snap_collection(ObjectStore::Transaction& t, snapid_t s)
-{
-  coll_t c(info.pgid, s);
-  if (!snap_collections.contains(s)) {
-    snap_collections.insert(s);
-    dirty_big_info = true;
-    write_if_dirty(t);
-    dout(10) << "create_snap_collection " << c << ", set now "
-	     << snap_collections << dendl;
-    t.create_collection(c);
-  }
-  return c;
-}
-
 void PG::update_snap_collections(vector<pg_log_entry_t> &log_entries,
 				 ObjectStore::Transaction &t)
 {
@@ -2756,11 +2746,13 @@ void PG::update_snap_collections(vector<pg_log_entry_t> &log_entries,
       } catch (...) {
 	snaps.clear();
       }
-      if (!snaps.empty()) {
-	make_snap_collection(t, snaps[0]);
-	if (snaps.size() > 1)
-	  make_snap_collection(t, *(snaps.rbegin()));
-      }
+      set<snapid_t> _snaps(snaps.begin(), snaps.end());
+      OSDriver::OSTransaction _t(osdriver.get_transaction(&t));
+      snap_mapper.update_snaps(
+	i->soid,
+	_snaps,
+	0,
+	&_t);
     }
   }
 }
@@ -2791,16 +2783,6 @@ void PG::filter_snapc(SnapContext& snapc)
   if (filtering) {
     snapc.snaps.swap(newsnaps);
     dout(10) << "filter_snapc  result " << snapc << dendl;
-  }
-}
-
-
-void PG::adjust_local_snaps()
-{
-  interval_set<snapid_t> to_remove;
-  to_remove.intersection_of(snap_collections, info.purged_snaps);
-  if (!to_remove.empty()) {
-    queue_snap_trim();
   }
 }
 
@@ -3030,10 +3012,6 @@ void PG::_scan_list(ScrubMap &map, vector<hobject_t> &ls, bool deep)
         o.omap_digest_present = true;
       }
 
-      if (poid.snap != CEPH_SNAPDIR && poid.snap != CEPH_NOSNAP) {
-	// Check snap collections
-	check_snap_collections(st.st_ino, poid, o.attrs, &o.snapcolls);
-      }
       dout(25) << "_scan_list  " << poid << dendl;
     } else {
       dout(25) << "_scan_list  " << poid << " got " << r << ", skipping" << dendl;
@@ -3143,19 +3121,6 @@ void PG::sub_op_scrub_stop(OpRequestRef op)
   osd->send_message_osd_cluster(reply, m->get_connection());
 }
 
-
-void PG::check_ondisk_snap_colls(
-  const interval_set<snapid_t> &ondisk_snapcolls)
-{
-  if (!(ondisk_snapcolls == snap_collections)) {
-    derr << "ondisk_snapcolls: " << ondisk_snapcolls
-	 << " does not match snap_collections " << snap_collections
-	 << " repairing." << dendl;
-    osd->clog.error() << info.pgid << " ondisk snapcolls " << ondisk_snapcolls << " != snap_collections "
-		      << snap_collections << ", repairing.";
-    snap_collections = ondisk_snapcolls;
-  }
-}
 
 void PG::clear_scrub_reserved()
 {
@@ -4037,10 +4002,8 @@ void PG::_compare_scrubmaps(const map<int,ScrubMap*> &maps,
 	if (k->snap < CEPH_MAXSNAP) {
 	  if (_report_snap_collection_errors(
 		*k,
-		acting[j->first],
 		j->second->objects[*k].attrs,
-		j->second->objects[*k].snapcolls,
-		j->second->objects[*k].nlinks,
+		acting[j->first],
 		errorstream)) {
 	    invalid_snapcolls[*k].insert(j->first);
 	  }
@@ -4694,17 +4657,35 @@ void PG::proc_primary_info(ObjectStore::Transaction &t, const pg_info_t &oinfo)
     dirty_info = true;
   reg_next_scrub();
 
-  // Handle changes to purged_snaps ONLY IF we have caught up
   if (last_complete_ondisk.epoch >= info.history.last_epoch_started) {
     interval_set<snapid_t> p;
     p.union_of(oinfo.purged_snaps, info.purged_snaps);
     p.subtract(info.purged_snaps);
     info.purged_snaps = oinfo.purged_snaps;
     if (!p.empty()) {
-      dout(10) << " purged_snaps " << info.purged_snaps
-	       << " -> " << oinfo.purged_snaps
-	       << " removed " << p << dendl;
-      adjust_local_snaps();
+      // DEBUG: verify that the purged snaps are really purged!
+      for (interval_set<snapid_t>::iterator i = p.begin();
+	   i != p.end();
+	   ++i) {
+	for (snapid_t snap = i.get_start();
+	     snap != i.get_len() + i.get_start();
+	     ++snap) {
+	  hobject_t hoid;
+	  int r = snap_mapper.get_next_object_to_trim(snap, &hoid);
+	  if (r != 0 && r != -ENOENT) {
+	    derr << __func__ << ": snap_mapper get_next_object_to_trim returned "
+		 << cpp_strerror(r) << dendl;
+	    assert(0);
+	  } else if (r != -ENOENT) {
+	    derr << __func__ << ": snap_mapper get_next_object_to_trim returned "
+		 << cpp_strerror(r) << " for object "
+		 << hoid << " on snap " << snap
+		 << " which should have been fully trimmed " << dendl;
+	    assert(0);
+	  }
+	}
+      }
+      // TODO: verify that the snaps are empty in snap_mapper!
     }
     dirty_info = true;
     dirty_big_info = true;
