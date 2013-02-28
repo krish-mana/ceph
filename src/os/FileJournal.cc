@@ -1604,6 +1604,9 @@ bool FileJournal::read_entry(bufferlist& bl, uint64_t& seq)
     return false;
   }
 
+  while (read_pos >= header.max_size)
+    read_pos = read_pos + get_top() - header.max_size;
+
   off64_t pos = read_pos;
 
   // header
