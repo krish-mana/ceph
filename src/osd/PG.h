@@ -34,6 +34,7 @@
 #include "include/buffer.h"
 #include "include/xlist.h"
 #include "include/atomic.h"
+#include "SnapMapper.h"
 
 #include "OpRequest.h"
 #include "OSDMap.h"
@@ -358,8 +359,17 @@ public:
 
 
   /*** PG ****/
+public:
+  static hobject_t get_snapmapper_obj(pg_t p) {
+    return hobject_t(
+      sobject_t(
+	stringify(p) + "_snapmapper",
+	0));
+  }
 protected:
   OSDService *osd;
+  OSDriver osdriver;
+  SnapMapper snap_mapper;
   OSDMapRef osdmap_ref;
   PGPool pool;
 
@@ -450,7 +460,7 @@ public:
   map<hobject_t, set<int> > missing_loc;
   set<int> missing_loc_sources;           // superset of missing_loc locations
   
-  interval_set<snapid_t> snap_collections;
+  interval_set<snapid_t> snap_collections; // obsolete
   map<epoch_t,pg_interval_t> past_intervals;
 
   interval_set<snapid_t> snap_trimq;
@@ -1015,17 +1025,9 @@ public:
   virtual bool have_temp_coll() = 0;
   virtual bool _report_snap_collection_errors(
     const hobject_t &hoid,
+    const map<string, bufferptr> &attrs,
     int osd,
-    const map<string, bufferptr> &attrs,
-    const set<snapid_t> &snapcolls,
-    uint32_t nlinks,
     ostream &out) { return false; };
-  virtual void check_snap_collections(
-    ino_t hino, const hobject_t &hoid,
-    const map<string, bufferptr> &attrs,
-    set<snapid_t> *snapcolls) {};
-  void check_ondisk_snap_colls(
-    const interval_set<snapid_t> &ondisk_snapcolls);
   void clear_scrub_reserved();
   void scrub_reserve_replicas();
   void scrub_unreserve_replicas();
@@ -1821,7 +1823,6 @@ public:
   void read_state(ObjectStore *store, bufferlist &bl);
   static epoch_t peek_map_epoch(ObjectStore *store, coll_t coll,
                                hobject_t &infos_oid, bufferlist *bl);
-  coll_t make_snap_collection(ObjectStore::Transaction& t, snapid_t sn);
   void update_snap_collections(vector<pg_log_entry_t> &log_entries,
 			       ObjectStore::Transaction& t);
   void filter_snapc(SnapContext& snapc);
