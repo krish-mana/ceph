@@ -932,6 +932,16 @@ int OSD::init()
       return r;
   }
 
+  // make sure snap mapper object exists
+  if (!store->exists(coll_t::META_COLL, OSD::make_snapmapper_oid())) {
+    dout(10) << "init creating/touching infos object" << dendl;
+    ObjectStore::Transaction t;
+    t.touch(coll_t::META_COLL, OSD::make_snapmapper_oid());
+    r = store->apply_transaction(t);
+    if (r < 0)
+      return r;
+  }
+
   if (osd_compat.compare(superblock.compat_features) != 0) {
     // We need to persist the new compat_set before we
     // do anything else
@@ -1603,8 +1613,6 @@ void OSD::load_pgs()
 
     // read pg state, log
     pg->read_state(store, bl);
-
-    pg->check_ondisk_snap_colls(i->second);
 
     set<pg_t> split_pgs;
     if (osdmap->have_pg_pool(pg->info.pgid.pool()) &&
@@ -4589,6 +4597,8 @@ void OSD::split_pgs(
   OSDMapRef nextmap,
   PG::RecoveryCtx *rctx)
 {
+  parent->update_snap_mapper_bits(
+    curmap->get_pg_num(parent->pool.id));
   for (set<pg_t>::const_iterator i = childpgids.begin();
        i != childpgids.end();
        ++i) {
