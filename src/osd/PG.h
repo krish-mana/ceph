@@ -34,6 +34,7 @@
 #include "include/buffer.h"
 #include "include/xlist.h"
 #include "include/atomic.h"
+#include "SnapMapper.h"
 
 #include "OpRequest.h"
 #include "OSDMap.h"
@@ -348,8 +349,17 @@ public:
 
 
   /*** PG ****/
+public:
+  static hobject_t get_snapmapper_obj(pg_t p) {
+    return hobject_t(
+      sobject_t(
+	stringify(p) + "_snapmapper",
+	0));
+  }
 protected:
   OSDService *osd;
+  OSDriver osdriver;
+  SnapMapper snap_mapper;
   OSDMapRef osdmap_ref;
   PGPool pool;
 
