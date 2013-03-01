@@ -4587,6 +4587,8 @@ void OSD::split_pgs(
   OSDMapRef nextmap,
   PG::RecoveryCtx *rctx)
 {
+  parent->update_snap_mapper_bits(
+    curmap->get_pg_num(parent->pool.id));
   for (set<pg_t>::const_iterator i = childpgids.begin();
        i != childpgids.end();
        ++i) {

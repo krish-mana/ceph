@@ -370,6 +370,11 @@ protected:
   OSDService *osd;
   OSDriver osdriver;
   SnapMapper snap_mapper;
+public:
+  void update_snap_mapper_bits(uint32_t bits) {
+    snap_mapper.update_bits(bits);
+  }
+protected:
   OSDMapRef osdmap_ref;
   PGPool pool;
 

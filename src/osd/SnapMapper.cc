@@ -129,10 +129,44 @@ void SnapMapper::object_snaps::decode(bufferlist::iterator &bl)
   DECODE_FINISH(bl);
 }
 
+int SnapMapper::do_split_work(
+  MapCacher::Transaction<std::string, bufferlist> *t ///< [out] transaction
+  )
+{
+  if (split_state == NOTSPLITTING)
+    return 0;
+
+  unsigned done = 0;
+  int r = 0;
+  pair<string, bufferlist> raw;
+  while (done < 10 && (r = backend.get_next(last_key_checked, &raw)) == 0) {
+    if (raw.first.substr(0, OBJECT_PREFIX.size()) != OBJECT_PREFIX) {
+      r = -ENOENT; // Done!
+      break;
+    }
+    object_snaps val;
+    bufferlist::iterator bliter = raw.second.begin();
+    ::decode(val, bliter);
+    if (!check(val.oid))
+      _remove_oid(val.oid, t);
+    last_key_checked = raw.first;
+    ++done;
+  }
+
+  if (r == -ENOENT) {
+    split_state = NOTSPLITTING;
+    return 0;
+  } else if (r != 0) {
+    return r;
+  }
+  return 0;
+}
+
 int SnapMapper::get_snaps(
   const hobject_t &oid,
   object_snaps *out)
 {
+  assert(check(oid));
   set<string> keys;
   map<string, bufferlist> got;
   keys.insert(to_object_key(oid));
@@ -153,6 +187,7 @@ void SnapMapper::clear_snaps(
   const hobject_t &oid,
   MapCacher::Transaction<std::string, bufferlist> *t)
 {
+  assert(check(oid));
   set<string> to_remove;
   to_remove.insert(to_object_key(oid));
   backend.remove_keys(to_remove, t);
@@ -163,6 +198,7 @@ void SnapMapper::set_snaps(
   const object_snaps &in,
   MapCacher::Transaction<std::string, bufferlist> *t)
 {
+  assert(check(oid));
   map<string, bufferlist> to_set;
   bufferlist bl;
   ::encode(in, bl);
@@ -176,6 +212,7 @@ int SnapMapper::update_snaps(
   const set<snapid_t> *old_snaps_check,
   MapCacher::Transaction<std::string, bufferlist> *t)
 {
+  assert(check(oid));
   if (new_snaps.empty())
     return remove_oid(oid, t);
 
@@ -206,6 +243,7 @@ void SnapMapper::add_oid(
   set<snapid_t> snaps,
   MapCacher::Transaction<std::string, bufferlist> *t)
 {
+  assert(check(oid));
   {
     object_snaps out;
     int r = get_snaps(oid, &out);
@@ -229,28 +267,45 @@ int SnapMapper::get_next_object_to_trim(
   hobject_t *hoid)
 {
   string list_after(get_prefix(snap));
-  pair<string, bufferlist> next;
-  int r = backend.get_next(list_after, &next);
-  if (r < 0) {
-    return r; // -ENOENT indicates no next
-  }
+  while (1) {
+    pair<string, bufferlist> next;
+    int r = backend.get_next(list_after, &next);
+    if (r < 0) {
+      return r; // -ENOENT indicates no next
+    }
 
-  if (!is_mapping(next.first)) {
-    return -ENOENT;
-  }
+    if (!is_mapping(next.first)) {
+      return -ENOENT;
+    }
 
-  pair<snapid_t, hobject_t> next_decoded(from_raw(next));
-  if (next_decoded.first != snap) {
-    return -ENOENT;
-  }
+    pair<snapid_t, hobject_t> next_decoded(from_raw(next));
+    if (next_decoded.first != snap) {
+      return -ENOENT;
+    }
 
-  if (hoid)
-    *hoid = next_decoded.second;
+    if (!check(next_decoded.second)) {
+      list_after = next.first;
+      continue;
+    }
+
+    if (hoid)
+      *hoid = next_decoded.second;
+    return 0;
+  }
+  assert(0); // unreachable
   return 0;
 }
 
 
 int SnapMapper::remove_oid(
+  const hobject_t &oid,
+  MapCacher::Transaction<std::string, bufferlist> *t)
+{
+  assert(check(oid));
+  return _remove_oid(oid, t);
+}
+
+int SnapMapper::_remove_oid(
   const hobject_t &oid,
   MapCacher::Transaction<std::string, bufferlist> *t)
 {
@@ -275,6 +330,7 @@ int SnapMapper::get_snaps(
   const hobject_t &oid,
   std::set<snapid_t> *snaps)
 {
+  assert(check(oid));
   object_snaps out;
   int r = get_snaps(oid, &out);
   if (r < 0)

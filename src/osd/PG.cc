@@ -64,7 +64,10 @@ PG::PG(OSDService *o, OSDMapRef curmap,
        const hobject_t& ioid) :
   osd(o),
   osdriver(osd->store, coll_t(), get_snapmapper_obj(p)),
-  snap_mapper(&osdriver),
+  snap_mapper(
+    &osdriver,
+    p.m_seed,
+    p.get_split_bits(curmap->get_pg_num(_pool.id))),
   osdmap_ref(curmap), pool(_pool),
   _lock("PG::_lock"),
   ref(0), deleting(false), dirty_info(false), dirty_big_info(false), dirty_log(false),
@@ -2046,6 +2049,7 @@ void PG::split_ops(PG *child, unsigned split_bits) {
 
 void PG::split_into(pg_t child_pgid, PG *child, unsigned split_bits)
 {
+  child->update_snap_mapper_bits(split_bits);
   child->osdmap_ref = osdmap_ref;
 
   child->pool = pool;

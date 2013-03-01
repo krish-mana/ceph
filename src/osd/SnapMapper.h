@@ -117,9 +117,40 @@ private:
     const hobject_t &oid,
     MapCacher::Transaction<std::string, bufferlist> *t);
 
+  // True if hoid has not yet been split out
+  bool check(const hobject_t &hoid) const {
+    return hoid.match(mask_bits, match);
+  }
+
+  int _remove_oid(
+    const hobject_t &oid,    ///< [in] oid to remove
+    MapCacher::Transaction<std::string, bufferlist> *t ///< [out] transaction
+    );
+
+  int do_split_work(
+    MapCacher::Transaction<std::string, bufferlist> *t ///< [out] transaction
+    );
 public:
-  SnapMapper(MapCacher::StoreDriver<std::string, bufferlist> *driver)
-    : backend(driver) {}
+  uint32_t mask_bits;
+  uint32_t match;
+  string last_key_checked;
+  enum {
+    NOTSPLITTING,
+    SPLITTING
+  } split_state;
+  SnapMapper(
+    MapCacher::StoreDriver<std::string, bufferlist> *driver,
+    uint32_t match,
+    uint32_t bits)
+    : backend(driver), mask_bits(bits), match(match),
+      split_state(NOTSPLITTING) {}
+
+  void update_bits(uint32_t new_bits) {
+    assert(new_bits >= mask_bits);
+    mask_bits = new_bits;
+    split_state = SPLITTING;
+    last_key_checked = OBJECT_PREFIX;
+  }
 
   int update_snaps(
     const hobject_t &oid,       ///< [in] oid to update

@@ -538,7 +538,11 @@ public:
 
   virtual void SetUp() {
     driver.reset(new PausyAsyncMap());
-    mapper.reset(new SnapMapper(driver.get()));
+    mapper.reset(
+      new SnapMapper(
+	driver.get(),
+	0,
+	0));
     next = 0;
   }
   virtual void TearDown() {
