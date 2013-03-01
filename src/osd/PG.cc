@@ -2339,6 +2339,7 @@ void PG::init(int role, vector<int>& newup, vector<int>& newacting, pg_history_t
   info.stats.mapping_epoch = info.history.same_interval_since;
 
   reg_next_scrub();
+  t->touch(coll_t(), get_snapmapper_obj(info.pgid));
 
   dirty_info = true;
   dirty_big_info = true;

@@ -5612,6 +5612,7 @@ void OSD::_remove_pg(PG *pg)
   }
   rmt->remove(coll_t::META_COLL, pg->log_oid);
   rmt->remove(coll_t::META_COLL, pg->biginfo_oid);
+  rmt->remove(coll_t::META_COLL, PG::get_snapmapper_obj(pg->info.pgid));
 
   store->queue_transaction(
     pg->osr.get(), rmt,
