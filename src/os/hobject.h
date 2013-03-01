@@ -46,6 +46,13 @@ public:
   }
 
   string to_str() const;
+
+  static bool match_hash(uint32_t to_check, uint32_t bits, uint32_t match) {
+    return (match & ~((~0)<<bits)) == (to_check & ~((~0)<<bits));
+  }
+  bool match(uint32_t bits, uint32_t match) const {
+    return match_hash(hash, bits, match);
+  }
   
   hobject_t() : snap(0), hash(0), max(false), pool(-1) {}
 
