@@ -4673,7 +4673,7 @@ void PG::proc_primary_info(ObjectStore::Transaction &t, const pg_info_t &oinfo)
 	    derr << __func__ << ": snap_mapper get_next_object_to_trim returned "
 		 << cpp_strerror(r) << dendl;
 	    assert(0);
-	  } else if (r == -ENOENT) {
+	  } else if (r =! -ENOENT) {
 	    derr << __func__ << ": snap_mapper get_next_object_to_trim returned "
 		 << cpp_strerror(r) << " for object "
 		 << hoid << " on snap " << snap
