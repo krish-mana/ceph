@@ -7191,9 +7191,13 @@ boost::statechart::result ReplicatedPG::NotTrimming::react(const SnapTrim&)
   }
 
   // Primary trimming
-  context<SnapTrimmer>().snap_to_trim = pg->snap_trimq.range_start();
-  post_event(SnapTrim());
-  return transit<TrimmingObjects>();
+  if (pg->snap_trimq.empty()) {
+    return discard_event();
+  } else {
+    context<SnapTrimmer>().snap_to_trim = pg->snap_trimq.range_start();
+    post_event(SnapTrim());
+    return transit<TrimmingObjects>();
+  }
 }
 
 /* TrimmingObjects */
