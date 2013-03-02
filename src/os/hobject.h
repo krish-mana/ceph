@@ -44,6 +44,15 @@ public:
   const string &get_key() const {
     return key;
   }
+
+  string to_str() const;
+
+  static bool match_hash(uint32_t to_check, uint32_t bits, uint32_t match) {
+    return (match & ~((~0)<<bits)) == (to_check & ~((~0)<<bits));
+  }
+  bool match(uint32_t bits, uint32_t match) const {
+    return match_hash(hash, bits, match);
+  }
   
   hobject_t() : snap(0), hash(0), max(false), pool(-1) {}
 
@@ -92,11 +101,19 @@ public:
     return retval;
   }
 
+  static set<string> get_prefixes(
+    uint32_t bits,
+    uint32_t mask);
+
+  filestore_hobject_key_t get_filestore_key_u32() const {
+    assert(!max);
+    return _reverse_nibbles(hash);
+  }
   filestore_hobject_key_t get_filestore_key() const {
     if (max)
       return 0x100000000ull;
     else
-      return _reverse_nibbles(hash);
+      return get_filestore_key_u32();
   }
   void set_filestore_key(uint32_t v) {
     hash = _reverse_nibbles(v);

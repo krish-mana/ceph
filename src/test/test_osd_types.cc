@@ -18,6 +18,94 @@
 
 #include <sstream>
 
+TEST(hobject, prefixes0)
+{
+  uint32_t mask = 0xE947FA20;
+  uint32_t bits = 12;
+
+  set<string> prefixes_correct;
+  prefixes_correct.insert(string("02A"));
+
+  set<string> prefixes_out(hobject_t::get_prefixes(bits, mask));
+  ASSERT_EQ(prefixes_out, prefixes_correct);
+}
+
+TEST(hobject, prefixes1)
+{
+  uint32_t mask = 0x0000000F;
+  uint32_t bits = 6;
+
+  set<string> prefixes_correct;
+  prefixes_correct.insert(string("F0"));
+  prefixes_correct.insert(string("F4"));
+  prefixes_correct.insert(string("F8"));
+  prefixes_correct.insert(string("FC"));
+
+  set<string> prefixes_out(hobject_t::get_prefixes(bits, mask));
+  ASSERT_EQ(prefixes_out, prefixes_correct);
+}
+
+TEST(hobject, prefixes2)
+{
+  uint32_t mask = 0xDEADBEAF;
+  uint32_t bits = 25;
+
+  set<string> prefixes_correct;
+  prefixes_correct.insert(string("FAEBDA0"));
+  prefixes_correct.insert(string("FAEBDA2"));
+  prefixes_correct.insert(string("FAEBDA4"));
+  prefixes_correct.insert(string("FAEBDA6"));
+  prefixes_correct.insert(string("FAEBDA8"));
+  prefixes_correct.insert(string("FAEBDAA"));
+  prefixes_correct.insert(string("FAEBDAC"));
+  prefixes_correct.insert(string("FAEBDAE"));
+
+  set<string> prefixes_out(hobject_t::get_prefixes(bits, mask));
+  ASSERT_EQ(prefixes_out, prefixes_correct);
+}
+
+TEST(hobject, prefixes3)
+{
+  uint32_t mask = 0xE947FA20;
+  uint32_t bits = 32;
+
+  set<string> prefixes_correct;
+  prefixes_correct.insert(string("02AF749E"));
+  
+  set<string> prefixes_out(hobject_t::get_prefixes(bits, mask));
+  ASSERT_EQ(prefixes_out, prefixes_correct);
+}
+
+TEST(hobject, prefixes4)
+{
+  uint32_t mask = 0xE947FA20;
+  uint32_t bits = 0;
+
+  set<string> prefixes_correct;
+  prefixes_correct.insert(string(""));
+  
+  set<string> prefixes_out(hobject_t::get_prefixes(bits, mask));
+  ASSERT_EQ(prefixes_out, prefixes_correct);
+}
+
+TEST(hobject, prefixes5)
+{
+  uint32_t mask = 0xDEADBEAF;
+  uint32_t bits = 1;
+
+  set<string> prefixes_correct;
+  prefixes_correct.insert(string("1"));
+  prefixes_correct.insert(string("3"));
+  prefixes_correct.insert(string("5"));
+  prefixes_correct.insert(string("7"));
+  prefixes_correct.insert(string("9"));
+  prefixes_correct.insert(string("B"));
+  prefixes_correct.insert(string("D"));
+  prefixes_correct.insert(string("F"));
+
+  set<string> prefixes_out(hobject_t::get_prefixes(bits, mask));
+  ASSERT_EQ(prefixes_out, prefixes_correct);
+}
 
 TEST(pg_t, split)
 {

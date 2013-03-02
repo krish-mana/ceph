@@ -3,6 +3,99 @@
 #include "hobject.h"
 #include "common/Formatter.h"
 
+static void append_escaped(const string &in, string *out)
+{
+  for (string::const_iterator i = in.begin(); i != in.end(); ++i) {
+    if (*i == '%') {
+      out->push_back('%');
+      out->push_back('p');
+    } else if (*i == '.') {
+      out->push_back('%');
+      out->push_back('e');
+    } else if (*i == '_') {
+      out->push_back('%');
+      out->push_back('u');
+    } else {
+      out->push_back(*i);
+    }
+  }
+}
+
+set<string> hobject_t::get_prefixes(
+  uint32_t bits,
+  uint32_t mask)
+{
+  uint32_t len = bits;
+  while (len % 4 /* nibbles */) len++;
+
+  set<uint32_t> from;
+  if (bits < 32)
+    from.insert(mask & ~((uint32_t)(~0) << bits));
+  else if (bits == 32)
+    from.insert(mask);
+  else
+    assert(0);
+    
+
+  set<uint32_t> to;
+  for (uint32_t i = bits; i < len; ++i) {
+    for (set<uint32_t>::iterator j = from.begin();
+	 j != from.end();
+	 ++j) {
+      to.insert(*j | (1 << i));
+      to.insert(*j);
+    }
+    to.swap(from);
+    to.clear();
+  }
+
+  set<string> ret;
+  for (set<uint32_t>::iterator i = from.begin();
+       i != from.end();
+       ++i) {
+    char hash[10];
+    uint32_t revhash(hobject_t::_reverse_nibbles(*i));
+    snprintf(hash, sizeof(hash), "%.*X", (int)(sizeof(revhash))*2, revhash);
+    ret.insert(string(hash, len/4));
+  }
+  return ret;
+}
+
+string hobject_t::to_str() const
+{
+  string out;
+
+  char snap_with_hash[1000];
+  char *t = snap_with_hash;
+  char *end = t + sizeof(snap_with_hash);
+
+  uint32_t revhash(get_filestore_key_u32());
+  t += snprintf(t, end - t, "%.*X", (int)(sizeof(revhash)*2), revhash);
+
+  if (pool == -1)
+    t += snprintf(t, end - t, ".none");
+  else
+    t += snprintf(t, end - t, ".%llx", (long long unsigned)pool);
+
+  if (snap == CEPH_NOSNAP)
+    t += snprintf(t, end - t, ".head");
+  else if (snap == CEPH_SNAPDIR)
+    t += snprintf(t, end - t, ".snapdir");
+  else
+    t += snprintf(t, end - t, ".%llx", (long long unsigned)snap);
+
+  out += string(snap_with_hash);
+
+  out.push_back('.');
+  append_escaped(oid.name, &out);
+  out.push_back('.');
+  append_escaped(get_key(), &out);
+  out.push_back('.');
+  append_escaped(nspace, &out);
+
+  return out;
+}
+
 void hobject_t::encode(bufferlist& bl) const
 {
   ENCODE_START(4, 3, bl);
