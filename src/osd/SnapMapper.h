@@ -88,6 +88,9 @@ public:
 private:
   MapCacher::MapCacher<std::string, bufferlist> backend;
 
+  set<string> prefixes;
+  void gen_prefixes();
+
   static const std::string MAPPING_PREFIX;
   static const std::string OBJECT_PREFIX;
 
@@ -127,9 +130,6 @@ private:
     MapCacher::Transaction<std::string, bufferlist> *t ///< [out] transaction
     );
 
-  int do_split_work(
-    MapCacher::Transaction<std::string, bufferlist> *t ///< [out] transaction
-    );
 public:
   uint32_t mask_bits;
   uint32_t match;

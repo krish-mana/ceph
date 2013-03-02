@@ -129,39 +129,6 @@ void SnapMapper::object_snaps::decode(bufferlist::iterator &bl)
   DECODE_FINISH(bl);
 }
 
-int SnapMapper::do_split_work(
-  MapCacher::Transaction<std::string, bufferlist> *t ///< [out] transaction
-  )
-{
-  if (split_state == NOTSPLITTING)
-    return 0;
-
-  unsigned done = 0;
-  int r = 0;
-  pair<string, bufferlist> raw;
-  while (done < 10 && (r = backend.get_next(last_key_checked, &raw)) == 0) {
-    if (raw.first.substr(0, OBJECT_PREFIX.size()) != OBJECT_PREFIX) {
-      r = -ENOENT; // Done!
-      break;
-    }
-    object_snaps val;
-    bufferlist::iterator bliter = raw.second.begin();
-    ::decode(val, bliter);
-    if (!check(val.oid))
-      _remove_oid(val.oid, t);
-    last_key_checked = raw.first;
-    ++done;
-  }
-
-  if (r == -ENOENT) {
-    split_state = NOTSPLITTING;
-    return 0;
-  } else if (r != 0) {
-    return r;
-  }
-  return 0;
-}
-
 int SnapMapper::get_snaps(
   const hobject_t &oid,
   object_snaps *out)
@@ -281,11 +248,6 @@ int SnapMapper::get_next_object_to_trim(
     pair<snapid_t, hobject_t> next_decoded(from_raw(next));
     if (next_decoded.first != snap) {
       return -ENOENT;
-    }
-
-    if (!check(next_decoded.second)) {
-      list_after = next.first;
-      continue;
     }
 
     if (hoid)
