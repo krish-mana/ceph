@@ -598,6 +598,7 @@ protected:
   }
 
   MapperVerifier &get_tester() {
+    //return *(mappers.begin()->second);
     return *(rand_choose(mappers)->second);
   }
 
@@ -616,7 +617,7 @@ protected:
   }
 
   void run() {
-    for (int i = 0; i < 1000; ++i) {
+    for (int i = 0; i < 5000; ++i) {
       if (!(i % 50))
 	std::cout << i << std::endl;
       switch (rand() % 5) {
@@ -653,7 +654,7 @@ TEST_F(SnapMapperTest, More) {
 }
 
 TEST_F(SnapMapperTest, MultiPG) {
-  init(10);
+  init(50);
   run();
 }
 
