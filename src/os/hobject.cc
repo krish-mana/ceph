@@ -70,7 +70,7 @@ string hobject_t::to_str() const
   char *end = t + sizeof(snap_with_hash);
 
   uint32_t revhash(get_filestore_key_u32());
-  snprintf(t, end - t, "%.*X", (int)(sizeof(revhash)*2), revhash);
+  t += snprintf(t, end - t, "%.*X", (int)(sizeof(revhash)*2), revhash);
 
   if (pool == -1)
     t += snprintf(t, end - t, ".none");
