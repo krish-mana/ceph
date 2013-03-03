@@ -88,9 +88,6 @@ public:
 private:
   MapCacher::MapCacher<std::string, bufferlist> backend;
 
-  set<string> prefixes;
-  void gen_prefixes();
-
   static const std::string MAPPING_PREFIX;
   static const std::string OBJECT_PREFIX;
 
@@ -143,13 +140,17 @@ public:
     uint32_t match,
     uint32_t bits)
     : backend(driver), mask_bits(bits), match(match),
-      split_state(NOTSPLITTING) {}
+      split_state(NOTSPLITTING) {
+    update_bits(mask_bits);
+  }
 
+  set<string> prefixes;
   void update_bits(uint32_t new_bits) {
     assert(new_bits >= mask_bits);
     mask_bits = new_bits;
-    split_state = SPLITTING;
-    last_key_checked = OBJECT_PREFIX;
+    prefixes = hobject_t::get_prefixes(
+      mask_bits,
+      match);
   }
 
   int update_snaps(

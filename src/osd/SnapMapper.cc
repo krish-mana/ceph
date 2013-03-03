@@ -233,29 +233,33 @@ int SnapMapper::get_next_object_to_trim(
   snapid_t snap,
   hobject_t *hoid)
 {
-  string list_after(get_prefix(snap));
-  while (1) {
+  for (set<string>::iterator i = prefixes.begin();
+       i != prefixes.end();
+       ++i) {
+    string list_after(get_prefix(snap) + *i);
+
     pair<string, bufferlist> next;
     int r = backend.get_next(list_after, &next);
     if (r < 0) {
-      return r; // -ENOENT indicates no next
+      break; // Done
     }
 
-    if (!is_mapping(next.first)) {
-      return -ENOENT;
+    if (next.first.substr(0, list_after.size()) !=
+	list_after) {
+      continue; // Done with this prefix
     }
+
+    assert(is_mapping(next.first));
 
     pair<snapid_t, hobject_t> next_decoded(from_raw(next));
-    if (next_decoded.first != snap) {
-      return -ENOENT;
-    }
+    assert(next_decoded.first == snap);
+    assert(check(next_decoded.second));
 
     if (hoid)
       *hoid = next_decoded.second;
     return 0;
   }
-  assert(0); // unreachable
-  return 0;
+  return -ENOENT;
 }
 
 
