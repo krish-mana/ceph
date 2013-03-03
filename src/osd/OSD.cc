@@ -932,6 +932,16 @@ int OSD::init()
       return r;
   }
 
+  // make sure snap mapper object exists
+  if (!store->exists(coll_t::META_COLL, OSD::make_snapmapper_oid())) {
+    dout(10) << "init creating/touching infos object" << dendl;
+    ObjectStore::Transaction t;
+    t.touch(coll_t::META_COLL, OSD::make_snapmapper_oid());
+    r = store->apply_transaction(t);
+    if (r < 0)
+      return r;
+  }
+
   if (osd_compat.compare(superblock.compat_features) != 0) {
     // We need to persist the new compat_set before we
     // do anything else
@@ -5614,7 +5624,6 @@ void OSD::_remove_pg(PG *pg)
   }
   rmt->remove(coll_t::META_COLL, pg->log_oid);
   rmt->remove(coll_t::META_COLL, pg->biginfo_oid);
-  rmt->remove(coll_t::META_COLL, PG::get_snapmapper_obj(pg->info.pgid));
 
   store->queue_transaction(
     pg->osr.get(), rmt,

@@ -359,13 +359,6 @@ public:
 
 
   /*** PG ****/
-public:
-  static hobject_t get_snapmapper_obj(pg_t p) {
-    return hobject_t(
-      sobject_t(
-	stringify(p) + "_snapmapper",
-	0));
-  }
 protected:
   OSDService *osd;
   OSDriver osdriver;

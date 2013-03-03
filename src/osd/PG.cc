@@ -63,7 +63,7 @@ PG::PG(OSDService *o, OSDMapRef curmap,
        const PGPool &_pool, pg_t p, const hobject_t& loid,
        const hobject_t& ioid) :
   osd(o),
-  osdriver(osd->store, coll_t(), get_snapmapper_obj(p)),
+  osdriver(osd->store, coll_t(), OSD::make_snapmapper_oid()),
   snap_mapper(
     &osdriver,
     p.m_seed,
@@ -2343,7 +2343,6 @@ void PG::init(int role, vector<int>& newup, vector<int>& newacting, pg_history_t
   info.stats.mapping_epoch = info.history.same_interval_since;
 
   reg_next_scrub();
-  t->touch(coll_t(), get_snapmapper_obj(info.pgid));
 
   dirty_info = true;
   dirty_big_info = true;
