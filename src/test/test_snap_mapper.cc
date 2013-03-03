@@ -203,6 +203,35 @@ public:
     doer.submit(t->ops);
     doer.submit(t->callbacks);
   }
+
+  void flush() {
+    Mutex lock("flush lock");
+    Cond cond;
+    bool done = false;
+    
+    class OnFinish : public Context {
+      Mutex *lock;
+      Cond *cond;
+      bool *done;
+    public:
+      OnFinish(Mutex *lock, Cond *cond, bool *done)
+	: lock(lock), cond(cond), done(done) {}
+      void finish(int) {
+	Mutex::Locker l(*lock);
+	*done = true;
+	cond->Signal();
+      }
+    };
+    Transaction t;
+    t.add_callback(new OnFinish(&lock, &cond, &done));
+    submit(&t);
+    {
+      Mutex::Locker l(lock);
+      while (!done)
+	cond.Wait(lock);
+    }
+  }
+
   void pause() {
     doer.pause();
   }
@@ -409,21 +438,31 @@ TEST_F(MapCacherTest, Random)
   }
 }
 
-class SnapMapperTest : public ::testing::Test {
-protected:
-  boost::scoped_ptr< PausyAsyncMap > driver;
+class MapperVerifier {
+  PausyAsyncMap *driver;
   boost::scoped_ptr< SnapMapper > mapper;
   map<snapid_t, set<hobject_t> > snap_to_hobject;
   map<hobject_t, set<snapid_t> > hobject_to_snap;
   snapid_t next;
+  uint32_t mask;
+  uint32_t bits;
+  Mutex lock;
 public:
+
+  MapperVerifier(
+    PausyAsyncMap *driver,
+    uint32_t mask,
+    uint32_t bits)
+    : driver(driver),
+      mapper(new SnapMapper(driver, mask, bits)), mask(mask), bits(bits),
+      lock("lock") {}
 
   hobject_t random_hobject() {
     return hobject_t(
       random_string(1+(rand() % 16)),
       random_string(1+(rand() % 16)),
       snapid_t(rand() % 1000),
-      rand(),
+      (rand() & ((~0)<<bits)) | (mask & ~((~0)<<bits)),
       rand() % 1000);
   }
 
@@ -441,6 +480,7 @@ public:
   }
 
   void create_object() {
+    Mutex::Locker l(lock);
     if (snap_to_hobject.empty())
       return;
     hobject_t obj;
@@ -465,6 +505,7 @@ public:
   }
 
   void trim_snap() {
+    Mutex::Locker l(lock);
     if (snap_to_hobject.empty())
       return;
     map<snapid_t, set<hobject_t> >::iterator snap =
@@ -503,6 +544,7 @@ public:
   }
 
   void remove_oid() {
+    Mutex::Locker l(lock);
     if (hobject_to_snap.empty())
       return;
     map<hobject_t, set<snapid_t> >::iterator obj =
@@ -526,6 +568,7 @@ public:
   }
 
   void check_oid() {
+    Mutex::Locker l(lock);
     if (hobject_to_snap.empty())
       return;
     map<hobject_t, set<snapid_t> >::iterator obj =
@@ -535,52 +578,83 @@ public:
     assert(r == 0);
     ASSERT_EQ(snaps, obj->second);
   }
+};
+
+class SnapMapperTest : public ::testing::Test {
+protected:
+  boost::scoped_ptr< PausyAsyncMap > driver;
+  map<pg_t, std::tr1::shared_ptr<MapperVerifier> > mappers;
+  uint32_t pgnum;
 
   virtual void SetUp() {
     driver.reset(new PausyAsyncMap());
-    mapper.reset(
-      new SnapMapper(
-	driver.get(),
-	0,
-	0));
-    next = 0;
+    pgnum = 0;
   }
+
   virtual void TearDown() {
     driver->stop();
-    mapper.reset();
+    mappers.clear();
     driver.reset();
   }
 
+  MapperVerifier &get_tester() {
+    return *(rand_choose(mappers)->second);
+  }
+
+  void init(uint32_t to_set) {
+    pgnum = to_set;
+    for (uint32_t i = 0; i < pgnum; ++i) {
+      pg_t pgid(i, 0, -1);
+      mappers[pgid].reset(
+	new MapperVerifier(
+	  driver.get(),
+	  i,
+	  pgid.get_split_bits(pgnum)
+	  )
+	);
+    }
+  }
+
+  void run() {
+    for (int i = 0; i < 1000; ++i) {
+      if (!(i % 50))
+	std::cout << i << std::endl;
+      switch (rand() % 5) {
+      case 0:
+	get_tester().create_snap();
+	break;
+      case 1:
+	get_tester().create_object();
+	break;
+      case 2:
+	get_tester().trim_snap();
+	break;
+      case 3:
+	get_tester().check_oid();
+	break;
+      case 4:
+	get_tester().remove_oid();
+	break;
+      }
+    }
+  }
 };
 
 TEST_F(SnapMapperTest, Simple) {
-  create_snap();
-  create_object();
-  trim_snap();
+  init(1);
+  get_tester().create_snap();
+  get_tester().create_object();
+  get_tester().trim_snap();
 }
 
 TEST_F(SnapMapperTest, More) {
-  for (int i = 0; i < 1000; ++i) {
-    if (!(i % 50))
-      std::cout << i << std::endl;
-    switch (rand() % 5) {
-    case 0:
-      create_snap();
-      break;
-    case 1:
-      create_object();
-      break;
-    case 2:
-      trim_snap();
-      break;
-    case 3:
-      check_oid();
-      break;
-    case 4:
-      remove_oid();
-      break;
-    }
-  }
+  init(1);
+  run();
+}
+
+TEST_F(SnapMapperTest, MultiPG) {
+  init(10);
+  run();
 }
 
 int main(int argc, char **argv)
