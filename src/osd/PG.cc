@@ -613,6 +613,7 @@ void PG::merge_log(ObjectStore::Transaction& t,
     log.index();   
 
     info.last_update = log.head = olog.head;
+    info.purged_snaps = oinfo.purged_snaps;
 
     // process divergent items
     if (!divergent.empty()) {
