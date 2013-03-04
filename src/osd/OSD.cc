@@ -1614,6 +1614,14 @@ void OSD::load_pgs()
     // read pg state, log
     pg->read_state(store, bl);
 
+    if (pg->must_upgrade()) {
+      derr << "PG " << pg->info.pgid
+	   << " must upgrade..." << dendl;
+      pg->upgrade(store, i->second);
+    } else {
+      assert(i->second.empty());
+    }
+
     set<pg_t> split_pgs;
     if (osdmap->have_pg_pool(pg->info.pgid.pool()) &&
 	pg->info.pgid.is_split(pg->get_osdmap()->get_pg_num(pg->info.pgid.pool()),
