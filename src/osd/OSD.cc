@@ -2529,7 +2529,7 @@ void OSD::RemoveWQ::_process(boost::tuple<coll_t, SequencerRef, DeletingStateRef
     store,
     coll_t(),
     make_snapmapper_oid());
-  SnapMapper mapper(&driver, 0, 0);
+  SnapMapper mapper(&driver, 0, 0, 0);
   coll_t &coll = item->get<0>();
   ObjectStore::Sequencer *osr = item->get<1>().get();
   if (osr)
