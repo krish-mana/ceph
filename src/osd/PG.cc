@@ -2450,9 +2450,10 @@ void PG::upgrade(
 	  *j, 
 	  OI_ATTR,
 	  bp);
-	if (r != 0) {
+	if (r < 0) {
 	  derr << __func__ << ": getattr returned "
 	       << cpp_strerror(r) << dendl;
+	  assert(0);
 	}
 	bufferlist bl;
 	bl.push_back(bp);
