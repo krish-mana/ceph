@@ -1056,6 +1056,9 @@ int OSD::init()
   r = admin_socket->register_command("getomap", test_ops_hook,
                                "getomap <pool-id> <obj-name>");
   assert(r == 0);
+  r = admin_socket->register_command("truncobj", test_ops_hook,
+                               "truncobj <pool-id> <obj-name> <len>");
+  assert(r == 0);
 
   service.init();
   service.publish_map(osdmap);
@@ -1237,6 +1240,7 @@ int OSD::shutdown()
   cct->get_admin_socket()->unregister_command("rmomapkey");
   cct->get_admin_socket()->unregister_command("setomapheader");
   cct->get_admin_socket()->unregister_command("getomap");
+  cct->get_admin_socket()->unregister_command("truncobj");
   delete test_ops_hook;
   test_ops_hook = NULL;
 
@@ -2503,6 +2507,7 @@ void OSD::check_ops_in_flight()
 //   setomapval <pool-id> <obj-name> <key> <val>
 //   rmomapkey <pool-id> <obj-name> <key>
 //   setomapheader <pool-id> <obj-name> <header>
+//   truncobj <pool-id> <obj-name> <newlen>
 void TestOpsSocketHook::test_ops(OSDService *service, ObjectStore *store,
      std::string command, std::string args, ostream &ss)
 {
@@ -2510,7 +2515,9 @@ void TestOpsSocketHook::test_ops(OSDService *service, ObjectStore *store,
   //Support changing the omap on a single osd by using the Admin Socket to
   //directly request the osd make a change.
   if (command == "setomapval" || command == "rmomapkey" ||
-        command == "setomapheader" || command == "getomap") {
+      command == "setomapheader" || command == "getomap" ||
+      command == "truncobj"
+    ) {
     std::vector<std::string> argv;
     pg_t rawpg, pgid;
     int64_t pool;
@@ -2606,6 +2613,17 @@ void TestOpsSocketHook::test_ops(OSDService *service, ObjectStore *store,
       } else {
           ss << "error=" << r;
       }
+    } else if (command == "truncobj") {
+      if (argc != 4) {
+	ss << "usage: truncobj <pool> <obj-name> <key> <val>";
+	return;
+      }
+      t.truncate(coll_t(pgid), obj, atoi(argv[3].c_str()));
+      r = store->apply_transaction(t);
+      if (r < 0)
+	ss << "error=" << r;
+      else
+	ss << "ok";
     }
     return;
   }
