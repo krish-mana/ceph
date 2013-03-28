@@ -402,6 +402,32 @@ public:
   }
   uuid_d get_fsid() { return fsid; }
 
+  // DEBUG read error injection, an object is removed from both on delete()
+  Mutex read_error_lock;
+  set<hobject_t> data_error_set; // read() will return -EIO
+  set<hobject_t> mdata_error_set; // getattr(),stat() will return -EIO
+  void inject_data_error(const hobject_t &oid) {
+    Mutex::Locker l(read_error_lock);
+    data_error_set.insert(oid);
+  }
+  void inject_mdata_error(const hobject_t &oid) {
+    Mutex::Locker l(read_error_lock);
+    mdata_error_set.insert(oid);
+  }
+  void debug_delete_obj(const hobject_t &oid) {
+    Mutex::Locker l(read_error_lock);
+    data_error_set.erase(oid);
+    mdata_error_set.erase(oid);
+  }
+  bool debug_data_eio(const hobject_t &oid) {
+    Mutex::Locker l(read_error_lock);
+    return data_error_set.count(oid);
+  }
+  bool debug_mdata_eio(const hobject_t &oid) {
+    Mutex::Locker l(read_error_lock);
+    return mdata_error_set.count(oid);
+  }
+
   int snapshot(const string& name);
 
   // attrs

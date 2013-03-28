@@ -1060,6 +1060,14 @@ int OSD::init()
                                "truncobj <pool-id> <obj-name> <len>");
   assert(r == 0);
 
+  r = admin_socket->register_command("injectdataerr", test_ops_hook,
+				     "injectdataerr <pool-id> <obj-name>");
+  assert(r == 0);
+
+  r = admin_socket->register_command("injectmdataerr", test_ops_hook,
+				     "injectmdataerr <pool-id> <obj-name>");
+  assert(r == 0);
+
   service.init();
   service.publish_map(osdmap);
   service.publish_superblock(superblock);
@@ -1241,6 +1249,8 @@ int OSD::shutdown()
   cct->get_admin_socket()->unregister_command("setomapheader");
   cct->get_admin_socket()->unregister_command("getomap");
   cct->get_admin_socket()->unregister_command("truncobj");
+  cct->get_admin_socket()->unregister_command("injectdataerr");
+  cct->get_admin_socket()->unregister_command("injectmdataerr");
   delete test_ops_hook;
   test_ops_hook = NULL;
 
@@ -2624,6 +2634,10 @@ void TestOpsSocketHook::test_ops(OSDService *service, ObjectStore *store,
 	ss << "error=" << r;
       else
 	ss << "ok";
+    } else if (command == "injectdataerr") {
+      store->inject_data_error(obj);
+    } else if (command == "injectmdataerr") {
+      store->inject_mdata_error(obj);
     }
     return;
   }
