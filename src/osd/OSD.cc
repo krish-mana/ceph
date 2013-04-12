@@ -1307,6 +1307,7 @@ int OSD::shutdown()
     assert(pg_stat_queue.empty());
   }
 
+  peering_wq.clear();
   // Remove PGs
   for (hash_map<pg_t, PG*>::iterator p = pg_map.begin();
        p != pg_map.end();
@@ -1335,6 +1336,7 @@ int OSD::shutdown()
   cluster_messenger->shutdown();
   hbclient_messenger->shutdown();
   hbserver_messenger->shutdown();
+  peering_wq.clear();
   return r;
 }
 
