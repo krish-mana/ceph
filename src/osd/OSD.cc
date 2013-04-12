@@ -1217,7 +1217,7 @@ int OSD::shutdown()
   g_ceph_context->_conf->set_val("debug_ms", "100");
   g_ceph_context->_conf->apply_changes(NULL);
   
-  // Remove PGs
+  // Shutdown PGs
   for (hash_map<pg_t, PG*>::iterator p = pg_map.begin();
        p != pg_map.end();
        ++p) {
@@ -1227,7 +1227,6 @@ int OSD::shutdown()
     p->second->kick();
     p->second->unlock();
     p->second->osr->flush();
-    p->second->put();
   }
   pg_map.clear();
   
@@ -1308,6 +1307,21 @@ int OSD::shutdown()
     assert(pg_stat_queue.empty());
   }
 
+  // Remove PGs
+  for (hash_map<pg_t, PG*>::iterator p = pg_map.begin();
+       p != pg_map.end();
+       ++p) {
+    dout(20) << " kicking pg " << p->first << dendl;
+    p->second->lock();
+    if (p->second->ref.read() != 1) {
+      derr << "pgid " << p->first << " has ref count of "
+	   << p->second->ref.read() << dendl;
+      assert(0);
+    }
+    p->second->unlock();
+    p->second->put();
+  }
+  pg_map.clear();
   g_conf->remove_observer(this);
 
   monc->shutdown();
