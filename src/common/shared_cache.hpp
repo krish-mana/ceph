@@ -82,7 +82,6 @@ public:
   ~SharedLRU() {
     contents.clear();
     lru.clear();
-    assert(weak_refs.empty());
   }
 
   void set_size(size_t new_size) {
