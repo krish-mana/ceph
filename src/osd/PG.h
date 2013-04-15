@@ -140,7 +140,33 @@ struct PGPool {
  */
 
 class PG {
+  static Mutex pgid_lock;
+  static map<pg_t, int> pgid_tracker;
+  static void add_pgid(pg_t pgid) {
+    Mutex::Locker l(pgid_lock);
+    if (!pgid_tracker.count(pgid))
+      pgid_tracker[pgid] = 0;
+    pgid_tracker[pgid]++;
+  }
+  static void remove_pgid(pg_t pgid) {
+    Mutex::Locker l(pgid_lock);
+    assert(pgid_tracker.count(pgid));
+    assert(pgid_tracker[pgid] > 0);
+    pgid_tracker[pgid]--;
+    if (pgid_tracker[pgid] == 0)
+      pgid_tracker.erase(pgid);
+  }
 public:
+  static void dump_live_pgids() {
+    Mutex::Locker l(pgid_lock);
+    derr << "live pgids:" << dendl;
+    for (map<pg_t, int>::iterator i = pgid_tracker.begin();
+	 i != pgid_tracker.end();
+	 ++i) {
+      derr << "\t" << *i << dendl;
+    }
+    assert(pgid_tracker.empty());
+  }
   /* Exceptions */
   class read_log_error : public buffer::error {
   public:

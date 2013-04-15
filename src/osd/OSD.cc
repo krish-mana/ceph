@@ -1323,6 +1323,7 @@ int OSD::shutdown()
     p->second->put();
   }
   pg_map.clear();
+  PG::dump_live_pgids();
   g_conf->remove_observer(this);
 
   monc->shutdown();
