@@ -33,6 +33,7 @@
 
 #include "messages/MOSDSubOp.h"
 #include "messages/MOSDSubOpReply.h"
+#include "common/BackTrace.h"
 
 #include <sstream>
 
@@ -45,6 +46,37 @@ static ostream& _prefix(std::ostream *_dout, const PG *pg) {
 
 Mutex PG::pgid_lock("pgid_lock");
 map<pg_t, int> PG::pgid_tracker;
+
+uint64_t PG::get_with_id() {
+  get();
+  Mutex::Locker l(_ref_id_lock);
+  uint64_t id = ++_ref_id;
+  BackTrace bt(100);
+  stringstream ss;
+  bt.print(ss);
+  dout(0) << __func__ << ": " << info.pgid << " got id " << id << dendl;
+  assert(!_live_ids.count(id));
+  _live_ids.insert(make_pair(id, ss.str()));
+  return id;
+}
+void PG::put_with_id(uint64_t id) {
+  dout(0) << __func__ << ": " << info.pgid << " put id " << id << dendl;
+  {
+    Mutex::Locker l(_ref_id_lock);
+    assert(_live_ids.count(id));
+    _live_ids.erase(id);
+  }
+  put();
+}
+void PG::dump_live_ids() {
+  Mutex::Locker l(_ref_id_lock);
+  dout(0) << "\t" << __func__ << ": " << info.pgid << " live ids:" << dendl;
+  for (map<uint64_t, string>::iterator i = _live_ids.begin();
+       i != _live_ids.end();
+       ++i) {
+    dout(0) << "\t\tid: " << *i << dendl;
+  }
+}
 
 void PGPool::update(OSDMapRef map)
 {
@@ -75,7 +107,8 @@ PG::PG(OSDService *o, OSDMapRef curmap,
     _pool.id),
   osdmap_ref(curmap), pool(_pool),
   _lock("PG::_lock"),
-  ref(0), deleting(false), dirty_info(false), dirty_big_info(false), dirty_log(false),
+  ref(0), _ref_id_lock("PG::_ref_id_lock"), _ref_id(0),
+  deleting(false), dirty_info(false), dirty_big_info(false), dirty_log(false),
   info(p),
   info_struct_v(0),
   coll(p), log_oid(loid), biginfo_oid(ioid),
