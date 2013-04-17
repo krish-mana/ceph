@@ -102,6 +102,12 @@ void PG::dump_live_ids() {
        ++i) {
     dout(0) << "\t\tid: " << *i << dendl;
   }
+  dout(0) << "\t" << __func__ << ": " << info.pgid << " live tags:" << dendl;
+  for (map<string, uint64_t>::iterator i = _tag_counts.begin();
+       i != _tag_counts.end();
+       ++i) {
+    dout(0) << "\t\tid: " << *i << dendl;
+  }
 }
 
 void PGPool::update(OSDMapRef map)
