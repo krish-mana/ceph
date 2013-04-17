@@ -422,6 +422,7 @@ protected:
   Mutex _ref_id_lock;
   uint64_t _ref_id;
   map<uint64_t, string> _live_ids;
+  map<string, uint64_t> _tag_counts;
 
 public:
   bool deleting;  // true while in removing or OSD is shutting down
@@ -460,17 +461,8 @@ public:
   uint64_t get_with_id();
   void put_with_id(uint64_t);
   void dump_live_ids();
-  void get() {
-    //generic_dout(0) << this << " " << info.pgid << " get " << ref.test() << dendl;
-    //assert(_lock.is_locked());
-    ref.inc();
-  }
-  void put() { 
-    //generic_dout(0) << this << " " << info.pgid << " put " << ref.test() << dendl;
-    if (ref.dec() == 0)
-      delete this;
-  }
-
+  void get(const string &tag = string());
+  void put(const string &tag = string());
 
   bool dirty_info, dirty_big_info, dirty_log;
 

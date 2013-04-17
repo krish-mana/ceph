@@ -48,8 +48,32 @@ Mutex PG::pgid_lock("pgid_lock");
 map<pg_t, int> PG::pgid_tracker;
 map<pg_t, PG*> PG::live_pgs;
 
+void PG::get(const string &tag) {
+  //generic_dout(0) << this << " " << info.pgid << " get " << ref.test() << dendl;
+  //assert(_lock.is_locked());
+  ref.inc();
+  Mutex::Locker l(_ref_id_lock);
+  if (!_tag_counts.count(tag)) {
+    _tag_counts[tag] = 0;
+  }
+  _tag_counts[tag]++;
+}
+void PG::put(const string &tag) { 
+  //generic_dout(0) << this << " " << info.pgid << " put " << ref.test() << dendl;
+  {
+    Mutex::Locker l(_ref_id_lock);
+    assert(_tag_counts.count(tag));
+    _tag_counts[tag]--;
+    if (_tag_counts[tag] == 0) {
+      _tag_counts.erase(tag);
+    }
+  }
+  if (ref.dec() == 0)
+    delete this;
+}
+
 uint64_t PG::get_with_id() {
-  get();
+  ref.inc();
   Mutex::Locker l(_ref_id_lock);
   uint64_t id = ++_ref_id;
   BackTrace bt(100);
@@ -67,7 +91,8 @@ void PG::put_with_id(uint64_t id) {
     assert(_live_ids.count(id));
     _live_ids.erase(id);
   }
-  put();
+  if (ref.dec() == 0)
+    delete this;
 }
 void PG::dump_live_ids() {
   Mutex::Locker l(_ref_id_lock);
