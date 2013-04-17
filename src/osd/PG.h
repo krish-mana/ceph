@@ -64,6 +64,51 @@ class MOSDPGScan;
 class MOSDPGBackfill;
 class MOSDPGInfo;
 
+template <class T>
+class _PGRef {
+  T *pg;
+  uint64_t id;
+public:
+  _PGRef() : pg(NULL), id(0) {}
+  _PGRef(T *pg) : pg(pg), id(pg ? pg->get_with_id() : 0) {}
+  ~_PGRef() {
+    if (pg) {
+      assert(id);
+      pg->put_with_id(id);
+    } else {
+      assert(id == 0);
+    }
+  }
+  void swap(_PGRef &other) {
+    T *opg = other.pg;
+    uint64_t oid = other.id;
+    other.pg = pg;
+    other.id = id;
+    pg = opg;
+    id = oid;
+  }
+  _PGRef(const _PGRef& rhs) : pg(rhs.pg), id(pg ? pg->get_with_id() : 0) {}
+  void operator=(const _PGRef &rhs) {
+    _PGRef o(rhs.pg);
+    swap(o);
+  }
+  T &operator*() {
+    return *pg;
+  }
+  T *operator->() {
+    return pg;
+  }
+  bool operator<(const _PGRef &lhs) const {
+    return pg < lhs.pg;
+  }
+  bool operator==(const _PGRef &lhs) const {
+    return pg == lhs.pg;
+  }
+};
+class PG;
+void intrusive_ptr_add_ref(PG *pg);
+void intrusive_ptr_release(PG *pg);
+typedef _PGRef<PG> PGRef;
 
 struct PGRecoveryStats {
   struct per_state_info {
@@ -1997,51 +2042,6 @@ WRITE_CLASS_ENCODER(PG::OndiskLog)
 
 ostream& operator<<(ostream& out, const PG& pg);
 
-void intrusive_ptr_add_ref(PG *pg);
-void intrusive_ptr_release(PG *pg);
-
 //typedef boost::intrusive_ptr<PG> PGRef;
-template <class T>
-class _PGRef {
-  T *pg;
-  uint64_t id;
-public:
-  _PGRef() : pg(NULL), id(0) {}
-  _PGRef(T *pg) : pg(pg), id(pg ? pg->get_with_id() : 0) {}
-  ~_PGRef() {
-    if (pg) {
-      assert(id);
-      pg->put_with_id(id);
-    } else {
-      assert(id == 0);
-    }
-  }
-  void swap(_PGRef &other) {
-    T *opg = other.pg;
-    uint64_t oid = other.id;
-    other.pg = pg;
-    other.id = id;
-    pg = opg;
-    id = oid;
-  }
-  _PGRef(const _PGRef& rhs) : pg(rhs.pg), id(pg ? pg->get_with_id() : 0) {}
-  void operator=(const _PGRef &rhs) {
-    _PGRef o(rhs.pg);
-    swap(o);
-  }
-  T &operator*() {
-    return *pg;
-  }
-  T *operator->() {
-    return pg;
-  }
-  bool operator<(const _PGRef &lhs) const {
-    return pg < lhs.pg;
-  }
-  bool operator==(const _PGRef &lhs) const {
-    return pg == lhs.pg;
-  }
-};
-typedef _PGRef<PG> PGRef;
 
 #endif
