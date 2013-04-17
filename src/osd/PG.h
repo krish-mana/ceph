@@ -142,19 +142,24 @@ struct PGPool {
 class PG {
   static Mutex pgid_lock;
   static map<pg_t, int> pgid_tracker;
-  static void add_pgid(pg_t pgid) {
+  static map<pg_t, PG*> live_pgs;
+  static void add_pgid(pg_t pgid, PG *pg) {
     Mutex::Locker l(pgid_lock);
-    if (!pgid_tracker.count(pgid))
+    if (!pgid_tracker.count(pgid)) {
       pgid_tracker[pgid] = 0;
+      live_pgs[pgid] = pg;
+    }
     pgid_tracker[pgid]++;
   }
-  static void remove_pgid(pg_t pgid) {
+  static void remove_pgid(pg_t pgid, PG *pg) {
     Mutex::Locker l(pgid_lock);
     assert(pgid_tracker.count(pgid));
     assert(pgid_tracker[pgid] > 0);
     pgid_tracker[pgid]--;
-    if (pgid_tracker[pgid] == 0)
+    if (pgid_tracker[pgid] == 0) {
       pgid_tracker.erase(pgid);
+      live_pgs.erase(pgid);
+    }
   }
 public:
   static void dump_live_pgids() {
@@ -164,6 +169,7 @@ public:
 	 i != pgid_tracker.end();
 	 ++i) {
       derr << "\t" << *i << dendl;
+      live_pgs[i->first]->dump_live_ids();
     }
     assert(pgid_tracker.empty());
   }

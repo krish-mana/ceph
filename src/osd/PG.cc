@@ -46,6 +46,7 @@ static ostream& _prefix(std::ostream *_dout, const PG *pg) {
 
 Mutex PG::pgid_lock("pgid_lock");
 map<pg_t, int> PG::pgid_tracker;
+map<pg_t, PG*> PG::live_pgs;
 
 uint64_t PG::get_with_id() {
   get();
@@ -133,12 +134,12 @@ PG::PG(OSDService *o, OSDMapRef curmap,
   active_pushes(0),
   recovery_state(this)
 {
-  add_pgid(p);
+  add_pgid(p, this);
 }
 
 PG::~PG()
 {
-  remove_pgid(info.pgid);
+  remove_pgid(info.pgid, this);
 }
 
 void PG::lock(bool no_lockdep)
