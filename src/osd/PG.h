@@ -2001,13 +2001,14 @@ void intrusive_ptr_add_ref(PG *pg);
 void intrusive_ptr_release(PG *pg);
 
 //typedef boost::intrusive_ptr<PG> PGRef;
-class PGRef {
-  PG *pg;
+template <class T>
+class _PGRef {
+  T *pg;
   uint64_t id;
 public:
-  PGRef() : pg(NULL), id(0) {}
-  PGRef(PG *pg) : pg(pg), id(pg ? pg->get_with_id() : 0) {}
-  ~PGRef() {
+  _PGRef() : pg(NULL), id(0) {}
+  _PGRef(T *pg) : pg(pg), id(pg ? pg->get_with_id() : 0) {}
+  ~_PGRef() {
     if (pg) {
       assert(id);
       pg->put_with_id(id);
@@ -2015,31 +2016,32 @@ public:
       assert(id == 0);
     }
   }
-  void swap(PGRef &other) {
-    PG *opg = other.pg;
+  void swap(_PGRef &other) {
+    T *opg = other.pg;
     uint64_t oid = other.id;
     other.pg = pg;
     other.id = id;
     pg = opg;
     id = oid;
   }
-  PGRef(const PGRef& rhs) : pg(rhs.pg), id(pg ? pg->get_with_id() : 0) {}
-  void operator=(const PGRef &rhs) {
-    PGRef o(rhs.pg);
+  _PGRef(const _PGRef& rhs) : pg(rhs.pg), id(pg ? pg->get_with_id() : 0) {}
+  void operator=(const _PGRef &rhs) {
+    _PGRef o(rhs.pg);
     swap(o);
   }
-  PG &operator*() {
+  T &operator*() {
     return *pg;
   }
-  PG *operator->() {
+  T *operator->() {
     return pg;
   }
-  bool operator<(const PGRef &lhs) const {
+  bool operator<(const _PGRef &lhs) const {
     return pg < lhs.pg;
   }
-  bool operator==(const PGRef &lhs) const {
+  bool operator==(const _PGRef &lhs) const {
     return pg == lhs.pg;
   }
 };
+typedef _PGRef<PG> PGRef;
 
 #endif
