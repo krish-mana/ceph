@@ -1024,6 +1024,7 @@ inline ostream& operator<<(ostream& out, ReplicatedPG::AccessMode& mode)
 void intrusive_ptr_add_ref(ReplicatedPG *pg);
 void intrusive_ptr_release(ReplicatedPG *pg);
 
-typedef boost::intrusive_ptr<ReplicatedPG> ReplicatedPGRef;
+//typedef boost::intrusive_ptr<ReplicatedPG> ReplicatedPGRef;
+typedef _PGRef<ReplicatedPG> ReplicatedPGRef;
 
 #endif
