@@ -3051,7 +3051,7 @@ void OSD::handle_pg_stats_ack(MPGStatsAck *ack)
       if (acked == pg->pg_stats_stable.reported) {
 	dout(25) << " ack on " << pg->info.pgid << " " << pg->pg_stats_stable.reported << dendl;
 	pg->stat_queue_item.remove_myself();
-	pg->put();
+	pg->put("pg_stat_queue");
       } else {
 	dout(25) << " still pending " << pg->info.pgid << " " << pg->pg_stats_stable.reported
 		 << " > acked " << acked << dendl;
