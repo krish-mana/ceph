@@ -64,6 +64,51 @@ class MOSDPGScan;
 class MOSDPGBackfill;
 class MOSDPGInfo;
 
+template <class T>
+class _PGRef {
+  T *pg;
+  uint64_t id;
+public:
+  _PGRef() : pg(NULL), id(0) {}
+  _PGRef(T *pg) : pg(pg), id(pg ? pg->get_with_id() : 0) {}
+  ~_PGRef() {
+    if (pg) {
+      assert(id);
+      pg->put_with_id(id);
+    } else {
+      assert(id == 0);
+    }
+  }
+  void swap(_PGRef &other) {
+    T *opg = other.pg;
+    uint64_t oid = other.id;
+    other.pg = pg;
+    other.id = id;
+    pg = opg;
+    id = oid;
+  }
+  _PGRef(const _PGRef& rhs) : pg(rhs.pg), id(pg ? pg->get_with_id() : 0) {}
+  void operator=(const _PGRef &rhs) {
+    _PGRef o(rhs.pg);
+    swap(o);
+  }
+  T &operator*() {
+    return *pg;
+  }
+  T *operator->() {
+    return pg;
+  }
+  bool operator<(const _PGRef &lhs) const {
+    return pg < lhs.pg;
+  }
+  bool operator==(const _PGRef &lhs) const {
+    return pg == lhs.pg;
+  }
+};
+class PG;
+void intrusive_ptr_add_ref(PG *pg);
+void intrusive_ptr_release(PG *pg);
+typedef _PGRef<PG> PGRef;
 
 struct PGRecoveryStats {
   struct per_state_info {
@@ -140,7 +185,40 @@ struct PGPool {
  */
 
 class PG {
+  static Mutex pgid_lock;
+  static map<pg_t, int> pgid_tracker;
+  static map<pg_t, PG*> live_pgs;
+  static void add_pgid(pg_t pgid, PG *pg) {
+    Mutex::Locker l(pgid_lock);
+    if (!pgid_tracker.count(pgid)) {
+      pgid_tracker[pgid] = 0;
+      live_pgs[pgid] = pg;
+    }
+    pgid_tracker[pgid]++;
+  }
+  static void remove_pgid(pg_t pgid, PG *pg) {
+    Mutex::Locker l(pgid_lock);
+    assert(pgid_tracker.count(pgid));
+    assert(pgid_tracker[pgid] > 0);
+    pgid_tracker[pgid]--;
+    if (pgid_tracker[pgid] == 0) {
+      pgid_tracker.erase(pgid);
+      live_pgs.erase(pgid);
+    }
+  }
 public:
+  static void dump_live_pgids(bool do_assert=false) {
+    Mutex::Locker l(pgid_lock);
+    derr << "live pgids:" << dendl;
+    for (map<pg_t, int>::iterator i = pgid_tracker.begin();
+	 i != pgid_tracker.end();
+	 ++i) {
+      derr << "\t" << *i << dendl;
+      live_pgs[i->first]->dump_live_ids();
+    }
+    if (do_assert)
+      assert(pgid_tracker.empty());
+  }
   /* Exceptions */
   class read_log_error : public buffer::error {
   public:
@@ -387,6 +465,10 @@ protected:
   Mutex _lock;
   Cond _cond;
   atomic_t ref;
+  Mutex _ref_id_lock;
+  uint64_t _ref_id;
+  map<uint64_t, string> _live_ids;
+  map<string, uint64_t> _tag_counts;
 
 public:
   bool deleting;  // true while in removing or OSD is shutting down
@@ -422,17 +504,11 @@ public:
     _cond.Signal();
   }
 
-  void get() {
-    //generic_dout(0) << this << " " << info.pgid << " get " << ref.test() << dendl;
-    //assert(_lock.is_locked());
-    ref.inc();
-  }
-  void put() { 
-    //generic_dout(0) << this << " " << info.pgid << " put " << ref.test() << dendl;
-    if (ref.dec() == 0)
-      delete this;
-  }
-
+  uint64_t get_with_id();
+  void put_with_id(uint64_t);
+  void dump_live_ids();
+  void get(const string &tag);
+  void put(const string &tag);
 
   bool dirty_info, dirty_big_info, dirty_log;
 
@@ -1057,7 +1133,7 @@ public:
 
   template <class EVT>
   struct QueuePeeringEvt : Context {
-    boost::intrusive_ptr<PG> pg;
+    PGRef pg;
     epoch_t epoch;
     EVT evt;
     QueuePeeringEvt(PG *pg, epoch_t epoch, EVT evt) :
@@ -1967,9 +2043,6 @@ WRITE_CLASS_ENCODER(PG::OndiskLog)
 
 ostream& operator<<(ostream& out, const PG& pg);
 
-void intrusive_ptr_add_ref(PG *pg);
-void intrusive_ptr_release(PG *pg);
-
-typedef boost::intrusive_ptr<PG> PGRef;
+//typedef boost::intrusive_ptr<PG> PGRef;
 
 #endif
