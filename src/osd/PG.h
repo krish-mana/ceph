@@ -506,8 +506,8 @@ public:
   uint64_t get_with_id();
   void put_with_id(uint64_t);
   void dump_live_ids();
-  void get(const string &tag = string());
-  void put(const string &tag = string());
+  void get(const string &tag);
+  void put(const string &tag);
 
   bool dirty_info, dirty_big_info, dirty_log;
 
