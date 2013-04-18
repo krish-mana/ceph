@@ -1228,7 +1228,6 @@ int OSD::shutdown()
     p->second->unlock();
     p->second->osr->flush();
   }
-  pg_map.clear();
   
   // finish ops
   op_wq.drain(); // should already be empty except for lagard PGs
