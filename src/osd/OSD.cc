@@ -1309,6 +1309,7 @@ int OSD::shutdown()
 
   peering_wq.clear();
   // Remove PGs
+  PG::dump_live_pgids();
   for (hash_map<pg_t, PG*>::iterator p = pg_map.begin();
        p != pg_map.end();
        ++p) {
@@ -1323,7 +1324,7 @@ int OSD::shutdown()
     p->second->put("PGMap");
   }
   pg_map.clear();
-  PG::dump_live_pgids();
+  PG::dump_live_pgids(true);
   g_conf->remove_observer(this);
 
   monc->shutdown();

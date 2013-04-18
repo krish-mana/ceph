@@ -207,7 +207,7 @@ class PG {
     }
   }
 public:
-  static void dump_live_pgids() {
+  static void dump_live_pgids(bool do_assert=false) {
     Mutex::Locker l(pgid_lock);
     derr << "live pgids:" << dendl;
     for (map<pg_t, int>::iterator i = pgid_tracker.begin();
@@ -216,7 +216,8 @@ public:
       derr << "\t" << *i << dendl;
       live_pgs[i->first]->dump_live_ids();
     }
-    assert(pgid_tracker.empty());
+    if (do_assert)
+      assert(pgid_tracker.empty());
   }
   /* Exceptions */
   class read_log_error : public buffer::error {
