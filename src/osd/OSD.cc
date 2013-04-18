@@ -1320,7 +1320,7 @@ int OSD::shutdown()
       assert(0);
     }
     p->second->unlock();
-    p->second->put();
+    p->second->put("PGMap");
   }
   pg_map.clear();
   PG::dump_live_pgids();
@@ -1457,7 +1457,7 @@ PG *OSD::_open_lock_pg(
     pg->lock_with_map_lock_held(no_lockdep_check);
   else
     pg->lock(no_lockdep_check);
-  pg->get();  // because it's in pg_map
+  pg->get("PGMap");  // because it's in pg_map
   return pg;
 }
 
@@ -1484,7 +1484,7 @@ PG* OSD::_make_pg(
 void OSD::add_newly_split_pg(PG *pg, PG::RecoveryCtx *rctx)
 {
   epoch_t e(service.get_osdmap()->get_epoch());
-  pg->get();  // For pg_map
+  pg->get("PGMap");  // For pg_map
   pg_map[pg->info.pgid] = pg;
   dout(10) << "Adding newly split pg " << *pg << dendl;
   vector<int> up, acting;
@@ -2998,7 +2998,7 @@ void OSD::send_pg_stats(const utime_t &now)
       ++p;
       if (!pg->is_primary()) {  // we hold map_lock; role is stable.
 	pg->stat_queue_item.remove_myself();
-	pg->put();
+	pg->put("pg_stat_queue");
 	continue;
       }
       pg->pg_stats_lock.Lock();
@@ -3042,7 +3042,7 @@ void OSD::handle_pg_stats_ack(MPGStatsAck *ack)
   xlist<PG*>::iterator p = pg_stat_queue.begin();
   while (!p.end()) {
     PG *pg = *p;
-    pg->get();
+    PGRef _pg(pg);
     ++p;
 
     if (ack->pg_stat.count(pg->info.pgid)) {
@@ -3060,7 +3060,6 @@ void OSD::handle_pg_stats_ack(MPGStatsAck *ack)
     } else {
       dout(30) << " still pending " << pg->info.pgid << " " << pg->pg_stats_stable.reported << dendl;
     }
-    pg->put();
   }
   
   if (!pg_stat_queue.size()) {
@@ -4472,7 +4471,7 @@ void OSD::consume_map()
   dout(7) << "consume_map version " << osdmap->get_epoch() << dendl;
 
   int num_pg_primary = 0, num_pg_replica = 0, num_pg_stray = 0;
-  list<PG*> to_remove;
+  list<PGRef> to_remove;
 
   // scan pg's
   for (hash_map<pg_t,PG*>::iterator it = pg_map.begin();
@@ -4490,8 +4489,7 @@ void OSD::consume_map()
     set<pg_t> split_pgs;
     if (!osdmap->have_pg_pool(pg->info.pgid.pool())) {
       //pool is deleted!
-      pg->get();
-      to_remove.push_back(pg);
+      to_remove.push_back(PGRef(pg));
     } else if (it->first.is_split(
 		 service.get_osdmap()->get_pg_num(it->first.pool()),
 		 osdmap->get_pg_num(it->first.pool()),
@@ -4502,13 +4500,12 @@ void OSD::consume_map()
     pg->unlock();
   }
 
-  for (list<PG*>::iterator i = to_remove.begin();
+  for (list<PGRef>::iterator i = to_remove.begin();
        i != to_remove.end();
-       ++i) {
+       to_remove.erase(i++)) {
     (*i)->lock();
-    _remove_pg((*i));
+    _remove_pg(&**i);
     (*i)->unlock();
-    (*i)->put();
   }
   to_remove.clear();
 
@@ -5808,10 +5805,9 @@ void OSD::handle_pg_remove(OpRequestRef op)
 		       up, acting);
     if (history.same_interval_since <= m->get_epoch()) {
       assert(pg->get_primary() == m->get_source().num());
-      pg->get();
+      PGRef _pg(pg);
       _remove_pg(pg);
       pg->unlock();
-      pg->put();
     } else {
       dout(10) << *pg << " ignoring remove request, pg changed in epoch "
 	       << history.same_interval_since
@@ -5871,7 +5867,7 @@ void OSD::_remove_pg(PG *pg)
 
   // remove from map
   pg_map.erase(pg->info.pgid);
-  pg->put(); // since we've taken it out of map
+  pg->put("PGMap"); // since we've taken it out of map
 }
 
 
