@@ -42,6 +42,7 @@
 #include "msg/Messenger.h"
 #include "messages/MOSDRepScrub.h"
 #include "messages/MOSDPGLog.h"
+#include "common/tracked_int_ptr.hpp"
 
 #include <list>
 #include <memory>
@@ -64,51 +65,18 @@ class MOSDPGScan;
 class MOSDPGBackfill;
 class MOSDPGInfo;
 
-template <class T>
-class _PGRef {
-  T *pg;
-  uint64_t id;
-public:
-  _PGRef() : pg(NULL), id(0) {}
-  _PGRef(T *pg) : pg(pg), id(pg ? pg->get_with_id() : 0) {}
-  ~_PGRef() {
-    if (pg) {
-      assert(id);
-      pg->put_with_id(id);
-    } else {
-      assert(id == 0);
-    }
-  }
-  void swap(_PGRef &other) {
-    T *opg = other.pg;
-    uint64_t oid = other.id;
-    other.pg = pg;
-    other.id = id;
-    pg = opg;
-    id = oid;
-  }
-  _PGRef(const _PGRef& rhs) : pg(rhs.pg), id(pg ? pg->get_with_id() : 0) {}
-  void operator=(const _PGRef &rhs) {
-    _PGRef o(rhs.pg);
-    swap(o);
-  }
-  T &operator*() {
-    return *pg;
-  }
-  T *operator->() {
-    return pg;
-  }
-  bool operator<(const _PGRef &lhs) const {
-    return pg < lhs.pg;
-  }
-  bool operator==(const _PGRef &lhs) const {
-    return pg == lhs.pg;
-  }
-};
 class PG;
+
 void intrusive_ptr_add_ref(PG *pg);
 void intrusive_ptr_release(PG *pg);
-typedef _PGRef<PG> PGRef;
+uint64_t get_with_id(PG *pg);
+void put_with_id(PG *pg, uint64_t id);
+
+#ifdef PG_DEBUG_REFS
+  typedef TrackedIntPtr<PG> PGRef;
+#else
+  typedef boost::intrusive_ptr<PG> PGRef;
+#endif
 
 struct PGRecoveryStats {
   struct per_state_info {
@@ -2042,7 +2010,5 @@ public:
 WRITE_CLASS_ENCODER(PG::OndiskLog)
 
 ostream& operator<<(ostream& out, const PG& pg);
-
-//typedef boost::intrusive_ptr<PG> PGRef;
 
 #endif

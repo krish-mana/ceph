@@ -31,9 +31,14 @@ class MOSDSubOpReply;
 class ReplicatedPG;
 void intrusive_ptr_add_ref(ReplicatedPG *pg);
 void intrusive_ptr_release(ReplicatedPG *pg);
+uint64_t get_with_id(ReplicatedPG *pg);
+void put_with_id(ReplicatedPG *pg, uint64_t id);
 
-//typedef boost::intrusive_ptr<ReplicatedPG> ReplicatedPGRef;
-typedef _PGRef<ReplicatedPG> ReplicatedPGRef;
+#ifdef PG_DEBUG_REFS
+  typedef TrackedIntPtr<ReplicatedPG> ReplicatedPGRef;
+#else
+  typedef boost::intrusive_ptr<ReplicatedPG> ReplicatedPGRef;
+#endif
 
 class PGLSFilter {
 protected:

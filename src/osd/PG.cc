@@ -7701,3 +7701,5 @@ bool PG::PriorSet::affected_by_map(const OSDMapRef osdmap, const PG *debug_pg) c
 
 void intrusive_ptr_add_ref(PG *pg) { pg->get("intptr"); }
 void intrusive_ptr_release(PG *pg) { pg->put("intptr"); }
+uint64_t get_with_id(PG *pg) { return pg->get_with_id(); }
+void put_with_id(PG *pg, uint64_t id) { return pg->put_with_id(id); }
