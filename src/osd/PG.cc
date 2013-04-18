@@ -76,7 +76,7 @@ uint64_t PG::get_with_id() {
   ref.inc();
   Mutex::Locker l(_ref_id_lock);
   uint64_t id = ++_ref_id;
-  BackTrace bt(100);
+  BackTrace bt(0);
   stringstream ss;
   bt.print(ss);
   dout(0) << __func__ << ": " << info.pgid << " got id " << id << dendl;
