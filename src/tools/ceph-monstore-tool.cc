@@ -29,6 +29,7 @@
 #include <boost/scoped_ptr.hpp>
 
 #include "os/LevelDBStore.h"
+#include "mon/MonitorDBStore.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -133,9 +134,9 @@ int main(int argc, char **argv) {
     po::command_line_parser(argc, argv).options(desc).positional(p).run(),
     vm);
 
-  StoreTool st(store_path);
 
   if (cmd == "list") {
+    StoreTool st(store_path);
     string prefix;
     if (args.size() < 1) {
       usage(argv[0]);
@@ -145,6 +146,7 @@ int main(int argc, char **argv) {
     st.list(args[0]);
 
   } else if (cmd == "exists") {
+    StoreTool st(store_path);
     string key;
     if (args.size() < 2) {
       usage(argv[0]);
@@ -157,6 +159,7 @@ int main(int argc, char **argv) {
 	      << std::endl;
     return (ret ? 0 : 1);
   } else if (cmd == "get") {
+    StoreTool st(store_path);
     if (args.size() < 2) {
       usage(argv[0]);
       return 1;
@@ -173,9 +176,7 @@ int main(int argc, char **argv) {
     ostringstream os;
     bl.hexdump(os);
     std::cout << os.str() << std::endl;
-  } else if (cmd == "verify") {
-    assert(0);
-  } else {
+  } else if (cmd == "getmap") {
     std::cerr << "Unrecognized command: " << cmd << std::endl;
     return 1;
   }
