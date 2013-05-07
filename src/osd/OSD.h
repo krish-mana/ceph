@@ -142,9 +142,19 @@ typedef std::tr1::shared_ptr<ObjectStore::Sequencer> SequencerRef;
 
 class DeletingState {
   Mutex lock;
+  Cond cond;
   list<Context *> on_deletion_complete;
+  enum {
+    QUEUED,
+    CLEARING_DIR,
+    DELETING_DIR,
+    DELETED_DIR,
+    CANCELED,
+  } status;
+  bool stop_deleting;
 public:
-  DeletingState() : lock("DeletingState::lock") {}
+  DeletingState() :
+    lock("DeletingState::lock"), status(QUEUED), stop_deleting(false) {}
   void register_on_delete(Context *completion) {
     Mutex::Locker l(lock);
     on_deletion_complete.push_front(completion);
@@ -156,6 +166,63 @@ public:
       (*i)->complete(0);
     }
   }
+
+  /// check whether removal was canceled
+  bool check_canceled() {
+    Mutex::Locker l(lock);
+    assert(status == CLEARING_DIR);
+    if (stop_deleting) {
+      status = CANCELED;
+      cond.Signal();
+      return false;
+    }
+    return true;
+  } ///< @return false if canceled, true if we should continue
+
+  /// transition status to clearing
+  bool start_clearing() {
+    Mutex::Locker l(lock);
+    assert(status == QUEUED ||
+	   status == CANCELED ||
+	   status == DELETED_DIR);
+    if (stop_deleting) {
+      status = CANCELED;
+      cond.Signal();
+      return false;
+    }
+    status = CLEARING_DIR;
+    return true;
+  } ///< @return false if we should cancel deletion
+
+  /// transition status to deleting
+  bool start_deleting() {
+    Mutex::Locker l(lock);
+    assert(status == CLEARING_DIR);
+    if (stop_deleting) {
+      status = CANCELED;
+      cond.Signal();
+      return false;
+    }
+    status = DELETING_DIR;
+    return true;
+  } ///< @return false if we should cancel deletion
+
+  /// signal collection removal queued
+  void finish_deleting() {
+    Mutex::Locker l(lock);
+    assert(status == DELETING_DIR);
+    status = DELETED_DIR;
+    cond.Signal();
+  }
+
+  /// try to halt the deletion
+  bool try_stop_deletion() {
+    Mutex::Locker l(lock);
+    stop_deleting = true;
+    while (status != DELETED_DIR && status != CANCELED)
+      cond.Wait(lock);
+    return status == CANCELED;
+  } ///< @return true if we don't need to recreate the collection
 };
 typedef std::tr1::shared_ptr<DeletingState> DeletingStateRef;
 
