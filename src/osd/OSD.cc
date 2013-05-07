@@ -1777,15 +1777,15 @@ void OSD::load_pgs()
       pg->upgrade(store, i->second);
     } else if (!i->second.empty()) {
       // handle upgrade bug
-      for (interval_set<snapid_t>::iterator i = i->second.begin();
-	   i != i->second.end();
-	   ++i) {
-	for (snapid_t j = i->get_start();
-	     j != i->get_start() +i->get_len();
-	     ++j) {
-	  assert(store->collection_empty(coll_t(pgid, j)));
+      for (interval_set<snapid_t>::iterator j = i->second.begin();
+	   j != i->second.end();
+	   ++j) {
+	for (snapid_t k = j.get_start();
+	     k != j.get_start() + j.get_len();
+	     ++k) {
+	  assert(store->collection_empty(coll_t(pgid, k)));
 	  ObjectStore::Transaction t;
-	  t.remove_collection(coll_t(pgid, j));
+	  t.remove_collection(coll_t(pgid, k));
 	  store->apply_transaction(t);
 	}
       }
