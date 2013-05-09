@@ -182,7 +182,9 @@ public:
   /// transition status to clearing
   bool start_clearing() {
     Mutex::Locker l(lock);
-    assert(status == QUEUED);
+    assert(
+      status == QUEUED ||
+      status == DELETED_DIR);
     if (stop_deleting) {
       status = CANCELED;
       cond.Signal();

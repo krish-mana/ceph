@@ -1647,6 +1647,11 @@ PG *OSD::_create_lock_pg(
   DeletingStateRef df = service.deleting_pgs.lookup(pgid);
   bool backfill = false;
   if (!(df && df->try_stop_deletion())) {
+    if (df) {
+      // raced, ensure we don't see DeletingStateRef when we try to
+      // delete this pg
+      service.deleting_pgs.remove(pgid);
+    }
     // either it's not deleting, or we failed to get to it in time
     t.create_collection(coll_t(pgid));
   } else {
@@ -2865,8 +2870,8 @@ void OSD::RemoveWQ::_process(pair<PGRef, DeletingStateRef> item)
     0, // onapplied
     0, // oncommit
     0, // onreadable sync
-    new ObjectStore::C_DeleteTransactionHolder<pair<PGRef, DeletingStateRef> >(
-      t, item), // oncomplete
+    new ObjectStore::C_DeleteTransactionHolder<PGRef>(
+      t, pg), // oncomplete
     TrackedOpRef());
 
   item.second->finish_deleting();
