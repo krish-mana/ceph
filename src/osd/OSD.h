@@ -182,9 +182,7 @@ public:
   /// transition status to clearing
   bool start_clearing() {
     Mutex::Locker l(lock);
-    assert(status == QUEUED ||
-	   status == CANCELED ||
-	   status == DELETED_DIR);
+    assert(status == QUEUED);
     if (stop_deleting) {
       status = CANCELED;
       cond.Signal();
@@ -219,9 +217,18 @@ public:
   bool try_stop_deletion() {
     Mutex::Locker l(lock);
     stop_deleting = true;
-    while (status != DELETED_DIR && status != CANCELED)
+    /**
+     * If we are in DELETING_DIR or DELETED_DIR, there are in progress
+     * operations we have to wait for before continuing on.  States
+     * DELETED_DIR, QUEUED, and CANCELED either check for stop_deleting
+     * prior to performing any operations or signify the end of the
+     * deleting process.  We don't want to wait to leave the QUEUED
+     * state, because this might block the caller behind entire pg
+     * removals.
+     */
+    while (status == DELETING_DIR || status == DELETING_DIR)
       cond.Wait(lock);
-    return status == CANCELED;
+    return status != DELETED_DIR;
   } ///< @return true if we don't need to recreate the collection
 };
 typedef std::tr1::shared_ptr<DeletingState> DeletingStateRef;

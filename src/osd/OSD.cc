@@ -1652,6 +1652,7 @@ PG *OSD::_create_lock_pg(
   } else {
     dout(10) << __func__ << ": halted deletion on pg " << pgid << dendl;
     backfill = true;
+    service.deleting_pgs.remove(pgid); // PG is no longer being removed!
   }
 
   pg->init(role, up, acting, history, pi, backfill, &t);
