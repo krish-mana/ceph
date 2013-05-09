@@ -2856,11 +2856,17 @@ void OSD::RemoveWQ::_process(pair<PGRef, DeletingStateRef> item)
   if (pg->have_temp_coll())
     t->remove_collection(pg->get_temp_coll());
   t->remove_collection(coll);
+
+  // We need the sequencer to stick around until the op is complete
   store->queue_transaction(
     pg->osr.get(),
     t,
+    0, // onapplied
+    0, // oncommit
+    0, // onreadable sync
     new ObjectStore::C_DeleteTransactionHolder<pair<PGRef, DeletingStateRef> >(
-      t, item));
+      t, item), // oncomplete
+    TrackedOpRef());
 
   item.second->finish_deleting();
 }
