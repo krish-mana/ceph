@@ -1646,7 +1646,12 @@ PG *OSD::_create_lock_pg(
 
   DeletingStateRef df = service.deleting_pgs.lookup(pgid);
   bool backfill = false;
-  if (!(df && df->try_stop_deletion())) {
+
+  if (df && df->try_stop_deletion()) {
+    dout(10) << __func__ << ": halted deletion on pg " << pgid << dendl;
+    backfill = true;
+    service.deleting_pgs.remove(pgid); // PG is no longer being removed!
+  } else {
     if (df) {
       // raced, ensure we don't see DeletingStateRef when we try to
       // delete this pg
@@ -1654,10 +1659,6 @@ PG *OSD::_create_lock_pg(
     }
     // either it's not deleting, or we failed to get to it in time
     t.create_collection(coll_t(pgid));
-  } else {
-    dout(10) << __func__ << ": halted deletion on pg " << pgid << dendl;
-    backfill = true;
-    service.deleting_pgs.remove(pgid); // PG is no longer being removed!
   }
 
   pg->init(role, up, acting, history, pi, backfill, &t);
