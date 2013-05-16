@@ -102,6 +102,7 @@ int run_get_last_op(std::string& filestore_path, std::string& journal_path)
 
   int err = store->mount();
   if (err) {
+    store->umount();
     delete store;
     return err;
   }
@@ -139,6 +140,7 @@ int run_sequence_to(int val, std::string& filestore_path,
   err = ::mkdir(filestore_path.c_str(), 0755);
   if (err) {
     cerr << filestore_path << " already exists" << std::endl;
+    store->umount();
     delete store;
     return err;
   }
@@ -154,6 +156,7 @@ int run_sequence_to(int val, std::string& filestore_path,
   op_sequence.generate(seed, num_txs);
   store->umount();
 
+  store->umount();
   delete store;
   return 0;
 }
