@@ -271,6 +271,12 @@ public:
     FDRef *outfd,
     IndexedPath *path = 0,
     Index *index = 0);
+  int lfn_open_no_cache(
+    coll_t cid,
+    const hobject_t &oid,
+    bool create,
+    IndexedPath *path = 0,
+    Index *index = 0);
   void lfn_close(FDRef fd);
   int lfn_link(coll_t c, coll_t cid, const hobject_t& o) ;
   int lfn_unlink(coll_t cid, const hobject_t& o, const SequencerPosition &spos);

@@ -203,15 +203,28 @@ int FileStore::lfn_open(coll_t cid,
 			IndexedPath *path,
 			Index *index) 
 {
-  assert(outfd);
-  int flags = O_RDWR;
-  if (create)
-    flags |= O_CREAT;
   Mutex::Locker l(fdcache_lock);
+  assert(outfd);
   *outfd = fdcache.lookup(oid);
   if (*outfd) {
     return 0;
   }
+  int fd = lfn_open_no_cache(cid, oid, create, path, index);
+  if (fd < 0)
+    return fd;
+  *outfd = fdcache.add(oid, fd);
+  return 0;
+}
+
+int FileStore::lfn_open_no_cache(coll_t cid,
+				 const hobject_t &oid,
+				 bool create,
+				 IndexedPath *path,
+				 Index *index)
+{
+  int flags = O_RDWR;
+  if (create)
+    flags |= O_CREAT;
   Index index2;
   IndexedPath path2;
   if (!path)
@@ -254,8 +267,7 @@ int FileStore::lfn_open(coll_t cid,
       goto fail;
     }
   }
-  *outfd = fdcache.add(oid, fd);
-  return 0;
+  return fd;
 
  fail:
   assert(!m_filestore_fail_eio || r != -EIO);
@@ -2260,14 +2272,13 @@ int FileStore::_check_replay_guard(coll_t cid, hobject_t oid, const SequencerPos
   if (!replaying || btrfs_stable_commits)
     return 1;
 
-  FDRef fd;
-  int r = lfn_open(cid, oid, false, &fd);
-  if (r < 0) {
+  int fd = lfn_open_no_cache(cid, oid, false);
+  if (fd < 0) {
     dout(10) << "_check_replay_guard " << cid << " " << oid << " dne" << dendl;
     return 1;  // if file does not exist, there is no guard, and we can replay.
   }
-  int ret = _check_replay_guard(**fd, spos);
-  lfn_close(fd);
+  int ret = _check_replay_guard(fd, spos);
+  TEMP_FAILURE_RETRY(::close(fd));
   return ret;
 }
 
