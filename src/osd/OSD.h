@@ -53,6 +53,7 @@ using namespace __gnu_cxx;
 #include "common/simple_cache.hpp"
 #include "common/sharedptr_registry.hpp"
 #include "common/PrioritizedQueue.h"
+#include "HBTracker.h"
 
 #define CEPH_OSD_PROTOCOL    10 /* cluster internal */
 
@@ -692,102 +693,6 @@ public:
   };
 
 private:
-  // -- heartbeat --
-  /// information about a heartbeat peer
-  struct HeartbeatInfo {
-    int peer;           ///< peer
-    Connection *con_front;   ///< peer connection (front)
-    Connection *con_back;    ///< peer connection (back)
-    utime_t first_tx;   ///< time we sent our first ping request
-    utime_t last_tx;    ///< last time we sent a ping request
-    utime_t last_rx_front;  ///< last time we got a ping reply on the front side
-    utime_t last_rx_back;   ///< last time we got a ping reply on the back side
-    epoch_t epoch;      ///< most recent epoch we wanted this peer
-
-    bool is_unhealthy(utime_t cutoff) {
-      return
-	! ((last_rx_front > cutoff ||
-	    (last_rx_front == utime_t() && (last_tx == utime_t() ||
-					    first_tx > cutoff))) &&
-	   (last_rx_back > cutoff ||
-	    (last_rx_back == utime_t() && (last_tx == utime_t() ||
-					   first_tx > cutoff))));
-    }
-    bool is_healthy(utime_t cutoff) {
-      return last_rx_front > cutoff && last_rx_back > cutoff;
-    }
-
-  };
-  /// state attached to outgoing heartbeat connections
-  struct HeartbeatSession : public RefCountedObject {
-    int peer;
-    HeartbeatSession(int p) : peer(p) {}
-  };
-  Mutex heartbeat_lock;
-  map<int, int> debug_heartbeat_drops_remaining;
-  Cond heartbeat_cond;
-  bool heartbeat_stop;
-  bool heartbeat_need_update;   ///< true if we need to refresh our heartbeat peers
-  epoch_t heartbeat_epoch;      ///< last epoch we updated our heartbeat peers
-  map<int,HeartbeatInfo> heartbeat_peers;  ///< map of osd id to HeartbeatInfo
-  utime_t last_mon_heartbeat;
-  Messenger *hbclient_messenger;
-  Messenger *hb_front_server_messenger;
-  Messenger *hb_back_server_messenger;
-  utime_t last_heartbeat_resample;   ///< last time we chose random peers in waiting-for-healthy state
-  
-  void _add_heartbeat_peer(int p);
-  void _remove_heartbeat_peer(int p);
-  bool heartbeat_reset(Connection *con);
-  void maybe_update_heartbeat_peers();
-  void reset_heartbeat_peers();
-  void heartbeat();
-  void heartbeat_check();
-  void heartbeat_entry();
-  void need_heartbeat_peer_update();
-
-  void heartbeat_kick() {
-    Mutex::Locker l(heartbeat_lock);
-    heartbeat_cond.Signal();
-  }
-
-  struct T_Heartbeat : public Thread {
-    OSD *osd;
-    T_Heartbeat(OSD *o) : osd(o) {}
-    void *entry() {
-      osd->heartbeat_entry();
-      return 0;
-    }
-  } heartbeat_thread;
-
-public:
-  bool heartbeat_dispatch(Message *m);
-
-  struct HeartbeatDispatcher : public Dispatcher {
-  private:
-    bool ms_dispatch(Message *m) {
-      return osd->heartbeat_dispatch(m);
-    };
-    bool ms_handle_reset(Connection *con) {
-      return osd->heartbeat_reset(con);
-    }
-    void ms_handle_remote_reset(Connection *con) {}
-    bool ms_verify_authorizer(Connection *con, int peer_type,
-			      int protocol, bufferlist& authorizer_data, bufferlist& authorizer_reply,
-			      bool& isvalid, CryptoKey& session_key) {
-      isvalid = true;
-      return true;
-    }
-  public:
-    OSD *osd;
-    HeartbeatDispatcher(OSD *o) 
-      : Dispatcher(g_ceph_context), osd(o)
-    {
-    }
-  } heartbeat_dispatcher;
-
-
-private:
   // -- stats --
   Mutex stat_lock;
   osd_stat_t osd_stat;
@@ -1147,6 +1052,11 @@ protected:
 
   void send_failures();
   void send_still_alive(epoch_t epoch, const entity_inst_t &i);
+
+  Messenger *hb_client_messenger;
+  Messenger *hb_front_server_messenger;
+  Messenger *hb_back_server_messenger;
+  HBTracker hbtracker;
 
   // -- pg stats --
   Mutex pg_stat_queue_lock;

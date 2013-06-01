@@ -901,13 +901,10 @@ OSD::OSD(int id, Messenger *internal_messenger, Messenger *external_messenger,
   disk_tp(external_messenger->cct, "OSD::disk_tp", g_conf->osd_disk_threads, "osd_disk_threads"),
   command_tp(external_messenger->cct, "OSD::command_tp", 1),
   paused_recovery(false),
-  heartbeat_lock("OSD::heartbeat_lock"),
-  heartbeat_stop(false), heartbeat_need_update(true), heartbeat_epoch(0),
   hbclient_messenger(hb_clientm),
   hb_front_server_messenger(hb_front_serverm),
   hb_back_server_messenger(hb_back_serverm),
-  heartbeat_thread(this),
-  heartbeat_dispatcher(this),
+  hbtracker(&service, hb_clientm, hb_front_serverm, hb_back_serverm),
   stat_lock("OSD::stat_lock"),
   finished_lock("OSD::finished_lock"),
   test_ops_hook(NULL),
@@ -2242,7 +2239,7 @@ void OSD::update_osd_stat()
   dout(20) << "update_osd_stat " << osd_stat << dendl;
 }
 
-void OSD::_add_heartbeat_peer(int p)
+void HBTracker::_add_heartbeat_peer(int p)
 {
   if (p == whoami)
     return;
@@ -2274,7 +2271,7 @@ void OSD::_add_heartbeat_peer(int p)
   hi->epoch = osdmap->get_epoch();
 }
 
-void OSD::_remove_heartbeat_peer(int n)
+void HBTracker::_remove_heartbeat_peer(int n)
 {
   map<int,HeartbeatInfo>::iterator q = heartbeat_peers.find(n);
   assert(q != heartbeat_peers.end());
@@ -2291,7 +2288,7 @@ void OSD::_remove_heartbeat_peer(int n)
   heartbeat_peers.erase(q);
 }
 
-void OSD::need_heartbeat_peer_update()
+void HBTracker::need_heartbeat_peer_update()
 {
   Mutex::Locker l(heartbeat_lock);
   if (service.is_stopping())
@@ -2300,7 +2297,7 @@ void OSD::need_heartbeat_peer_update()
   heartbeat_need_update = true;
 }
 
-void OSD::maybe_update_heartbeat_peers()
+void HBTracker::maybe_update_heartbeat_peers()
 {
   assert(osd_lock.is_locked());
 
@@ -2408,7 +2405,7 @@ void OSD::maybe_update_heartbeat_peers()
   dout(10) << "maybe_update_heartbeat_peers " << heartbeat_peers.size() << " peers, extras " << extras << dendl;
 }
 
-void OSD::reset_heartbeat_peers()
+void HBTracker::reset_heartbeat_peers()
 {
   assert(osd_lock.is_locked());
   dout(10) << "reset_heartbeat_peers" << dendl;
@@ -2426,7 +2423,7 @@ void OSD::reset_heartbeat_peers()
   failure_queue.clear();
 }
 
-void OSD::handle_osd_ping(MOSDPing *m)
+void HBTracker::handle_osd_ping(MOSDPing *m)
 {
   if (superblock.cluster_fsid != m->fsid) {
     dout(20) << "handle_osd_ping from " << m->get_source_inst()
@@ -2568,7 +2565,7 @@ void OSD::handle_osd_ping(MOSDPing *m)
   m->put();
 }
 
-void OSD::heartbeat_entry()
+void HBTracker::heartbeat_entry()
 {
   Mutex::Locker l(heartbeat_lock);
   if (service.is_stopping())
@@ -2587,7 +2584,7 @@ void OSD::heartbeat_entry()
   }
 }
 
-void OSD::heartbeat_check()
+void HBTracker::heartbeat_check()
 {
   assert(heartbeat_lock.is_locked());
   utime_t now = ceph_clock_now(g_ceph_context);
@@ -2629,7 +2626,7 @@ void OSD::heartbeat_check()
   }
 }
 
-void OSD::heartbeat()
+void HBTracker::heartbeat()
 {
   dout(30) << "heartbeat" << dendl;
 
@@ -2692,7 +2689,7 @@ void OSD::heartbeat()
   dout(30) << "heartbeat done" << dendl;
 }
 
-bool OSD::heartbeat_reset(Connection *con)
+bool HBTracker::heartbeat_reset(Connection *con)
 {
   HeartbeatSession *s = static_cast<HeartbeatSession*>(con->get_priv());
   if (s) {
@@ -3839,7 +3836,7 @@ void OSD::_share_map_outgoing(int peer, Connection *con, OSDMapRef map)
 }
 
 
-bool OSD::heartbeat_dispatch(Message *m)
+bool HBTracker::heartbeat_dispatch(Message *m)
 {
   dout(30) << "heartbeat_dispatch " << m << dendl;
   switch (m->get_type()) {
