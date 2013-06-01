@@ -2294,7 +2294,7 @@ void OSD::_remove_heartbeat_peer(int n)
 void OSD::need_heartbeat_peer_update()
 {
   Mutex::Locker l(heartbeat_lock);
-  if (is_stopping())
+  if (service.is_stopping())
     return;
   dout(20) << "need_heartbeat_peer_update" << dendl;
   heartbeat_need_update = true;
@@ -2438,7 +2438,7 @@ void OSD::handle_osd_ping(MOSDPing *m)
   int from = m->get_source().num();
 
   heartbeat_lock.Lock();
-  if (is_stopping()) {
+  if (service.is_stopping()) {
     heartbeat_lock.Unlock();
     return;
   }
@@ -2571,7 +2571,7 @@ void OSD::handle_osd_ping(MOSDPing *m)
 void OSD::heartbeat_entry()
 {
   Mutex::Locker l(heartbeat_lock);
-  if (is_stopping())
+  if (service.is_stopping())
     return;
   while (!heartbeat_stop) {
     heartbeat();
@@ -2581,7 +2581,7 @@ void OSD::heartbeat_entry()
     w.set_from_double(wait);
     dout(30) << "heartbeat_entry sleeping for " << wait << dendl;
     heartbeat_cond.WaitInterval(g_ceph_context, heartbeat_lock, w);
-    if (is_stopping())
+    if (service.is_stopping())
       return;
     dout(30) << "heartbeat_entry woke up" << dendl;
   }
@@ -2697,7 +2697,7 @@ bool OSD::heartbeat_reset(Connection *con)
   HeartbeatSession *s = static_cast<HeartbeatSession*>(con->get_priv());
   if (s) {
     heartbeat_lock.Lock();
-    if (is_stopping()) {
+    if (service.is_stopping()) {
       heartbeat_lock.Unlock();
       return true;
     }
