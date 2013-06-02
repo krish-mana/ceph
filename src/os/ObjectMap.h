@@ -54,6 +54,14 @@ public:
     const SequencerPosition *spos=0     ///< [in] sequencer position
     ) = 0;
 
+  /// Clear map keys and values in given range from hoid
+  virtual int clear_range(
+    const hobject_t &hoid,             ///< [in] object containing map
+    const string& first,               ///< [in] first key in range (inclusive)
+    const string& last,                ///< [in] last key in range (inclusive)
+    const SequencerPosition *spos=0    ///< [in] sequencer position
+    ) = 0;
+
   /// Clear all map keys and values from hoid
   virtual int rm_keys(
     const hobject_t &hoid,              ///< [in] object containing map

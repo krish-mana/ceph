@@ -586,6 +586,14 @@ int DBObjectMap::clear(const hobject_t &hoid,
   return db->submit_transaction(t);
 }
 
+int DBObjectMap::clear_range(const hobject_t &hoid,
+			     const string& first,
+			     const string& last,
+			     const SequencerPosition *spos)
+{
+#warning implement me
+}
+
 int DBObjectMap::_clear(Header header,
 			KeyValueDB::Transaction t)
 {

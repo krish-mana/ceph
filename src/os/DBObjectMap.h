@@ -94,6 +94,13 @@ public:
     const SequencerPosition *spos=0
     );
 
+  int clear_range(
+    const hobject_t &hoid,
+    const string& first,
+    const string& last,
+    const SequencerPosition *spos=0
+    );
+
   int rm_keys(
     const hobject_t &hoid,
     const set<string> &to_clear,
