@@ -104,9 +104,7 @@ ostream& PGLog::IndexedLog::print(ostream& out) const
 //////////////////// PGLog ////////////////////
 
 void PGLog::clear() {
-  ondisklog.zero();
-  ondisklog.has_checksums = true;
-  ondisklog.divergent_priors.clear();
+  divergent_priors.clear();
   missing.clear();
   log.zero();
 }
@@ -133,7 +131,7 @@ void PGLog::trim(ObjectStore::Transaction& t, eversion_t trim_to, pg_info_t &inf
     /* If we are trimming, we must be complete up to trim_to, time
      * to throw out any divergent_priors
      */
-    ondisklog.divergent_priors.clear();
+    divergent_priors.clear();
     // We shouldn't be trimming the log past last_complete
     assert(trim_to <= info.last_complete);
 
@@ -323,7 +321,7 @@ bool PGLog::merge_old_entry(ObjectStore::Transaction& t, const pg_log_entry_t& o
     dout(20) << "merge_old_entry  had " << oe << " updating missing to "
 	     << oe.prior_version << dendl;
     if (oe.prior_version > eversion_t()) {
-      ondisklog.add_divergent_prior(oe.prior_version, oe.soid);
+      add_divergent_prior(oe.prior_version, oe.soid);
       dirty_log = true;
       missing.revise_need(oe.soid, oe.prior_version);
     } else if (missing.is_missing(oe.soid)) {
@@ -564,8 +562,8 @@ bool PGLog::read_log(ObjectStore *store, coll_t coll, hobject_t log_oid,
       bufferlist bl = p->value();//Copy bufferlist before creating iterator
       bufferlist::iterator bp = bl.begin();
       if (p->key() == "divergent_priors") {
-	::decode(ondisklog.divergent_priors, bp);
-	dout(20) << "read_log " << ondisklog.divergent_priors.size() << " divergent_priors" << dendl;
+	::decode(divergent_priors, bp);
+	dout(20) << "read_log " << divergent_priors.size() << " divergent_priors" << dendl;
       } else {
 	pg_log_entry_t e;
 	e.decode_with_checksum(bp);
@@ -612,8 +610,8 @@ bool PGLog::read_log(ObjectStore *store, coll_t coll, hobject_t log_oid,
       }
     }
     for (map<eversion_t, hobject_t>::reverse_iterator i =
-	   ondisklog.divergent_priors.rbegin();
-	 i != ondisklog.divergent_priors.rend();
+	   divergent_priors.rbegin();
+	 i != divergent_priors.rend();
 	 ++i) {
       if (i->first <= info.last_complete) break;
       if (did.count(i->second)) continue;
