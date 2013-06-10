@@ -592,6 +592,7 @@ int DBObjectMap::clear_range(const hobject_t &hoid,
 			     const SequencerPosition *spos)
 {
 #warning implement me
+  return 0;
 }
 
 int DBObjectMap::_clear(Header header,
