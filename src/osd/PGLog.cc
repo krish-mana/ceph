@@ -322,7 +322,6 @@ bool PGLog::merge_old_entry(ObjectStore::Transaction& t, const pg_log_entry_t& o
 	     << oe.prior_version << dendl;
     if (oe.prior_version > eversion_t()) {
       add_divergent_prior(oe.prior_version, oe.soid);
-      dirty_log = true;
       missing.revise_need(oe.soid, oe.prior_version);
     } else if (missing.is_missing(oe.soid)) {
       missing.rm(oe.soid, missing.missing[oe.soid].need);
@@ -355,6 +354,7 @@ void PGLog::rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead
       divergent.swap(log.log);
       break;
     }
+    mark_dirty_from(p->version);
     --p;
     if (p->version == newhead) {
       ++p;
@@ -376,7 +376,6 @@ void PGLog::rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead
 
   dirty_info = true;
   dirty_big_info = true;
-  dirty_log = true;
 }
 
 void PGLog::merge_log(ObjectStore::Transaction& t,
@@ -407,6 +406,7 @@ void PGLog::merge_log(ObjectStore::Transaction& t,
   //  missing set, as that should already be consistent with our
   //  current log.
   if (olog.tail < log.tail) {
+    mark_dirty_to(log.log.begin()->version); // last clean entry
     dout(10) << "merge_log extending tail to " << olog.tail << dendl;
     list<pg_log_entry_t>::iterator from = olog.log.begin();
     list<pg_log_entry_t>::iterator to;
@@ -442,6 +442,7 @@ void PGLog::merge_log(ObjectStore::Transaction& t,
 
   // extend on head?
   if (olog.head > log.head) {
+    mark_dirty_from(log.head);
     dout(10) << "merge_log extending head to " << olog.head << dendl;
       
     // find start point in olog
@@ -515,21 +516,33 @@ void PGLog::merge_log(ObjectStore::Transaction& t,
   if (changed) {
     dirty_info = true;
     dirty_big_info = true;
-    dirty_log = true;
   }
 }
 
 void PGLog::write_log(ObjectStore::Transaction& t, pg_log_t &log,
     const hobject_t &log_oid, map<eversion_t, hobject_t> &divergent_priors)
 {
-  if (!dirty())
-    return;
+  _write_log(t, log, log_oid, divergent_priors, eversion_t::max(), eversion_t(),
+	     true);
+}
 
-  dout(10) << "write_log, clearing up to " << dirty_to << dendl;
-  t.omap_rmkeyrange(eversion_t().get_key_name(), dirty_to.get_key_name());
+void PGLog::_write_log(
+  ObjectStore::Transaction& t, pg_log_t &log,
+  const hobject_t &log_oid, map<eversion_t, hobject_t> &divergent_priors,
+  eversion_t dirty_to,
+  eversion_t dirty_from,
+  bool dirty_divergent_priors
+  )
+{
+//dout(10) << "write_log, clearing up to " << dirty_to << dendl;
+  t.omap_rmkeyrange(
+    coll_t(), log_oid,
+    eversion_t().get_key_name(), dirty_to.get_key_name());
   if (dirty_to != eversion_t::max()) {
-    dout(10) << "write_log, clearing from " << dirty_from << dendl;
-    t.omap_rmkeyrange(dirty_from.get_key_name(), eversion_t::max().get_key_name());
+    //   dout(10) << "write_log, clearing from " << dirty_from << dendl;
+    t.omap_rmkeyrange(
+      coll_t(), log_oid,
+      dirty_from.get_key_name(), eversion_t::max().get_key_name());
   }
 
   map<string,bufferlist> keys;
@@ -542,15 +555,14 @@ void PGLog::write_log(ObjectStore::Transaction& t, pg_log_t &log,
       keys[p->get_key_name()].claim(bl);
     }
   }
-  dout(10) << "write_log " << keys.size() << " keys" << dendl;
+//dout(10) << "write_log " << keys.size() << " keys" << dendl;
 
   if (dirty_divergent_priors) {
-    dout(10) << "write_log: writing divergent_priors" << dendl;
+    //dout(10) << "write_log: writing divergent_priors" << dendl;
     ::encode(divergent_priors, keys["divergent_priors"]);
   }
 
   t.omap_setkeys(coll_t::META_COLL, log_oid, keys);
-  undirty();
 }
 
 bool PGLog::read_log(ObjectStore *store, coll_t coll, hobject_t log_oid,

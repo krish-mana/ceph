@@ -315,11 +315,22 @@ public:
                       bool &dirty_log, bool &dirty_info, bool &dirty_big_info);
 
   void write_log(ObjectStore::Transaction& t, const hobject_t &log_oid) {
-    write_log(t, log, log_oid, divergent_priors);
+    if (dirty()) {
+      write_log(t, log, log_oid, divergent_priors);
+      undirty();
+    }
   }
 
   static void write_log(ObjectStore::Transaction& t, pg_log_t &log,
     const hobject_t &log_oid, map<eversion_t, hobject_t> &divergent_priors);
+
+  static void _write_log(
+    ObjectStore::Transaction& t, pg_log_t &log,
+    const hobject_t &log_oid, map<eversion_t, hobject_t> &divergent_priors,
+    eversion_t dirty_to,
+    eversion_t dirty_from,
+    bool dirty_divergent_priors
+    );
 
   bool read_log(ObjectStore *store, coll_t coll, hobject_t log_oid,
 		const pg_info_t &info, ostringstream &oss) {
