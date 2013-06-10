@@ -522,22 +522,35 @@ void PGLog::merge_log(ObjectStore::Transaction& t,
 void PGLog::write_log(ObjectStore::Transaction& t, pg_log_t &log,
     const hobject_t &log_oid, map<eversion_t, hobject_t> &divergent_priors)
 {
-  //dout(10) << "write_log" << dendl;
-  t.remove(coll_t::META_COLL, log_oid);
-  t.touch(coll_t::META_COLL, log_oid);
+  if (!dirty())
+    return;
+
+  dout(10) << "write_log, clearing up to " << dirty_to << dendl;
+  t.omap_rmkeyrange(eversion_t().get_key_name(), dirty_to.get_key_name());
+  if (dirty_to != eversion_t::max()) {
+    dout(10) << "write_log, clearing from " << dirty_from << dendl;
+    t.omap_rmkeyrange(dirty_from.get_key_name(), eversion_t::max().get_key_name());
+  }
+
   map<string,bufferlist> keys;
   for (list<pg_log_entry_t>::iterator p = log.log.begin();
        p != log.log.end();
        ++p) {
-    bufferlist bl(sizeof(*p) * 2);
-    p->encode_with_checksum(bl);
-    keys[p->get_key_name()].claim(bl);
+    if ((p->version < dirty_to) || (p->version > dirty_from)) {
+      bufferlist bl(sizeof(*p) * 2);
+      p->encode_with_checksum(bl);
+      keys[p->get_key_name()].claim(bl);
+    }
   }
-  //dout(10) << "write_log " << keys.size() << " keys" << dendl;
+  dout(10) << "write_log " << keys.size() << " keys" << dendl;
 
-  ::encode(divergent_priors, keys["divergent_priors"]);
+  if (dirty_divergent_priors) {
+    dout(10) << "write_log: writing divergent_priors" << dendl;
+    ::encode(divergent_priors, keys["divergent_priors"]);
+  }
 
   t.omap_setkeys(coll_t::META_COLL, log_oid, keys);
+  undirty();
 }
 
 bool PGLog::read_log(ObjectStore *store, coll_t coll, hobject_t log_oid,

@@ -147,18 +147,43 @@ struct PGLog {
   };
 
 
-  void add_divergent_prior(eversion_t version, hobject_t obj) {
-    divergent_priors.insert(make_pair(version, obj));
-  }
-
 protected:
   //////////////////// data members ////////////////////
 
   map<eversion_t, hobject_t> divergent_priors;
   pg_missing_t     missing;
   IndexedLog  log;
+  /// Log is clean on (dirty_to, dirty_from]
+  eversion_t dirty_to;
+  eversion_t dirty_from;
+  bool dirty_divergent_priors;
+
+  void undirty() {
+    dirty_to = eversion_t();
+    dirty_from = eversion_t::max();
+    dirty_divergent_priors = false;
+  }
+  bool dirty() const {
+    return (dirty_to != eversion_t()) ||
+      (dirty_from != eversion_t::max()) ||
+      dirty_divergent_priors;
+  }
+  void mark_dirty_to(eversion_t to) {
+    if (to > dirty_to)
+      dirty_to = to;
+  }
+  void mark_dirty_from(eversion_t from) {
+    if (from < dirty_from)
+      dirty_from = from;
+  }
+  void add_divergent_prior(eversion_t version, hobject_t obj) {
+    divergent_priors.insert(make_pair(version, obj));
+    dirty_divergent_priors = true;
+  }
+
 
 public:
+  PGLog() : dirty_from(eversion_t::max()), dirty_divergent_priors(false) {}
 
   void clear();
 
