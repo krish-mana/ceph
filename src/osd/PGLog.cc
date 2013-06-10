@@ -107,6 +107,7 @@ void PGLog::clear() {
   divergent_priors.clear();
   missing.clear();
   log.zero();
+  undirty();
 }
 
 void PGLog::clear_info_log(
