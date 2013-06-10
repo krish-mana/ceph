@@ -1129,7 +1129,6 @@ void PG::activate(ObjectStore::Transaction& t,
   // write pg info, log
   dirty_info = true;
   dirty_big_info = true; // maybe
-  dirty_log = true;
 
   // clean up stray objects
   clean_up_local(t); 
@@ -1754,10 +1753,8 @@ void PG::split_into(pg_t child_pgid, PG *child, unsigned split_bits)
 
   child->dirty_info = true;
   child->dirty_big_info = true;
-  child->dirty_log = true;
   dirty_info = true;
   dirty_big_info = true;
-  dirty_log = true;
 }
 
 void PG::clear_recovery_state() 
@@ -2012,7 +2009,6 @@ void PG::init(int role, vector<int>& newup, vector<int>& newacting,
 
   dirty_info = true;
   dirty_big_info = true;
-  dirty_log = true;
   write_if_dirty(*t);
 }
 
@@ -2249,7 +2245,6 @@ epoch_t PG::peek_map_epoch(ObjectStore *store, coll_t coll, hobject_t &infos_oid
 void PG::write_log(ObjectStore::Transaction& t)
 {
   pg_log.write_log(t, log_oid);
-  dirty_log = false;
 }
 
 void PG::write_if_dirty(ObjectStore::Transaction& t)
@@ -6199,7 +6194,6 @@ boost::statechart::result PG::RecoveryState::Stray::react(const MLogRec& logevt)
     pg->reg_next_scrub();
     pg->dirty_info = true;
     pg->dirty_big_info = true;  // maybe.
-    pg->dirty_log = true;
     pg->pg_log.claim_log(msg->log);
   } else {
     ObjectStore::Transaction* t = context<RecoveryMachine>().get_cur_transaction();
