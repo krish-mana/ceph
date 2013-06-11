@@ -4665,14 +4665,15 @@ int FileStore::_omap_rmkeyrange(coll_t cid, const hobject_t &hoid,
 				const string& first, const string& last,
 				const SequencerPosition &spos) {
   dout(15) << __func__ << " " << cid << "/" << hoid << " [" << first << "," << last << "]" << dendl;
-  IndexedPath path;
-  int r = lfn_find(cid, hoid, &path);
-  if (r < 0)
-    return r;
-  r = object_map->clear_range(hoid, first, last, &spos);
-  if (r < 0 && r != -ENOENT)
-    return r;
-  return 0;
+  set<string> keys;
+  {
+    ObjectMap::ObjectMapIterator iter = get_omap_iterator(cid, hoid);
+    for (iter->lower_bound(first); iter->valid() && iter->key() < last;
+	 iter->next()) {
+      keys.insert(iter->key());
+    }
+  }
+  return _omap_rmkeys(cid, hoid, keys, spos);
 }
 
 int FileStore::_omap_setheader(coll_t cid, const hobject_t &hoid,

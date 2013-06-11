@@ -617,7 +617,7 @@ public:
       coll_t cid,             ///< [in] Collection containing hoid
       const hobject_t &hoid,  ///< [in] Object from which to remove the omap
       const string& first,    ///< [in] first key in range
-      const string& last      ///< [in] lastkey in range
+      const string& last      ///< [in] first key past range
       ) {
       __u32 op = OP_OMAP_RMKEYRANGE;
       ::encode(op, tbl);
