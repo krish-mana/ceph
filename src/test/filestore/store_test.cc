@@ -829,6 +829,76 @@ TEST_F(StoreTest, ColSplitTest3) {
 }
 #endif
 
+/**
+ * This test tests adding two different groups
+ * of objects, each with 1 common prefix and 1
+ * different prefix.  We then remove half
+ * in order to verify that the merging correctly
+ * stops at the common prefix subdir.  See bug
+ * #5273 */
+TEST_F(StoreTest, TwoHash) {
+  coll_t cid("asdf");
+  int r;
+  {
+    ObjectStore::Transaction t;
+    t.create_collection(cid);
+    r = store->apply_transaction(t);
+    ASSERT_EQ(r, 0);
+  }
+  std::cout << "Making objects" << std::endl;
+  for (int i = 0; i < 1000; ++i) {
+    ObjectStore::Transaction t;
+    hobject_t o;
+    o.hash = (i << 16) | 0x1A;
+    t.touch(cid, o);
+    o.hash = (i << 16) | 0x1B;
+    t.touch(cid, o);
+    r = store->apply_transaction(t);
+    ASSERT_EQ(r, 0);
+  }
+  std::cout << "Removing half" << std::endl;
+  for (int i = 1; i < 1000; ++i) {
+    ObjectStore::Transaction t;
+    hobject_t o;
+    o.hash = (i << 16) | 0x1A;
+    t.remove(cid, o);
+    r = store->apply_transaction(t);
+    ASSERT_EQ(r, 0);
+  }
+  std::cout << "Checking" << std::endl;
+  for (int i = 1; i < 1000; ++i) {
+    ObjectStore::Transaction t;
+    hobject_t o;
+    o.hash = (i << 16) | 0x1A;
+    bool exists = store->exists(cid, o);
+    ASSERT_EQ(exists, false);
+    o.hash = (i << 16) | 0x1B;
+    exists = store->exists(cid, o);
+    ASSERT_EQ(exists, true);
+  }
+  {
+    hobject_t o;
+    o.hash = 0x1A;
+    bool exists = store->exists(cid, o);
+    ASSERT_EQ(exists, true);
+  }
+  std::cout << "Cleanup" << std::endl;
+  for (int i = 0; i < 1000; ++i) {
+    ObjectStore::Transaction t;
+    hobject_t o;
+    o.hash = (i << 16) | 0x1A;
+    t.remove(cid, o);
+    o.hash = (i << 16) | 0x1B;
+    t.remove(cid, o);
+    r = store->apply_transaction(t);
+    ASSERT_EQ(r, 0);
+  }
+  ObjectStore::Transaction t;
+  t.remove_collection(cid);
+  r = store->apply_transaction(t);
+  ASSERT_EQ(r, 0);
+}
+
 //
 // support tests for qa/workunits/filestore/filestore.sh
 //
