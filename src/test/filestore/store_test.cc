@@ -846,49 +846,46 @@ TEST_F(StoreTest, TwoHash) {
     ASSERT_EQ(r, 0);
   }
   std::cout << "Making objects" << std::endl;
-  for (int i = 0; i < 1000; ++i) {
+  for (int i = 0; i < 360; ++i) {
     ObjectStore::Transaction t;
     hobject_t o;
-    o.hash = (i << 16) | 0x1A;
+    o.hash = (i << 16) | 0xA1;
     t.touch(cid, o);
-    o.hash = (i << 16) | 0x1B;
+    o.hash = (i << 16) | 0xB1;
     t.touch(cid, o);
     r = store->apply_transaction(t);
     ASSERT_EQ(r, 0);
   }
   std::cout << "Removing half" << std::endl;
-  for (int i = 1; i < 1000; ++i) {
+  for (int i = 1; i < 360; ++i) {
     ObjectStore::Transaction t;
     hobject_t o;
-    o.hash = (i << 16) | 0x1A;
+    o.hash = (i << 16) | 0xA1;
     t.remove(cid, o);
     r = store->apply_transaction(t);
     ASSERT_EQ(r, 0);
   }
   std::cout << "Checking" << std::endl;
-  for (int i = 1; i < 1000; ++i) {
+  for (int i = 1; i < 360; ++i) {
     ObjectStore::Transaction t;
     hobject_t o;
-    o.hash = (i << 16) | 0x1A;
+    o.hash = (i << 16) | 0xA1;
     bool exists = store->exists(cid, o);
     ASSERT_EQ(exists, false);
-    o.hash = (i << 16) | 0x1B;
-    exists = store->exists(cid, o);
-    ASSERT_EQ(exists, true);
   }
   {
     hobject_t o;
-    o.hash = 0x1A;
+    o.hash = 0xA1;
     bool exists = store->exists(cid, o);
     ASSERT_EQ(exists, true);
   }
   std::cout << "Cleanup" << std::endl;
-  for (int i = 0; i < 1000; ++i) {
+  for (int i = 0; i < 360; ++i) {
     ObjectStore::Transaction t;
     hobject_t o;
-    o.hash = (i << 16) | 0x1A;
+    o.hash = (i << 16) | 0xA1;
     t.remove(cid, o);
-    o.hash = (i << 16) | 0x1B;
+    o.hash = (i << 16) | 0xB1;
     t.remove(cid, o);
     r = store->apply_transaction(t);
     ASSERT_EQ(r, 0);
