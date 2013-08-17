@@ -172,6 +172,10 @@ void md_config_t::add_observer(md_config_obs_t* observer_)
 {
   Mutex::Locker l(lock);
   const char **keys = observer_->get_tracked_conf_keys();
+  if (!(*k)) {
+    universal_observers.insert(observer_);
+    return;
+  }
   for (const char ** k = keys; *k; ++k) {
     obs_map_t::value_type val(*k, observer_);
     observers.insert(val);
@@ -182,8 +186,14 @@ void md_config_t::remove_observer(md_config_obs_t* observer_)
 {
   Mutex::Locker l(lock);
   bool found_obs = false;
+  if (universal_observers.count(observer_)) {
+    assert(!*(observer_->get_tracked_conf_keys()));
+    universal_observers.erase(observer_);
+    found_obs = true;
+  }
   for (obs_map_t::iterator o = observers.begin(); o != observers.end(); ) {
     if (o->second == observer_) {
+      assert(*(observer_->get_tracked_conf_keys()));
       observers.erase(o++);
       found_obs = true;
     }

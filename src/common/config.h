@@ -88,6 +88,9 @@ public:
   // but before anyone can call injectargs.
   //
   // The caller is responsible for allocating observers.
+  //
+  // if observer_->get_tracked_conf_keys() is empty, the observer_ will
+  // be registered for all configs.
   void add_observer(md_config_obs_t* observer_);
 
   // Remove an observer from this configuration.
@@ -180,6 +183,7 @@ private:
 
   obs_map_t observers;
   changed_set_t changed;
+  set<md_config_obs_t*> universal_observers;
 
 public:
   ceph::log::SubsystemMap subsys;
