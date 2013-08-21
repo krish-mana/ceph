@@ -47,6 +47,7 @@
 #include "common/tracked_int_ptr.hpp"
 #include "common/WorkQueue.h"
 #include "include/str_list.h"
+#include <boost/scoped_ptr.hpp>
 
 #include <list>
 #include <memory>

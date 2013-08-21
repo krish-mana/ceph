@@ -27,6 +27,29 @@
 
 #define mydout(cct, v) lgeneric_subdout(cct, context, v)
 
+/**
+ * GenContext - generalized Context
+ *
+ * Context which is parameterized on the type passed to
+ * finish()
+ */
+template <typename T>
+class GenContext {
+  GenContext(const GenContext& other);
+  const GenContext& operator=(const GenContext& other);
+
+protected:
+  virtual void finish(T r) = 0;
+
+public:
+  GenContext() {}
+  virtual ~GenContext() {}
+  virtual void complete(T r) {
+    finish(r);
+    delete this;
+  }
+};
+
 /*
  * Context - abstract callback class
  */

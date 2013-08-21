@@ -1700,6 +1700,7 @@ libosd_a_SOURCES = \
 	osd/PG.cc \
 	osd/PGLog.cc \
 	osd/ReplicatedPG.cc \
+	osd/ReplicatedBackend.cc \
 	osd/Ager.cc \
 	osd/OSD.cc \
 	osd/OSDCap.cc \
@@ -2218,6 +2219,8 @@ noinst_HEADERS = \
         osd/ObjectVersioner.h\
 	osd/OpRequest.h\
 	osd/SnapMapper.h\
+	osd/PGBackend.h\
+	osd/ReplicatedBackend.h\
         osd/PG.h\
         osd/PGLog.h\
         osd/ReplicatedPG.h\

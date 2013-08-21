@@ -19,6 +19,7 @@
 #include "OpRequest.h"
 
 #include "common/Timer.h"
+#include "ReplicatedBackend.h"
 
 #include "messages/MOSDOp.h"
 #include "messages/MOSDPGNotify.h"

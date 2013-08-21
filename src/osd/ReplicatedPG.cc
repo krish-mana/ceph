@@ -613,7 +613,9 @@ void ReplicatedPG::calc_trim_to()
 ReplicatedPG::ReplicatedPG(OSDService *o, OSDMapRef curmap,
 			   const PGPool &_pool, pg_t p, const hobject_t& oid,
 			   const hobject_t& ioid) :
-  PG(o, curmap, _pool, p, oid, ioid), temp_created(false),
+  PG(o, curmap, _pool, p, oid, ioid),
+  pgbackend(new ReplicatedBackend(this, coll_t(p), o)),
+  temp_created(false),
   temp_coll(coll_t::make_temp_coll(p)), snap_trimmer_machine(this)
 { 
   snap_trimmer_machine.initiate();
@@ -691,7 +693,8 @@ void ReplicatedPG::do_request(
     break;
 
   default:
-    assert(0 == "bad message type in do_request");
+    if (!pgbackend->handle_message(op))
+      assert(0 == "bad message type in do_request");
   }
 }
 
@@ -5630,6 +5633,12 @@ int ReplicatedPG::send_pull_legacy(int prio, int peer,
   return 0;
 }
 
+void ReplicatedPG::on_local_recover_start(
+  const hobject_t &oid,
+  ObjectStore::Transaction *t)
+{
+}
+
 void ReplicatedPG::submit_push_data(
   ObjectRecoveryInfo &recovery_info,
   bool first,
@@ -5901,15 +5910,10 @@ bool ReplicatedPG::handle_pull_response(
   }
 }
 
-struct C_OnPushCommit : public Context {
-  ReplicatedPG *pg;
-  OpRequestRef op;
-  C_OnPushCommit(ReplicatedPG *pg, OpRequestRef op) : pg(pg), op(op) {}
-  void finish(int) {
-    op->mark_event("committed");
-    pg->log_subop_stats(op, l_osd_push_inb, l_osd_sop_push_lat);
-  }
-};
+void ReplicatedPG::on_global_recover(
+  const hobject_t &soid)
+{
+}
 
 void ReplicatedPG::handle_push(
   int from, PushOp &pop, PushReplyOp *response,
@@ -6197,6 +6201,13 @@ void ReplicatedPG::sub_op_push_reply(OpRequestRef op)
   bool more = handle_push_reply(peer, rop, &pop);
   if (more)
     send_push_op_legacy(pushing[soid][peer].priority, peer, pop);
+}
+
+void ReplicatedPG::on_peer_recover(
+  int peer,
+  const hobject_t &soid,
+  const ObjectRecoveryInfo &recovery_info)
+{
 }
 
 bool ReplicatedPG::handle_push_reply(int peer, PushReplyOp &op, PushOp *reply)
@@ -6893,6 +6904,7 @@ void ReplicatedPG::on_change(ObjectStore::Transaction *t)
   pushing.clear();
   pulling.clear();
   pull_from_peer.clear();
+  pgbackend->on_change(t);
 
   // clear temp
   for (set<hobject_t>::iterator i = temp_contents.begin();
