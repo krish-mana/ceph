@@ -1806,10 +1806,10 @@ public:
 
 
   // abstract bits
-  void do_request(
+  virtual void do_request(
     OpRequestRef op,
     ThreadPool::TPHandle &handle
-  );
+  ) = 0;
 
   virtual void do_op(OpRequestRef op) = 0;
   virtual void do_sub_op(OpRequestRef op) = 0;
