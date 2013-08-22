@@ -5698,41 +5698,6 @@ void ReplicatedPG::submit_push_complete(ObjectRecoveryInfo &recovery_info,
 		     q.get_start(), q.get_len(), q.get_start());
     }
   }
-
-  if (recovery_info.soid.snap < CEPH_NOSNAP) {
-    assert(recovery_info.oi.snaps.size());
-    OSDriver::OSTransaction _t(osdriver.get_transaction(t));
-    set<snapid_t> snaps(
-      recovery_info.oi.snaps.begin(),
-      recovery_info.oi.snaps.end());
-    snap_mapper.add_oid(
-      recovery_info.soid,
-      snaps,
-      &_t);
-  }
-
-  if (pg_log.get_missing().is_missing(recovery_info.soid) &&
-      pg_log.get_missing().missing.find(recovery_info.soid)->second.need > recovery_info.version) {
-    assert(is_primary());
-    const pg_log_entry_t *latest = pg_log.get_log().objects.find(recovery_info.soid)->second;
-    if (latest->op == pg_log_entry_t::LOST_REVERT &&
-	latest->reverting_to == recovery_info.version) {
-      dout(10) << " got old revert version " << recovery_info.version
-	       << " for " << *latest << dendl;
-      recovery_info.version = latest->version;
-      // update the attr to the revert event version
-      recovery_info.oi.prior_version = recovery_info.oi.version;
-      recovery_info.oi.version = latest->version;
-      bufferlist bl;
-      ::encode(recovery_info.oi, bl);
-      t->setattr(coll, recovery_info.soid, OI_ATTR, bl);
-    }
-  }
-  recover_got(recovery_info.soid, recovery_info.version);
-
-  // update pg
-  dirty_info = true;
-  write_if_dirty(*t);
 }
 
 ObjectRecoveryInfo ReplicatedPG::recalc_subsets(const ObjectRecoveryInfo& recovery_info)
@@ -5842,40 +5807,93 @@ bool ReplicatedPG::handle_pull_response(
   info.stats.stats.sum.num_keys_recovered += pop.omap_entries.size();
 
   if (complete) {
+    pulling.erase(hoid);
+    pull_from_peer[from].erase(hoid);
     info.stats.stats.sum.num_objects_recovered++;
+    on_local_recover(hoid, object_stat_sum_t(), pi.recovery_info, t);
+    return false;
+  } else {
+    response->soid = pop.soid;
+    response->recovery_info = pi.recovery_info;
+    response->recovery_progress = pi.recovery_progress;
+    return true;
+  }
+}
 
+struct C_OnPushCommit : public Context {
+  ReplicatedPG *pg;
+  OpRequestRef op;
+  C_OnPushCommit(ReplicatedPG *pg, OpRequestRef op) : pg(pg), op(op) {}
+  void finish(int) {
+    op->mark_event("committed");
+    pg->log_subop_stats(op, l_osd_push_inb, l_osd_sop_push_lat);
+  }
+};
+
+
+void ReplicatedPG::on_local_recover(
+  const hobject_t &hoid,
+  const object_stat_sum_t &stat_diff,
+  const ObjectRecoveryInfo &_recovery_info,
+  ObjectStore::Transaction *t
+  )
+{
+  ObjectRecoveryInfo recovery_info(_recovery_info);
+  if (recovery_info.soid.snap < CEPH_NOSNAP) {
+    assert(recovery_info.oi.snaps.size());
+    OSDriver::OSTransaction _t(osdriver.get_transaction(t));
+    set<snapid_t> snaps(
+      recovery_info.oi.snaps.begin(),
+      recovery_info.oi.snaps.end());
+    snap_mapper.add_oid(
+      recovery_info.soid,
+      snaps,
+      &_t);
+  }
+
+  if (pg_log.get_missing().is_missing(recovery_info.soid) &&
+      pg_log.get_missing().missing.find(recovery_info.soid)->second.need > recovery_info.version) {
+    assert(is_primary());
+    const pg_log_entry_t *latest = pg_log.get_log().objects.find(recovery_info.soid)->second;
+    if (latest->op == pg_log_entry_t::LOST_REVERT &&
+	latest->reverting_to == recovery_info.version) {
+      dout(10) << " got old revert version " << recovery_info.version
+	       << " for " << *latest << dendl;
+      recovery_info.version = latest->version;
+      // update the attr to the revert event version
+      recovery_info.oi.prior_version = recovery_info.oi.version;
+      recovery_info.oi.version = latest->version;
+      bufferlist bl;
+      ::encode(recovery_info.oi, bl);
+      t->setattr(coll, recovery_info.soid, OI_ATTR, bl);
+    }
+  }
+
+  // keep track of active pushes for scrub
+  ++active_pushes;
+
+  if (is_primary()) {
+    info.stats.stats.sum.add(stat_diff);
     SnapSetContext *ssc;
     if (hoid.snap == CEPH_NOSNAP || hoid.snap == CEPH_SNAPDIR) {
       ssc = create_snapset_context(hoid.oid);
-      ssc->snapset = pi.recovery_info.ss;
+      ssc->snapset = recovery_info.ss;
     } else {
       ssc = get_snapset_context(hoid.oid, hoid.get_key(), hoid.hash, false,
-	hoid.get_namespace());
+				hoid.get_namespace());
       assert(ssc);
     }
-    ObjectContext *obc = create_object_context(pi.recovery_info.oi, ssc);
+    ObjectContext *obc = create_object_context(recovery_info.oi, ssc);
     obc->obs.exists = true;
 
     obc->ondisk_write_lock();
 
-    // keep track of active pushes for scrub
-    ++active_pushes;
 
     t->register_on_applied(new C_OSD_AppliedRecoveredObject(this, obc));
     t->register_on_applied_sync(new C_OSD_OndiskWriteUnlock(obc));
     t->register_on_complete(
       new C_OSD_CompletedPull(this, hoid, get_osdmap()->get_epoch()));
-  }
 
-  t->register_on_commit(
-    new C_OSD_CommittedPushedObject(
-      this,
-      get_osdmap()->get_epoch(),
-      info.last_complete));
-
-  if (complete) {
-    pulling.erase(hoid);
-    pull_from_peer[from].erase(hoid);
     publish_stats_to_osd();
     if (waiting_for_missing_object.count(hoid)) {
       dout(20) << " kicking waiters on " << hoid << dendl;
@@ -5886,13 +5904,24 @@ bool ReplicatedPG::handle_pull_response(
 	waiting_for_all_missing.clear();
       }
     }
-    return false;
   } else {
-    response->soid = pop.soid;
-    response->recovery_info = pi.recovery_info;
-    response->recovery_progress = pi.recovery_progress;
-    return true;
+    t->register_on_applied(
+      new C_OSD_AppliedRecoveredObjectReplica(this));
+
   }
+
+  t->register_on_commit(
+    new C_OSD_CommittedPushedObject(
+      this,
+      get_osdmap()->get_epoch(),
+      info.last_complete));
+
+  recover_got(recovery_info.soid, recovery_info.version);
+
+  // update pg
+  dirty_info = true;
+  write_if_dirty(*t);
+
 }
 
 void ReplicatedPG::on_global_recover(
@@ -5914,12 +5943,7 @@ void ReplicatedPG::handle_push(
   bool complete = pop.after_progress.data_complete &&
     pop.after_progress.omap_complete;
 
-  // keep track of active pushes for scrub
-  ++active_pushes;
-
   response->soid = pop.recovery_info.soid;
-  t->register_on_applied(
-    new C_OSD_AppliedRecoveredObjectReplica(this));
   submit_push_data(pop.recovery_info,
 		   first,
 		   complete,
@@ -5930,11 +5954,12 @@ void ReplicatedPG::handle_push(
 		   pop.omap_entries,
 		   t);
 
-  t->register_on_commit(
-    new C_OSD_CommittedPushedObject(
-      this,
-      get_osdmap()->get_epoch(),
-      info.last_complete));
+  if (complete)
+    on_local_recover(
+      pop.recovery_info.soid,
+      object_stat_sum_t(),
+      pop.recovery_info,
+      t);
 }
 
 void ReplicatedPG::send_pushes(int prio, map<int, vector<PushOp> > &pushes)

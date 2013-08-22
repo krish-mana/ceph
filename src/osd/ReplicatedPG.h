@@ -92,13 +92,13 @@ public:
     const object_stat_sum_t &stat_diff,
     const ObjectRecoveryInfo &recovery_info,
     ObjectStore::Transaction *t
-    )  {}
+    );
   void on_peer_recover(
     int peer,
     const hobject_t &oid,
     const ObjectRecoveryInfo &recovery_info);
   void on_global_recover(
-    const hobject_t &oid) {}
+    const hobject_t &oid);
   class BlessedContext : public Context {
     ReplicatedPG *pg;
     Context *c;
