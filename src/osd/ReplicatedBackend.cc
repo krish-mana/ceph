@@ -41,4 +41,36 @@ bool ReplicatedBackend::handle_message(
 void ReplicatedBackend::on_change(ObjectStore::Transaction *t)
 {
   dout(10) << __func__ << dendl;
+  // clear temp
+  for (set<hobject_t>::iterator i = temp_contents.begin();
+       i != temp_contents.end();
+       ++i) {
+    dout(10) << __func__ << ": Removing oid "
+	     << *i << " from the temp collection" << dendl;
+    t->remove(get_temp_coll(t), *i);
+  }
+  temp_contents.clear();
+}
+
+coll_t ReplicatedBackend::get_temp_coll(ObjectStore::Transaction *t)
+{
+  if (temp_created)
+    return temp_coll;
+  if (!osd->store->collection_exists(temp_coll))
+      t->create_collection(temp_coll);
+  temp_created = true;
+  return temp_coll;
+}
+
+void ReplicatedBackend::on_flushed()
+{
+  if (have_temp_coll() &&
+      !osd->store->collection_empty(get_temp_coll())) {
+    vector<hobject_t> objects;
+    osd->store->collection_list(get_temp_coll(), objects);
+    derr << __func__ << ": found objects in the temp collection: "
+	 << objects << ", crashing now"
+	 << dendl;
+    assert(0 == "found garbage in the temp collection");
+  }
 }

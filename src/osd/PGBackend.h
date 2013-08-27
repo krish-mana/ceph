@@ -157,6 +157,17 @@
     */
    virtual void on_change(ObjectStore::Transaction *t) = 0;
 
+   virtual void on_flushed() = 0;
+
+
+   virtual void split_colls(
+     pg_t child,
+     int split_bits,
+     int seed,
+     ObjectStore::Transaction *t) = 0;
+
+   virtual void temp_colls(list<coll_t> *out) = 0;
+
    virtual ~PGBackend() {}
  };
 

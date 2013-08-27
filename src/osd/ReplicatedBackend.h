@@ -25,12 +25,23 @@ class ReplicatedBackend : public PGBackend {
     map<int, vector<PushReplyOp> > push_replies;
     map<int, vector<PullOp> > pulls;
   };
+private:
+  bool temp_created;
+  coll_t temp_coll;
+  coll_t get_temp_coll(ObjectStore::Transaction *t);
+  coll_t get_temp_coll() const {
+    return temp_coll;
+  }
+  bool have_temp_coll() const { return temp_created; }
+
+  // Track contents of temp collection, clear on reset
+  set<hobject_t> temp_contents;
 public:
   coll_t coll;
   OSDService *osd;
 
   ReplicatedBackend(PGBackend::Listener *pg, coll_t coll, OSDService *osd) :
-    PGBackend(pg), coll(coll), osd(osd) {}
+    PGBackend(pg), temp_created(false), coll(coll), osd(osd) {}
 
   /// @see PGBackend::open_recovery_op
   PGBackend::RecoveryHandle *open_recovery_op() {
@@ -56,6 +67,25 @@ public:
 
   void on_change(ObjectStore::Transaction *t);
   void on_flushed();
+
+  void temp_colls(list<coll_t> *out) {
+    if (temp_created)
+      out->push_back(temp_coll);
+  }
+  void split_colls(
+    pg_t child,
+    int split_bits,
+    int seed,
+    ObjectStore::Transaction *t) {
+    if (!temp_created)
+      return;
+    t->create_collection(temp_coll);
+    t->split_collection(
+      temp_coll,
+      split_bits,
+      seed,
+      coll_t::make_temp_coll(child));
+  }
 };
 
 #endif

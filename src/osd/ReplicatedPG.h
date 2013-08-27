@@ -1039,15 +1039,26 @@ public:
   int do_tmapup_slow(OpContext *ctx, bufferlist::iterator& bp, OSDOp& osd_op, bufferlist& bl);
 
   void do_osd_op_effects(OpContext *ctx);
-private:
-  bool temp_created;
-  coll_t temp_coll;
-  coll_t get_temp_coll(ObjectStore::Transaction *t);
 public:
-  bool have_temp_coll();
-  coll_t get_temp_coll() {
-    return temp_coll;
+  void get_colls(list<coll_t> *out) {
+    out->push_back(coll);
+    return pgbackend->temp_colls(out);
   }
+  void split_colls(
+    pg_t child,
+    int split_bits,
+    int seed,
+    ObjectStore::Transaction *t) {
+    t->create_collection(coll);
+    t->split_collection(
+      coll,
+      split_bits,
+      seed,
+      coll_t::make_temp_coll(child));
+    pgbackend->split_colls(child, split_bits, seed, t);
+  }
+  /// TODOXXX: remove this one, stub
+  coll_t get_temp_coll(ObjectStore::Transaction *t) { return coll_t(); }
 private:
   struct NotTrimming;
   struct SnapTrim : boost::statechart::event< SnapTrim > {
@@ -1129,7 +1140,10 @@ public:
   void on_role_change();
   void on_change(ObjectStore::Transaction *t);
   void on_activate();
-  void on_flushed();
+  void on_flushed() {
+    assert(object_contexts.empty());
+    pgbackend->on_flushed();
+  }
   void on_removal(ObjectStore::Transaction *t);
   void on_shutdown();
 };
