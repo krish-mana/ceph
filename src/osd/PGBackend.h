@@ -97,6 +97,10 @@
    PGBackend(Listener *l) : parent(l) {}
    bool is_primary() const { return get_parent()->pgb_is_primary(); }
 
+   std::string gen_prefix() const {
+     return parent->gen_dbg_prefix();
+   }
+
    /**
     * RecoveryHandle
     *
