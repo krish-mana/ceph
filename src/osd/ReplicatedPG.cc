@@ -5622,6 +5622,9 @@ void ReplicatedPG::on_local_recover_start(
   const hobject_t &oid,
   ObjectStore::Transaction *t)
 {
+  pg_log.revise_have(oid, eversion_t());
+  remove_snap_mapped_object(*t, oid);
+  t->remove(coll, oid);
 }
 
 void ReplicatedPG::submit_push_data(
@@ -5646,9 +5649,7 @@ void ReplicatedPG::submit_push_data(
   }
 
   if (first) {
-    pg_log.revise_have(recovery_info.soid, eversion_t());
-    remove_snap_mapped_object(*t, recovery_info.soid);
-    t->remove(coll, recovery_info.soid);
+    on_local_recover_start(recovery_info.soid, t);
     t->remove(get_temp_coll(t), recovery_info.soid);
     t->touch(target_coll, recovery_info.soid);
     t->omap_setheader(target_coll, recovery_info.soid, omap_header);
