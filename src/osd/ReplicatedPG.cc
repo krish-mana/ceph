@@ -5928,6 +5928,15 @@ void ReplicatedPG::on_local_recover(
 void ReplicatedPG::on_global_recover(
   const hobject_t &soid)
 {
+  publish_stats_to_osd();
+  pushing.erase(soid);
+  dout(10) << "pushed " << soid << " to all replicas" << dendl;
+  finish_recovery_op(soid);
+  if (waiting_for_degraded_object.count(soid)) {
+    requeue_ops(waiting_for_degraded_object[soid]);
+    waiting_for_degraded_object.erase(soid);
+  }
+  finish_degraded_object(soid);
 }
 
 void ReplicatedPG::handle_push(
@@ -6219,6 +6228,11 @@ void ReplicatedPG::on_peer_recover(
   const hobject_t &soid,
   const ObjectRecoveryInfo &recovery_info)
 {
+  // done!
+  if (peer == backfill_target && backfills_in_flight.count(soid))
+    backfills_in_flight.erase(soid);
+  else
+    peer_missing[peer].got(soid, recovery_info.version);
 }
 
 bool ReplicatedPG::handle_push_reply(int peer, PushReplyOp &op, PushOp *reply)
@@ -6247,26 +6261,12 @@ bool ReplicatedPG::handle_push_reply(int peer, PushReplyOp &op, PushOp *reply)
       pi->recovery_progress = new_progress;
       return true;
     } else {
-      // done!
-      if (peer == backfill_target && backfills_in_flight.count(soid))
-	backfills_in_flight.erase(soid);
-      else
-	peer_missing[peer].got(soid, pi->recovery_info.version);
-      
+      on_peer_recover(peer, soid, pi->recovery_info);
       pushing[soid].erase(peer);
       pi = NULL;
       
-      publish_stats_to_osd();
-      
       if (pushing[soid].empty()) {
-	pushing.erase(soid);
-	dout(10) << "pushed " << soid << " to all replicas" << dendl;
-	finish_recovery_op(soid);
-	if (waiting_for_degraded_object.count(soid)) {
-	  requeue_ops(waiting_for_degraded_object[soid]);
-	  waiting_for_degraded_object.erase(soid);
-	}
-	finish_degraded_object(soid);
+	on_global_recover(soid);
       } else {
 	dout(10) << "pushed " << soid << ", still waiting for push ack from " 
 		 << pushing[soid].size() << " others" << dendl;
