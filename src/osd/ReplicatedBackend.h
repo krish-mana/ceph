@@ -86,6 +86,113 @@ public:
       seed,
       coll_t::make_temp_coll(child));
   }
+
+private:
+  // push
+  struct PushInfo {
+    ObjectRecoveryProgress recovery_progress;
+    ObjectRecoveryInfo recovery_info;
+    int priority;
+
+    void dump(Formatter *f) const {
+      {
+	f->open_object_section("recovery_progress");
+	recovery_progress.dump(f);
+	f->close_section();
+      }
+      {
+	f->open_object_section("recovery_info");
+	recovery_info.dump(f);
+	f->close_section();
+      }
+    }
+  };
+  map<hobject_t, map<int, PushInfo> > pushing;
+
+  // pull
+  struct PullInfo {
+    ObjectRecoveryProgress recovery_progress;
+    ObjectRecoveryInfo recovery_info;
+    int priority;
+
+    void dump(Formatter *f) const {
+      {
+	f->open_object_section("recovery_progress");
+	recovery_progress.dump(f);
+	f->close_section();
+      }
+      {
+	f->open_object_section("recovery_info");
+	recovery_info.dump(f);
+	f->close_section();
+      }
+    }
+
+    bool is_complete() const {
+      return recovery_progress.is_complete(recovery_info);
+    }
+  };
+  map<hobject_t, PullInfo> pulling;
+
+  void sub_op_push(OpRequestRef op);
+  void sub_op_push_reply(OpRequestRef op);
+  void sub_op_pull(OpRequestRef op);
+
+  void _do_push(OpRequestRef op);
+  void _do_pull_response(OpRequestRef op);
+  void do_push(OpRequestRef op) {
+    if (is_primary()) {
+      _do_pull_response(op);
+    } else {
+      _do_push(op);
+    }
+  }
+  void do_pull(OpRequestRef op);
+  void do_push_reply(OpRequestRef op);
+
+  bool handle_push_reply(int peer, PushReplyOp &op, PushOp *reply);
+  void handle_pull(int peer, PullOp &op, PushOp *reply);
+  bool handle_pull_response(int from, PushOp &op, PullOp *response,
+			    ObjectStore::Transaction *t);
+  void handle_push(int from, PushOp &op, PushReplyOp *response,
+		   ObjectStore::Transaction *t);
+
+  static void trim_pushed_data(const interval_set<uint64_t> &copy_subset,
+			       const interval_set<uint64_t> &intervals_received,
+			       bufferlist data_received,
+			       interval_set<uint64_t> *intervals_usable,
+			       bufferlist *data_usable);
+  void _failed_push(int from, const hobject_t &soid);
+
+  void send_pushes(int prio, map<int, vector<PushOp> > &pushes);
+  int send_push(int priority, int peer,
+		const ObjectRecoveryInfo& recovery_info,
+		const ObjectRecoveryProgress &progress,
+		ObjectRecoveryProgress *out_progress = 0);
+  int send_push_op_legacy(int priority, int peer,
+			  PushOp &pop);
+  int send_pull_legacy(int priority, int peer,
+		       const ObjectRecoveryInfo& recovery_info,
+		       ObjectRecoveryProgress progress);
+  void send_pulls(
+    int priority,
+    map<int, vector<PullOp> > &pulls);
+
+  int build_push_op(const ObjectRecoveryInfo &recovery_info,
+		    const ObjectRecoveryProgress &progress,
+		    ObjectRecoveryProgress *out_progress,
+		    PushOp *out_op);
+  void submit_push_data(ObjectRecoveryInfo &recovery_info,
+			bool first,
+			bool complete,
+			const interval_set<uint64_t> &intervals_included,
+			bufferlist data_included,
+			bufferlist omap_header,
+			map<string, bufferptr> &attrs,
+			map<string, bufferlist> &omap_entries,
+			ObjectStore::Transaction *t);
+  void submit_push_complete(ObjectRecoveryInfo &recovery_info,
+			    ObjectStore::Transaction *t);
 };
 
 #endif
