@@ -34,7 +34,48 @@ bool ReplicatedBackend::handle_message(
   OpRequestRef op
   )
 {
-  dout(10) << __func__ << dendl;
+  dout(10) << __func__ << ": " << op << dendl;
+  switch (op->request_get_type()) {
+  case MSG_OSD_PG_PUSH:
+    // TODOXXX: needs to be active possibly
+    do_push(op);
+    return true;
+
+  case MSG_OSD_PG_PULL:
+    do_pull(op);
+    return true;
+
+  case MSG_OSD_PG_PUSH_REPLY:
+    do_push_reply(op);
+    return true;
+
+  case MSG_OSD_SUBOP:
+    MOSDSubOp *op = static_cast<MOSDSubOp*>(op.get());
+    if (m->ops.size() >= 1) {
+      OSDOp *first = &m->ops[0];
+      switch (first->op.op) {
+      case CEPH_OSD_OP_PULL:
+	sub_op_pull(op);
+	return true;
+      case CEPH_OSD_OP_PUSH:
+        // TODOXXX: needs to be active possibly
+	sub_op_push(op);
+	return true;
+      }
+    }
+  }
+
+case MSG_OP_SUBOPREPLY:
+  MOSDSubOpReply *r = static_cast<MOSDSubOpReply*>(op->request);
+  if (r->ops.size() >= 1) {
+    OSDOp *first = r->ops[0];
+    switch (first.op.op) {
+    case CEPH_OSD_OP_PUSH:
+      // continue peer recovery
+      sub_op_push_reply(op);
+      return true;
+    }
+  }
   return false;
 }
 

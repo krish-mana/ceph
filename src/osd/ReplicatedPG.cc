@@ -649,6 +649,9 @@ void ReplicatedPG::do_request(
     return;
   }
 
+  if (pgbackend->handle_message(op))
+    return;
+
   switch (op->request->get_type()) {
   case CEPH_MSG_OSD_OP:
     if (is_replay() || !is_active()) {
@@ -675,26 +678,8 @@ void ReplicatedPG::do_request(
     do_backfill(op);
     break;
 
-  case MSG_OSD_PG_PUSH:
-    if (!is_active()) {
-      waiting_for_active.push_back(op);
-      op->mark_delayed("waiting for active");
-      return;
-    }
-    do_push(op);
-    break;
-
-  case MSG_OSD_PG_PULL:
-    do_pull(op);
-    break;
-
-  case MSG_OSD_PG_PUSH_REPLY:
-    do_push_reply(op);
-    break;
-
   default:
-    if (!pgbackend->handle_message(op))
-      assert(0 == "bad message type in do_request");
+    assert(0 == "bad message type in do_request");
   }
 }
 
@@ -1267,11 +1252,6 @@ void ReplicatedPG::do_sub_op(OpRequestRef op)
   OSDOp *first = NULL;
   if (m->ops.size() >= 1) {
     first = &m->ops[0];
-    switch (first->op.op) {
-    case CEPH_OSD_OP_PULL:
-      sub_op_pull(op);
-      return;
-    }
   }
 
   if (!is_active()) {
@@ -1282,9 +1262,6 @@ void ReplicatedPG::do_sub_op(OpRequestRef op)
 
   if (first) {
     switch (first->op.op) {
-    case CEPH_OSD_OP_PUSH:
-      sub_op_push(op);
-      return;
     case CEPH_OSD_OP_DELETE:
       sub_op_remove(op);
       return;
@@ -1313,11 +1290,6 @@ void ReplicatedPG::do_sub_op_reply(OpRequestRef op)
   if (r->ops.size() >= 1) {
     OSDOp& first = r->ops[0];
     switch (first.op.op) {
-    case CEPH_OSD_OP_PUSH:
-      // continue peer recovery
-      sub_op_push_reply(op);
-      return;
-
     case CEPH_OSD_OP_SCRUB_RESERVE:
       sub_op_scrub_reserve_reply(op);
       return;
