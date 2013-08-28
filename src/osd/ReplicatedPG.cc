@@ -6899,6 +6899,7 @@ void ReplicatedPG::_clear_recovery_state()
   backfill_pos = hobject_t();
   backfills_in_flight.clear();
   pending_backfill_updates.clear();
+  pgbackend->clear_state();
   pulling.clear();
   pushing.clear();
   pull_from_peer.clear();

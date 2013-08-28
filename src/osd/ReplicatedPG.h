@@ -141,6 +141,9 @@ public:
   const pg_missing_t &get_local_missing() {
     return pg_log.get_missing();
   }
+  bool pgb_is_primary() const {
+    return is_primary();
+  }
 
   /*
     object access states:
@@ -703,6 +706,8 @@ protected:
       f->close_section();
     }
     {
+      f->open_object_section("PGBackend");
+      pgbackend->dump_recovery_info(f);
       f->open_array_section("pull_from_peer");
       for (map<int, set<hobject_t> >::const_iterator i = pull_from_peer.begin();
 	   i != pull_from_peer.end();

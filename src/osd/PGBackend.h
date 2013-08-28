@@ -89,6 +89,7 @@
      virtual const map<hobject_t, set<int> > &get_missing_loc() = 0;
      virtual const map<int, pg_missing_t> &get_peer_missing() = 0;
      virtual const pg_missing_t &get_local_missing() = 0;
+     virtual bool pgb_is_primary() const = 0;
 
      virtual ~Listener() {}
    };
@@ -160,6 +161,7 @@
     * won't be called after on_change()
     */
    virtual void on_change(ObjectStore::Transaction *t) = 0;
+   virtual void clear_state() = 0;
 
    virtual void on_flushed() = 0;
 
@@ -171,6 +173,8 @@
      ObjectStore::Transaction *t) = 0;
 
    virtual void temp_colls(list<coll_t> *out) = 0;
+
+   virtual void dump_recovery_info(Formatter *f) const = 0;
 
    virtual ~PGBackend() {}
  };

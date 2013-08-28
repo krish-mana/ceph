@@ -84,6 +84,10 @@ case MSG_OP_SUBOPREPLY:
   return false;
 }
 
+void ReplicatedBackend::clear_state()
+{
+}
+
 void ReplicatedBackend::on_change(ObjectStore::Transaction *t)
 {
   dout(10) << __func__ << dendl;
@@ -96,6 +100,7 @@ void ReplicatedBackend::on_change(ObjectStore::Transaction *t)
     t->remove(get_temp_coll(t), *i);
   }
   temp_contents.clear();
+  clear_state();
 }
 
 coll_t ReplicatedBackend::get_temp_coll(ObjectStore::Transaction *t)

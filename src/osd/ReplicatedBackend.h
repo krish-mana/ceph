@@ -66,6 +66,7 @@ public:
     );
 
   void on_change(ObjectStore::Transaction *t);
+  void clear_state();
   void on_flushed();
 
   void temp_colls(list<coll_t> *out) {
@@ -87,6 +88,8 @@ public:
       coll_t::make_temp_coll(child));
   }
 
+  virtual void dump_recovery_info(Formatter *f) const {
+  }
 private:
   // push
   struct PushInfo {
