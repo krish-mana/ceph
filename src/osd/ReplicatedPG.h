@@ -631,10 +631,11 @@ protected:
 
   /// leading edge of backfill
   hobject_t backfill_pos;
+  set<hobject_t> recovering;
 
   int prep_object_replica_pushes(const hobject_t& soid, eversion_t v,
 				 int priority,
-				 map<int, vector<PushOp> > *pushes);
+				 PGBackend::RecoveryHandle *rhandle);
   void calc_head_subsets(ObjectContext *obc, SnapSet& snapset, const hobject_t& head,
 			 pg_missing_t& missing,
 			 const hobject_t &last_backfill,
@@ -670,7 +671,7 @@ protected:
   int prepare_pull(
     const hobject_t& oid, eversion_t v,
     int priority,
-    map<int, vector<PullOp> > *pulls
+    PGBackend::RecoveryHandle *rhandle
     );
   // low level ops
 
@@ -716,7 +717,7 @@ protected:
 
   void prep_backfill_object_push(
     hobject_t oid, eversion_t v, eversion_t have, int peer,
-    map<int, vector<PushOp> > *pushes);
+    PGBackend::RecoveryHandle *rhandle);
   void send_remove_op(const hobject_t& oid, eversion_t v, int peer);
 
 

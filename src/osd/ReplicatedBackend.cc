@@ -32,6 +32,19 @@ void ReplicatedBackend::recover_object(
   RecoveryHandle *h
   )
 {
+#if 0
+  op.recovery_progress.data_complete = false;
+  op.recovery_progress.omap_complete = false;
+  op.recovery_progress.data_recovered_to = 0;
+  op.recovery_progress.first = true;
+
+  assert(!pulling.count(soid));
+  pull_from_peer[fromosd].insert(soid);
+  PullInfo &pi = pulling[soid];
+  pi.recovery_info = op.recovery_info;
+  pi.recovery_progress = op.recovery_progress;
+  pi.priority = priority;
+#endif
   dout(10) << __func__ << dendl;
 }
 
@@ -133,6 +146,7 @@ void ReplicatedBackend::on_flushed()
   }
 }
 
+#if 0
 /**
  * trim received data to remove what we don't want
  *
@@ -959,3 +973,4 @@ void ReplicatedBackend::prep_push_op_blank(const hobject_t& soid, PushOp *op)
   op->soid = soid;
 }
 
+#endif
