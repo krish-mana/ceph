@@ -191,12 +191,12 @@ private:
   // Reverse mapping from osd peer to objects beging pulled from that peer
   map<int, set<hobject_t> > pull_from_peer;
 
-  void sub_op_push(OpRequestRef op);
-  void sub_op_push_reply(OpRequestRef op);
-  void sub_op_pull(OpRequestRef op);
+  void sub_op_push(OpRequestRef op) {}
+  void sub_op_push_reply(OpRequestRef op) {}
+  void sub_op_pull(OpRequestRef op) {}
 
-  void _do_push(OpRequestRef op);
-  void _do_pull_response(OpRequestRef op);
+  void _do_push(OpRequestRef op) {}
+  void _do_pull_response(OpRequestRef op) {}
   void do_push(OpRequestRef op) {
     if (is_primary()) {
       _do_pull_response(op);
@@ -204,42 +204,42 @@ private:
       _do_push(op);
     }
   }
-  void do_pull(OpRequestRef op);
-  void do_push_reply(OpRequestRef op);
+  void do_pull(OpRequestRef op) {}
+  void do_push_reply(OpRequestRef op) {}
 
-  bool handle_push_reply(int peer, PushReplyOp &op, PushOp *reply);
-  void handle_pull(int peer, PullOp &op, PushOp *reply);
+  bool handle_push_reply(int peer, PushReplyOp &op, PushOp *reply) { return true; }
+  void handle_pull(int peer, PullOp &op, PushOp *reply) {}
   bool handle_pull_response(int from, PushOp &op, PullOp *response,
-			    ObjectStore::Transaction *t);
+			    ObjectStore::Transaction *t) { return true; }
   void handle_push(int from, PushOp &op, PushReplyOp *response,
-		   ObjectStore::Transaction *t);
+		   ObjectStore::Transaction *t) {}
 
   static void trim_pushed_data(const interval_set<uint64_t> &copy_subset,
 			       const interval_set<uint64_t> &intervals_received,
 			       bufferlist data_received,
 			       interval_set<uint64_t> *intervals_usable,
-			       bufferlist *data_usable);
-  void _failed_push(int from, const hobject_t &soid);
+			       bufferlist *data_usable) {}
+  void _failed_push(int from, const hobject_t &soid) {}
 
-  void send_pushes(int prio, map<int, vector<PushOp> > &pushes);
-  void prep_push_op_blank(const hobject_t& soid, PushOp *op);
+  void send_pushes(int prio, map<int, vector<PushOp> > &pushes) {}
+  void prep_push_op_blank(const hobject_t& soid, PushOp *op) {}
   int send_push(int priority, int peer,
 		const ObjectRecoveryInfo& recovery_info,
 		const ObjectRecoveryProgress &progress,
-		ObjectRecoveryProgress *out_progress = 0);
+		ObjectRecoveryProgress *out_progress = 0) { return 1; }
   int send_push_op_legacy(int priority, int peer,
-			  PushOp &pop);
+			  PushOp &pop) { return 1; }
   int send_pull_legacy(int priority, int peer,
 		       const ObjectRecoveryInfo& recovery_info,
-		       ObjectRecoveryProgress progress);
+		       ObjectRecoveryProgress progress) { return 1;}
   void send_pulls(
     int priority,
-    map<int, vector<PullOp> > &pulls);
+    map<int, vector<PullOp> > &pulls) {}
 
   int build_push_op(const ObjectRecoveryInfo &recovery_info,
 		    const ObjectRecoveryProgress &progress,
 		    ObjectRecoveryProgress *out_progress,
-		    PushOp *out_op);
+		    PushOp *out_op) { return 1; }
   void submit_push_data(ObjectRecoveryInfo &recovery_info,
 			bool first,
 			bool complete,
@@ -248,9 +248,9 @@ private:
 			bufferlist omap_header,
 			map<string, bufferptr> &attrs,
 			map<string, bufferlist> &omap_entries,
-			ObjectStore::Transaction *t);
+			ObjectStore::Transaction *t) {}
   void submit_push_complete(ObjectRecoveryInfo &recovery_info,
-			    ObjectStore::Transaction *t);
+			    ObjectStore::Transaction *t) {}
 };
 
 #endif
