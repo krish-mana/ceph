@@ -577,93 +577,10 @@ protected:
   }
   void put_snapset_context(SnapSetContext *ssc);
 
-  // push
-  struct PushInfo {
-    ObjectRecoveryProgress recovery_progress;
-    ObjectRecoveryInfo recovery_info;
-    int priority;
-
-    void dump(Formatter *f) const {
-      {
-	f->open_object_section("recovery_progress");
-	recovery_progress.dump(f);
-	f->close_section();
-      }
-      {
-	f->open_object_section("recovery_info");
-	recovery_info.dump(f);
-	f->close_section();
-      }
-    }
-  };
-  map<hobject_t, map<int, PushInfo> > pushing;
-
-  // pull
-  struct PullInfo {
-    ObjectRecoveryProgress recovery_progress;
-    ObjectRecoveryInfo recovery_info;
-    int priority;
-
-    void dump(Formatter *f) const {
-      {
-	f->open_object_section("recovery_progress");
-	recovery_progress.dump(f);
-	f->close_section();
-      }
-      {
-	f->open_object_section("recovery_info");
-	recovery_info.dump(f);
-	f->close_section();
-      }
-    }
-
-    bool is_complete() const {
-      return recovery_progress.is_complete(recovery_info);
-    }
-  };
-  map<hobject_t, PullInfo> pulling;
-
   // Track contents of temp collection, clear on reset
   set<hobject_t> temp_contents;
 
   ObjectRecoveryInfo recalc_subsets(const ObjectRecoveryInfo& recovery_info);
-  static void trim_pushed_data(const interval_set<uint64_t> &copy_subset,
-			       const interval_set<uint64_t> &intervals_received,
-			       bufferlist data_received,
-			       interval_set<uint64_t> *intervals_usable,
-			       bufferlist *data_usable);
-  bool handle_pull_response(
-    int from, PushOp &op, PullOp *response,
-    ObjectStore::Transaction *t);
-  void handle_push(
-    int from, PushOp &op, PushReplyOp *response,
-    ObjectStore::Transaction *t);
-  void send_pushes(int prio, map<int, vector<PushOp> > &pushes);
-  int send_push(int priority, int peer,
-		const ObjectRecoveryInfo& recovery_info,
-		const ObjectRecoveryProgress &progress,
-		ObjectRecoveryProgress *out_progress = 0);
-  int build_push_op(const ObjectRecoveryInfo &recovery_info,
-		    const ObjectRecoveryProgress &progress,
-		    ObjectRecoveryProgress *out_progress,
-		    PushOp *out_op);
-  int send_push_op_legacy(int priority, int peer,
-		   PushOp &pop);
-    
-  int send_pull_legacy(int priority, int peer,
-		const ObjectRecoveryInfo& recovery_info,
-		ObjectRecoveryProgress progress);
-  void submit_push_data(ObjectRecoveryInfo &recovery_info,
-			bool first,
-			bool complete,
-			const interval_set<uint64_t> &intervals_included,
-			bufferlist data_included,
-			bufferlist omap_header,
-			map<string, bufferptr> &attrs,
-			map<string, bufferlist> &omap_entries,
-			ObjectStore::Transaction *t);
-  void submit_push_complete(ObjectRecoveryInfo &recovery_info,
-			    ObjectStore::Transaction *t);
 
   /*
    * Backfill
@@ -708,63 +625,12 @@ protected:
     {
       f->open_object_section("PGBackend");
       pgbackend->dump_recovery_info(f);
-      f->open_array_section("pull_from_peer");
-      for (map<int, set<hobject_t> >::const_iterator i = pull_from_peer.begin();
-	   i != pull_from_peer.end();
-	   ++i) {
-	f->open_object_section("pulling_from");
-	f->dump_int("pull_from", i->first);
-	{
-	  f->open_array_section("pulls");
-	  for (set<hobject_t>::const_iterator j = i->second.begin();
-	       j != i->second.end();
-	       ++j) {
-	    f->open_object_section("pull_info");
-	    assert(pulling.count(*j));
-	    pulling.find(*j)->second.dump(f);
-	    f->close_section();
-	  }
-	  f->close_section();
-	}
-	f->close_section();
-      }
-      f->close_section();
-    }
-    {
-      f->open_array_section("pushing");
-      for (map<hobject_t, map<int, PushInfo> >::const_iterator i =
-	     pushing.begin();
-	   i != pushing.end();
-	   ++i) {
-	f->open_object_section("object");
-	f->dump_stream("pushing") << i->first;
-	{
-	  f->open_array_section("pushing_to");
-	  for (map<int, PushInfo>::const_iterator j = i->second.begin();
-	       j != i->second.end();
-	       ++j) {
-	    f->open_object_section("push_progress");
-	    f->dump_stream("object_pushing") << j->first;
-	    {
-	      f->open_object_section("push_info");
-	      j->second.dump(f);
-	      f->close_section();
-	    }
-	    f->close_section();
-	  }
-	  f->close_section();
-	}
-	f->close_section();
-      }
       f->close_section();
     }
   }
 
   /// leading edge of backfill
   hobject_t backfill_pos;
-
-  // Reverse mapping from osd peer to objects beging pulled from that peer
-  map<int, set<hobject_t> > pull_from_peer;
 
   int prep_object_replica_pushes(const hobject_t& soid, eversion_t v,
 				 int priority,
@@ -795,22 +661,17 @@ protected:
 		 interval_set<uint64_t> &data_subset,
 		 map<hobject_t, interval_set<uint64_t> >& clone_subsets,
 		 PushOp *op);
-  void prep_push_op_blank(const hobject_t& soid, PushOp *op);
 
   void finish_degraded_object(const hobject_t& oid);
 
   // Cancels/resets pulls from peer
   void check_recovery_sources(const OSDMapRef map);
 
-  void send_pulls(
-    int priority,
-    map<int, vector<PullOp> > &pulls);
   int prepare_pull(
     const hobject_t& oid, eversion_t v,
     int priority,
     map<int, vector<PullOp> > *pulls
     );
-
   // low level ops
 
   void _make_clone(ObjectStore::Transaction& t,
@@ -978,12 +839,6 @@ protected:
   void _applied_recovered_object_replica();
   void _committed_pushed_object(epoch_t epoch, eversion_t lc);
   void recover_got(hobject_t oid, eversion_t v);
-  void sub_op_push(OpRequestRef op);
-  void _failed_push(int from, const hobject_t &soid);
-  void sub_op_push_reply(OpRequestRef op);
-  bool handle_push_reply(int peer, PushReplyOp &op, PushOp *reply);
-  void sub_op_pull(OpRequestRef op);
-  void handle_pull(int peer, PullOp &op, PushOp *reply);
 
   void log_subop_stats(OpRequestRef op, int tag_inb, int tag_lat);
 
@@ -1025,17 +880,7 @@ public:
     OpRequestRef op,
     ThreadPool::TPHandle &handle);
   void do_backfill(OpRequestRef op);
-  void _do_push(OpRequestRef op);
-  void _do_pull_response(OpRequestRef op);
-  void do_push(OpRequestRef op) {
-    if (is_primary()) {
-      _do_pull_response(op);
-    } else {
-      _do_push(op);
-    }
-  }
-  void do_pull(OpRequestRef op);
-  void do_push_reply(OpRequestRef op);
+
   RepGather *trim_object(const hobject_t &coid);
   void snap_trimmer();
   int do_osd_ops(OpContext *ctx, vector<OSDOp>& ops);

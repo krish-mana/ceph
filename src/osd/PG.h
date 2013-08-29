@@ -1824,9 +1824,6 @@ public:
     ThreadPool::TPHandle &handle
   ) = 0;
   virtual void do_backfill(OpRequestRef op) = 0;
-  virtual void do_push(OpRequestRef op) = 0;
-  virtual void do_pull(OpRequestRef op) = 0;
-  virtual void do_push_reply(OpRequestRef op) = 0;
   virtual void snap_trimmer() = 0;
 
   virtual int do_command(cmdmap_t cmdmap, ostream& ss,

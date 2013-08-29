@@ -40,7 +40,7 @@ bool ReplicatedBackend::handle_message(
   )
 {
   dout(10) << __func__ << ": " << op << dendl;
-  switch (op->request_get_type()) {
+  switch (op->request->get_type()) {
   case MSG_OSD_PG_PUSH:
     // TODOXXX: needs to be active possibly
     do_push(op);
@@ -54,8 +54,8 @@ bool ReplicatedBackend::handle_message(
     do_push_reply(op);
     return true;
 
-  case MSG_OSD_SUBOP:
-    MOSDSubOp *op = static_cast<MOSDSubOp*>(op.get());
+  case MSG_OSD_SUBOP: {
+    MOSDSubOp *m = static_cast<MOSDSubOp*>(op->request);
     if (m->ops.size() >= 1) {
       OSDOp *first = &m->ops[0];
       switch (first->op.op) {
@@ -68,24 +68,31 @@ bool ReplicatedBackend::handle_message(
 	return true;
       }
     }
+    break;
   }
 
-case MSG_OP_SUBOPREPLY:
-  MOSDSubOpReply *r = static_cast<MOSDSubOpReply*>(op->request);
-  if (r->ops.size() >= 1) {
-    OSDOp *first = r->ops[0];
-    switch (first.op.op) {
-    case CEPH_OSD_OP_PUSH:
-      // continue peer recovery
-      sub_op_push_reply(op);
-      return true;
+  case MSG_OSD_SUBOPREPLY:
+    MOSDSubOpReply *r = static_cast<MOSDSubOpReply*>(op->request);
+    if (r->ops.size() >= 1) {
+      OSDOp &first = r->ops[0];
+      switch (first.op.op) {
+      case CEPH_OSD_OP_PUSH:
+	// continue peer recovery
+	sub_op_push_reply(op);
+	return true;
+      }
     }
+    break;
   }
   return false;
 }
 
 void ReplicatedBackend::clear_state()
 {
+  // clear pushing/pulling maps
+  pushing.clear();
+  pulling.clear();
+  pull_from_peer.clear();
 }
 
 void ReplicatedBackend::on_change(ObjectStore::Transaction *t)
@@ -945,4 +952,10 @@ void ReplicatedBackend::handle_pull(int peer, PullOp &op, PushOp *reply)
   }
 }
 
+void ReplicatedBackend::prep_push_op_blank(const hobject_t& soid, PushOp *op)
+{
+  op->recovery_info.version = eversion_t();
+  op->version = eversion_t();
+  op->soid = soid;
+}
 
