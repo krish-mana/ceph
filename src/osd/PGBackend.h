@@ -71,6 +71,10 @@
        const ObjectRecoveryInfo &recovery_info
        ) = 0;
 
+     virtual void begin_peer_recover(
+       int peer,
+       const hobject_t oid) = 0;
+
      virtual void failed_push(int from, const hobject_t &soid) = 0;
 
      /**
@@ -89,6 +93,7 @@
 
      virtual const map<hobject_t, set<int> > &get_missing_loc() = 0;
      virtual const map<int, pg_missing_t> &get_peer_missing() = 0;
+     virtual const map<int, pg_info_t> &get_peer_info() = 0;
      virtual const pg_missing_t &get_local_missing() = 0;
      virtual const PGLog &get_log() = 0;
      virtual bool pgb_is_primary() const = 0;
