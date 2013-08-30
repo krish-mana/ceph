@@ -3972,21 +3972,6 @@ void ReplicatedPG::do_osd_op_effects(OpContext *ctx)
   }
 }
 
-bool ReplicatedPG::have_temp_coll()
-{
-  return temp_created || osd->store->collection_exists(temp_coll);
-}
-
-coll_t ReplicatedPG::get_temp_coll(ObjectStore::Transaction *t)
-{
-  if (temp_created)
-    return temp_coll;
-  if (!osd->store->collection_exists(temp_coll))
-      t->create_collection(temp_coll);
-  temp_created = true;
-  return temp_coll;
-}
-
 int ReplicatedPG::prepare_transaction(OpContext *ctx)
 {
   assert(!ctx->ops.empty());
@@ -7023,20 +7008,6 @@ void ReplicatedPG::on_shutdown()
   cancel_recovery();
 }
 
-void ReplicatedPG::on_flushed()
-{
-  assert(object_contexts.empty());
-  if (have_temp_coll() &&
-      !osd->store->collection_empty(get_temp_coll())) {
-    vector<hobject_t> objects;
-    osd->store->collection_list(get_temp_coll(), objects);
-    derr << __func__ << ": found objects in the temp collection: "
-	 << objects << ", crashing now"
-	 << dendl;
-    assert(0 == "found garbage in the temp collection");
-  }
-}
-
 void ReplicatedPG::on_activate()
 {
   for (unsigned i = 1; i<acting.size(); i++) {
@@ -7096,16 +7067,6 @@ void ReplicatedPG::on_change(ObjectStore::Transaction *t)
   pushing.clear();
   pulling.clear();
   pull_from_peer.clear();
-
-  // clear temp
-  for (set<hobject_t>::iterator i = temp_contents.begin();
-       i != temp_contents.end();
-       ++i) {
-    dout(10) << __func__ << ": Removing oid "
-	     << *i << " from the temp collection" << dendl;
-    t->remove(get_temp_coll(t), *i);
-  }
-  temp_contents.clear();
 
   // clear snap_trimmer state
   snap_trimmer_machine.process_event(Reset());
