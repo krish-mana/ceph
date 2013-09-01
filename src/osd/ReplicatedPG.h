@@ -776,9 +776,6 @@ protected:
   void sub_op_pull(OpRequestRef op);
   void handle_pull(int peer, PullOp &op, PushOp *reply);
 
-  void log_subop_stats(OpRequestRef op, int tag_inb, int tag_lat);
-
-
   // -- scrub --
   virtual void _scrub(ScrubMap& map);
   virtual void _scrub_clear_state();
