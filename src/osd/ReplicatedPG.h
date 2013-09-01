@@ -801,7 +801,6 @@ protected:
   void _applied_recovered_object_replica();
   void _committed_pushed_object(epoch_t epoch, eversion_t lc);
   void recover_got(hobject_t oid, eversion_t v);
-  void _failed_push(int from, const hobject_t &soid);
 
   static void log_subop_stats(OpRequestRef op, int tag_inb, int tag_lat);
 
