@@ -26,8 +26,19 @@ static ostream& _prefix(std::ostream *_dout, ReplicatedBackend *pgb) {
   return *_dout << pgb->get_parent()->gen_dbg_prefix();
 }
 
+ReplicatedBackend::ReplicatedBackend(
+  PGBackend::Listener *pg, coll_t coll, OSDService *osd) :
+  PGBackend(pg), temp_created(false), coll(coll), osd(osd) {}
+
+void ReplicatedBackend::run_recovery_op(
+  PGBackend::RecoveryHandle *h,
+  int priority)
+{
+}
+
 void ReplicatedBackend::recover_object(
   const hobject_t &hoid,
+  ObjectContextRef head,
   ObjectContextRef obc,
   RecoveryHandle *h
   )
