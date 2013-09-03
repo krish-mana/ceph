@@ -94,6 +94,10 @@
      virtual OSDMapRef pgb_get_osdmap() const = 0;
      virtual const pg_info_t &get_info() const = 0;
 
+     virtual ObjectContextRef get_obc(
+       const hobject_t &hoid,
+       map<string, bufferptr> &attrs) = 0;
+
      virtual ~Listener() {}
    };
    Listener *parent;
@@ -147,12 +151,14 @@
     * get_parent()->on_not_degraded() should be called on the primary
     * when writes can resume on the object.
     *
+    * obc may be NULL if the primary lacks the object.
+    *
     * @param missing [in] set of info, missing pairs for queried nodes
     * @param overlaps [in] mapping of object to file offset overlaps
     */
    virtual void recover_object(
      const hobject_t &hoid, ///< [in] object to recover
-     const ObjectRecoveryInfo &recovery_info, ///< [in] recovery info
+     ObjectContextRef obc,  ///< [in] context of the object
      RecoveryHandle *h      ///< [in,out] handle to attach recovery op to
      ) = 0;
 

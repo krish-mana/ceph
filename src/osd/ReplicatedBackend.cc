@@ -28,7 +28,7 @@ static ostream& _prefix(std::ostream *_dout, ReplicatedBackend *pgb) {
 
 void ReplicatedBackend::recover_object(
   const hobject_t &hoid,
-  const ObjectRecoveryInfo &recovery_info,
+  ObjectContextRef obc,
   RecoveryHandle *h
   )
 {

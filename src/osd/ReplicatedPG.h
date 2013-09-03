@@ -192,6 +192,11 @@ public:
   const pg_info_t &get_info() const {
     return info;
   }
+  ObjectContextRef get_obc(
+    const hobject_t &hoid,
+    map<string, bufferptr> &attrs) {
+    return get_object_context(hoid, true, &attrs);
+  }
 
   /*
    * Capture all object state associated with an in-progress read or write.
@@ -409,7 +414,11 @@ public:
 protected:
 
   ObjectContextRef create_object_context(const object_info_t& oi, SnapSetContext *ssc);
-  ObjectContextRef get_object_context(const hobject_t& soid, bool can_create);
+  ObjectContextRef get_object_context(
+    const hobject_t& soid,
+    bool can_create,
+    map<string, bufferptr> *attrs = 0
+    );
 
   void context_registry_on_change();
   void object_context_destructor_callback(ObjectContext *obc);
@@ -432,8 +441,11 @@ protected:
   void get_src_oloc(const object_t& oid, const object_locator_t& oloc, object_locator_t& src_oloc);
 
   SnapSetContext *create_snapset_context(const object_t& oid);
-  SnapSetContext *get_snapset_context(const object_t& oid, const string &key,
-				      ps_t seed, bool can_create, const string &nspace);
+  SnapSetContext *get_snapset_context(
+    const object_t& oid, const string &key,
+    ps_t seed, bool can_create, const string &nspace,
+    map<string, bufferptr> *attrs = 0
+    );
   void register_snapset_context(SnapSetContext *ssc) {
     Mutex::Locker l(snapset_contexts_lock);
     _register_snapset_context(ssc);

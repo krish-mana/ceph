@@ -56,7 +56,7 @@ public:
   /// @see PGBackend::recover_object
   void recover_object(
     const hobject_t &hoid,
-    const ObjectRecoveryInfo &recovery_info,
+    ObjectContextRef obc,
     RecoveryHandle *h
     );
 
