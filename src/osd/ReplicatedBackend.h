@@ -40,8 +40,7 @@ public:
   coll_t coll;
   OSDService *osd;
 
-  ReplicatedBackend(PGBackend::Listener *pg, coll_t coll, OSDService *osd) :
-    PGBackend(pg), temp_created(false), coll(coll), osd(osd) {}
+  ReplicatedBackend(PGBackend::Listener *pg, coll_t coll, OSDService *osd);
 
   /// @see PGBackend::open_recovery_op
   PGBackend::RecoveryHandle *open_recovery_op() {
@@ -50,12 +49,13 @@ public:
 
   /// @see PGBackend::run_recovery_op
   void run_recovery_op(
-    RecoveryPriority prio,
-    PGBackend::RecoveryHandle *h) {}
+    PGBackend::RecoveryHandle *h,
+    int priority);
 
   /// @see PGBackend::recover_object
   void recover_object(
     const hobject_t &hoid,
+    ObjectContextRef head,
     ObjectContextRef obc,
     RecoveryHandle *h
     );

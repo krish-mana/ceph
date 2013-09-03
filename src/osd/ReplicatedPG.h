@@ -183,6 +183,9 @@ public:
   const pg_missing_t &get_local_missing() {
     return pg_log.get_missing();
   }
+  const PGLog &get_log() {
+    return pg_log;
+  }
   bool pgb_is_primary() const {
     return is_primary();
   }

@@ -90,6 +90,7 @@
      virtual const map<hobject_t, set<int> > &get_missing_loc() = 0;
      virtual const map<int, pg_missing_t> &get_peer_missing() = 0;
      virtual const pg_missing_t &get_local_missing() = 0;
+     virtual const PGLog &get_log() = 0;
      virtual bool pgb_is_primary() const = 0;
      virtual OSDMapRef pgb_get_osdmap() const = 0;
      virtual const pg_info_t &get_info() const = 0;
@@ -126,15 +127,10 @@
    /// Get a fresh recovery operation
    virtual RecoveryHandle *open_recovery_op() = 0;
 
-   enum RecoveryPriority {
-     CLIENT,
-     RECOVERY
-   };
-
    /// run_recovery_op: finish the operation represented by h
    virtual void run_recovery_op(
-     RecoveryPriority prio, ///< [in] recovery op priority
-     RecoveryHandle *h      ///< [in] op to finish
+     RecoveryHandle *h,     ///< [in] op to finish
+     int priority           ///< [in] msg priority
      ) = 0;
 
    /**
@@ -153,11 +149,14 @@
     *
     * obc may be NULL if the primary lacks the object.
     *
+    * head may be NULL only if the head/snapdir is missing
+    *
     * @param missing [in] set of info, missing pairs for queried nodes
     * @param overlaps [in] mapping of object to file offset overlaps
     */
    virtual void recover_object(
      const hobject_t &hoid, ///< [in] object to recover
+     ObjectContextRef head,  ///< [in] context of the head/snapdir object
      ObjectContextRef obc,  ///< [in] context of the object
      RecoveryHandle *h      ///< [in,out] handle to attach recovery op to
      ) = 0;
