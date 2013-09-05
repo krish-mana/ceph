@@ -77,6 +77,9 @@
 
      virtual void failed_push(int from, const hobject_t &soid) = 0;
 
+     
+     virtual void cancel_pull(const hobject_t &soid) = 0;
+
      /**
       * Bless a context
       *
@@ -170,6 +173,8 @@
    virtual bool handle_message(
      OpRequestRef op ///< [in] message received
      ) = 0; ///< @return true if the message was handled
+
+   virtual void check_recovery_sources(const OSDMapRef osdmap) = 0;
 
    /**
     * implementation should clear itself, contexts blessed prior to on_change
