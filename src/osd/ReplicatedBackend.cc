@@ -59,7 +59,6 @@ void ReplicatedBackend::recover_object(
     return;
   } else {
     assert(obc);
-    assert(head);
     int started = start_pushes(
       hoid,
       obc,
