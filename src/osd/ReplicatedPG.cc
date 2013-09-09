@@ -1631,13 +1631,15 @@ void ReplicatedBackend::_do_pull_response(OpRequestRef op)
 
   vector<PullOp> replies(1);
   ObjectStore::Transaction *t = new ObjectStore::Transaction;
+  RPGHandle *h = _open_recovery_op();
   for (vector<PushOp>::iterator i = m->pushes.begin();
        i != m->pushes.end();
        ++i) {
-    bool more = handle_pull_response(from, *i, &(replies.back()), t);
+    bool more = handle_pull_response(from, *i, &(replies.back()), h, t);
     if (more)
       replies.push_back(PullOp());
   }
+  run_recovery_op(h, op->request->get_priority());
   replies.erase(replies.end() - 1);
 
   if (replies.size()) {
@@ -6179,7 +6181,9 @@ ObjectRecoveryInfo ReplicatedPG::recalc_subsets(const ObjectRecoveryInfo& recove
 
 bool ReplicatedBackend::handle_pull_response(
   int from, PushOp &pop, PullOp *response,
-  ObjectStore::Transaction *t)
+  RPGHandle *h,
+  ObjectStore::Transaction *t
+  )
 {
   interval_set<uint64_t> data_included = pop.data_included;
   bufferlist data;
@@ -6257,6 +6261,10 @@ bool ReplicatedBackend::handle_pull_response(
     pi.stat.num_objects_recovered++;
     get_parent()->on_local_recover(
       hoid, pi.stat, pi.recovery_info, t);
+    if (!start_pushes(hoid, pi.obc, h)) {
+      get_parent()->on_global_recover(
+	hoid);
+    }
     return false;
   } else {
     response->soid = pop.soid;
@@ -6839,7 +6847,8 @@ void ReplicatedBackend::sub_op_push(OpRequestRef op)
 
   if (is_primary()) {
     PullOp resp;
-    bool more = handle_pull_response(m->get_source().num(), pop, &resp, t);
+    RPGHandle *h = _open_recovery_op();
+    bool more = handle_pull_response(m->get_source().num(), pop, &resp, h, t);
     if (more) {
       send_pull_legacy(
 	m->get_priority(),
@@ -6847,6 +6856,7 @@ void ReplicatedBackend::sub_op_push(OpRequestRef op)
 	resp.recovery_info,
 	resp.recovery_progress);
     }
+    run_recovery_op(h, op->request->get_priority());
   } else {
     PushReplyOp resp;
     MOSDSubOpReply *reply = new MOSDSubOpReply(

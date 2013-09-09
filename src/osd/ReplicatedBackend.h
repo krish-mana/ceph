@@ -42,8 +42,11 @@ public:
   ReplicatedBackend(PGBackend::Listener *pg, coll_t coll, OSDService *osd);
 
   /// @see PGBackend::open_recovery_op
-  PGBackend::RecoveryHandle *open_recovery_op() {
+  RPGHandle *_open_recovery_op() {
     return new RPGHandle();
+  }
+  PGBackend::RecoveryHandle *open_recovery_op() {
+    return _open_recovery_op();
   }
 
   /// @see PGBackend::run_recovery_op
@@ -214,6 +217,7 @@ private:
   bool handle_push_reply(int peer, PushReplyOp &op, PushOp *reply);
   void handle_pull(int peer, PullOp &op, PushOp *reply);
   bool handle_pull_response(int from, PushOp &op, PullOp *response,
+			    RPGHandle *h,
 			    ObjectStore::Transaction *t);
   void handle_push(int from, PushOp &op, PushReplyOp *response,
 		   ObjectStore::Transaction *t);
