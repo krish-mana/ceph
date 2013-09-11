@@ -120,12 +120,14 @@ bool ReplicatedBackend::handle_message(
         // TODOXXX: needs to be active possibly
 	sub_op_push(op);
 	return true;
+      default:
+	break;
       }
     }
     break;
   }
 
-  case MSG_OSD_SUBOPREPLY:
+  case MSG_OSD_SUBOPREPLY: {
     MOSDSubOpReply *r = static_cast<MOSDSubOpReply*>(op->request);
     if (r->ops.size() >= 1) {
       OSDOp &first = r->ops[0];
@@ -136,6 +138,10 @@ bool ReplicatedBackend::handle_message(
 	return true;
       }
     }
+    break;
+  }
+
+  default:
     break;
   }
   return false;
