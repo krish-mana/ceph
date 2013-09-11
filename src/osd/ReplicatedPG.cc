@@ -153,19 +153,13 @@ void ReplicatedPG::on_local_recover(
   // keep track of active pushes for scrub
   ++active_pushes;
 
+  recover_got(recovery_info.soid, recovery_info.version);
+
   if (is_primary()) {
     info.stats.stats.sum.add(stat_diff);
 
-    SnapSetContext *ssc;
-    if (hoid.snap == CEPH_NOSNAP || hoid.snap == CEPH_SNAPDIR) {
-      ssc = create_snapset_context(hoid.oid);
-      ssc->snapset = recovery_info.ss;
-    } else {
-      ssc = get_snapset_context(hoid.oid, hoid.get_key(), hoid.hash, false,
-				hoid.get_namespace());
-      assert(ssc);
-    }
-    ObjectContextRef obc = create_object_context(recovery_info.oi, ssc);
+    ObjectContextRef obc = get_object_context(hoid, false);
+    assert(obc);
     obc->obs.exists = true;
 
     obc->ondisk_write_lock();
@@ -197,8 +191,6 @@ void ReplicatedPG::on_local_recover(
       this,
       get_osdmap()->get_epoch(),
       info.last_complete));
-
-  recover_got(recovery_info.soid, recovery_info.version);
 
   // update pg
   dirty_info = true;
@@ -4987,7 +4979,8 @@ void ReplicatedPG::check_blacklisted_obc_watchers(ObjectContextRef obc)
 void ReplicatedPG::populate_obc_watchers(ObjectContextRef obc)
 {
   assert(is_active());
-  assert(!is_missing_object(obc->obs.oi.soid) ||
+  assert((recovering.count(obc->obs.oi.soid) ||
+	  !is_missing_object(obc->obs.oi.soid)) ||
 	 (pg_log.get_log().objects.count(obc->obs.oi.soid) && // or this is a revert... see recover_primary()
 	  pg_log.get_log().objects.find(obc->obs.oi.soid)->second->op ==
 	    pg_log_entry_t::LOST_REVERT &&
@@ -5023,7 +5016,8 @@ void ReplicatedPG::handle_watch_timeout(WatchRef watch)
   ObjectContextRef obc = watch->get_obc(); // handle_watch_timeout owns this ref
   dout(10) << "handle_watch_timeout obc " << obc << dendl;
 
-  if (is_degraded_object(obc->obs.oi.soid)) {
+  if (is_missing_object(obc->obs.oi.soid) ||
+      is_degraded_object(obc->obs.oi.soid)) {
     callbacks_for_degraded_object[obc->obs.oi.soid].push_back(
       watch->get_delayed_cb()
       );
@@ -6247,11 +6241,11 @@ bool ReplicatedBackend::handle_pull_response(
   pi.stat.num_keys_recovered += pop.omap_entries.size();
 
   if (complete) {
-    pulling.erase(hoid);
-    pull_from_peer[from].erase(hoid);
     pi.stat.num_objects_recovered++;
     get_parent()->on_local_recover(
       hoid, pi.stat, pi.recovery_info, t);
+    pulling.erase(hoid);
+    pull_from_peer[from].erase(hoid);
     if (!start_pushes(hoid, pi.obc, h)) {
       get_parent()->on_global_recover(
 	hoid);
@@ -7270,6 +7264,7 @@ void ReplicatedPG::_clear_recovery_state()
   backfill_pos = hobject_t();
   backfills_in_flight.clear();
   pending_backfill_updates.clear();
+  recovering.clear();
   pgbackend->clear_state();
 }
 
@@ -7385,7 +7380,8 @@ int ReplicatedPG::start_recovery_ops(
   }
 
   bool deferred_backfill = false;
-  if (state_test(PG_STATE_BACKFILL) &&
+  if (recovering.empty() &&
+      state_test(PG_STATE_BACKFILL) &&
       backfill_target >= 0 && started < max &&
       missing.num_missing() == 0 &&
       !waiting_on_backfill) {
@@ -7413,9 +7409,11 @@ int ReplicatedPG::start_recovery_ops(
   dout(10) << " started " << started << dendl;
   osd->logger->inc(l_osd_rop, started);
 
-  if (started || recovery_ops_active > 0 || deferred_backfill)
+  if (!recovering.empty() ||
+      started || recovery_ops_active > 0 || deferred_backfill)
     return started;
 
+  assert(recovering.empty());
   assert(recovery_ops_active == 0);
 
   int unfound = get_num_unfound();
