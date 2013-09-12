@@ -642,11 +642,6 @@ protected:
       const hobject_t &hoid,
       epoch_t epoch) : pg(pg), hoid(hoid), epoch(epoch) {}
     void finish(int) {
-      pg->lock();
-      if (!pg->pg_has_reset_since(epoch)) {
-	pg->finish_recovery_op(hoid);
-      }
-      pg->unlock();
     }
   };
   friend struct C_OSD_CompletedPull;
