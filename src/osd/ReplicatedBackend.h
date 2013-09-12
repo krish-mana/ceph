@@ -82,7 +82,7 @@ public:
     int split_bits,
     int seed,
     ObjectStore::Transaction *t) {
-    coll_t target = coll_t::make_temp_coll(child));
+    coll_t target = coll_t::make_temp_coll(child);
     if (!temp_created)
       return;
     t->create_collection(target);
