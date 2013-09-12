@@ -26,7 +26,7 @@ class ReplicatedBackend : public PGBackend {
   };
 private:
   bool temp_created;
-  coll_t temp_coll;
+  const coll_t temp_coll;
   coll_t get_temp_coll(ObjectStore::Transaction *t);
   coll_t get_temp_coll() const {
     return temp_coll;
