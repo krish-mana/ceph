@@ -82,14 +82,15 @@ public:
     int split_bits,
     int seed,
     ObjectStore::Transaction *t) {
+    coll_t target = coll_t::make_temp_coll(child));
     if (!temp_created)
       return;
-    t->create_collection(temp_coll);
+    t->create_collection(target);
     t->split_collection(
       temp_coll,
       split_bits,
       seed,
-      coll_t::make_temp_coll(child));
+      target);
   }
 
   virtual void dump_recovery_info(Formatter *f) const {
