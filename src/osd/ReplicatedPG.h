@@ -722,12 +722,13 @@ public:
     int split_bits,
     int seed,
     ObjectStore::Transaction *t) {
-    t->create_collection(coll);
+    coll_t target = coll_t(child);
+    t->create_collection(target);
     t->split_collection(
       coll,
       split_bits,
       seed,
-      coll_t::make_temp_coll(child));
+      target);
     pgbackend->split_colls(child, split_bits, seed, t);
   }
   /// TODOXXX: remove this one, stub
