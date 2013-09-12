@@ -7269,7 +7269,7 @@ int ReplicatedBackend::start_pushes(
   ObjectContextRef obc,
   RPGHandle *h)
 {
-  int pushes;
+  int pushes = 0;
   // who needs it?  
   for (unsigned i=1; i<get_parent()->get_acting().size(); i++) {
     int peer = get_parent()->get_acting()[i];
