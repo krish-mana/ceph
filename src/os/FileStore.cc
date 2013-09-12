@@ -3907,6 +3907,7 @@ int FileStore::collection_list_partial(coll_t c, hobject_t start,
 				       int min, int max, snapid_t seq,
 				       vector<hobject_t> *ls, hobject_t *next)
 {
+  dout(10) << "collection_list_partial: " << c << dendl;
   Index index;
   int r = get_index(c, &index);
   if (r < 0)
