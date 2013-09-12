@@ -3918,6 +3918,8 @@ int FileStore::collection_list_partial(coll_t c, hobject_t start,
     assert(!m_filestore_fail_eio || r != -EIO);
     return r;
   }
+  if (ls)
+    dout(20) << "objects: " << *ls << dendl;
   return 0;
 }
 
