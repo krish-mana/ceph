@@ -222,10 +222,9 @@ void ReplicatedPG::on_peer_recover(
   info.stats.stats.sum.add(stat);
   publish_stats_to_osd();
   // done!
+  peer_missing[peer].got(soid, recovery_info.version);
   if (peer == backfill_target && backfills_in_flight.count(soid))
     backfills_in_flight.erase(soid);
-  else
-    peer_missing[peer].got(soid, recovery_info.version);
 }
 
 void ReplicatedPG::begin_peer_recover(
