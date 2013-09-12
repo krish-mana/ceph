@@ -6246,6 +6246,8 @@ bool ReplicatedBackend::handle_pull_response(
       hoid, pi.stat, pi.recovery_info, t);
     pulling.erase(hoid);
     pull_from_peer[from].erase(hoid);
+    if (pull_from_peer[from].empty())
+      pull_from_peer.erase(from);
     if (!start_pushes(hoid, pi.obc, h)) {
       get_parent()->on_global_recover(
 	hoid);
@@ -6879,6 +6881,8 @@ void ReplicatedBackend::_failed_push(int from, const hobject_t &soid)
 {
   get_parent()->failed_push(from, soid);
   pull_from_peer[from].erase(soid);
+  if (pull_from_peer[from].empty())
+    pull_from_peer.erase(from);
   pulling.erase(soid);
 }
 

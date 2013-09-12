@@ -518,6 +518,15 @@ protected:
       f->close_section();
     }
     {
+      f->open_array_section("recovering");
+      for (set<hobject_t>::const_iterator i = recovering.begin();
+	   i != recovering.end();
+	   ++i) {
+	f->dump_stream("object") << *i;
+      }
+      f->close_section();
+    }
+    {
       f->open_object_section("PGBackend");
       pgbackend->dump_recovery_info(f);
       f->close_section();
