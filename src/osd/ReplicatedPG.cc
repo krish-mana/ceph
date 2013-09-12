@@ -1617,8 +1617,9 @@ void ReplicatedBackend::_do_push(OpRequestRef op)
 struct C_ReplicatedBackend_OnPullComplete : Context {
   ReplicatedBackend *bc;
   list<pair<hobject_t, ObjectContextRef> > to_continue;
-  C_ReplicatedBackend_OnPullComplete(ReplicatedBackend *bc)
-  : bc(bc) {}
+  int priority;
+  C_ReplicatedBackend_OnPullComplete(ReplicatedBackend *bc, int priority)
+    : bc(bc), priority(priority) {}
 
   void finish(int) {
     ReplicatedBackend::RPGHandle *h = bc->_open_recovery_op();
@@ -1631,6 +1632,7 @@ struct C_ReplicatedBackend_OnPullComplete : Context {
 	  i->first);
       }
     }
+    bc->run_recovery_op(h, priority);
   }
 };
 
@@ -1652,7 +1654,9 @@ void ReplicatedBackend::_do_pull_response(OpRequestRef op)
   }
   if (!to_continue.empty()) {
     C_ReplicatedBackend_OnPullComplete *c =
-      new C_ReplicatedBackend_OnPullComplete(this);
+      new C_ReplicatedBackend_OnPullComplete(
+	this,
+	m->get_priority());
     c->to_continue.swap(to_continue);
     t->register_on_complete(
       get_parent()->bless_context(c));
@@ -6869,7 +6873,9 @@ void ReplicatedBackend::sub_op_push(OpRequestRef op)
 	resp.recovery_progress);
     } else {
       C_ReplicatedBackend_OnPullComplete *c =
-	new C_ReplicatedBackend_OnPullComplete(this);
+	new C_ReplicatedBackend_OnPullComplete(
+	  this,
+	  op->request->get_priority());
       c->to_continue.swap(to_continue);
       t->register_on_complete(
 	get_parent()->bless_context(c));
