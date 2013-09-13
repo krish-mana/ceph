@@ -40,6 +40,7 @@ private:
 public:
   coll_t coll;
   OSDService *osd;
+  CephContext *cct;
 
   ReplicatedBackend(PGBackend::Listener *pg, coll_t coll, OSDService *osd);
 

@@ -30,7 +30,7 @@ ReplicatedBackend::ReplicatedBackend(
   PGBackend::Listener *pg, coll_t coll, OSDService *osd) :
   PGBackend(pg), temp_created(false),
   temp_coll(coll_t::make_temp_coll(pg->get_info().pgid)),
-  coll(coll), osd(osd) {}
+  coll(coll), osd(osd), cct(osd->cct) {}
 
 void ReplicatedBackend::run_recovery_op(
   PGBackend::RecoveryHandle *_h,

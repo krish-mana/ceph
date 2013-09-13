@@ -707,8 +707,6 @@ protected:
   void _committed_pushed_object(epoch_t epoch, eversion_t lc);
   void recover_got(hobject_t oid, eversion_t v);
 
-  static void log_subop_stats(OpRequestRef op, int tag_inb, int tag_lat);
-
   // -- copyfrom --
   map<hobject_t, CopyOpRef> copy_ops;
 

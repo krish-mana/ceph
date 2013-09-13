@@ -283,7 +283,7 @@ void ReplicatedPG::wait_for_missing_object(const hobject_t& soid, OpRequestRef o
     dout(7) << "missing " << soid << " v " << v << ", pulling." << dendl;
     PGBackend::RecoveryHandle *h = pgbackend->open_recovery_op();
     recover_missing(soid, v, cct->_conf->osd_client_op_priority, h);
-    pgbackend->run_recovery_op(h, cct->_conf->osd_client_op_priority, h);
+    pgbackend->run_recovery_op(h, cct->_conf->osd_client_op_priority);
   }
   waiting_for_missing_object[soid].push_back(op);
   op->mark_delayed("waiting for missing object");
@@ -1430,26 +1430,6 @@ void ReplicatedPG::log_op_stats(OpContext *ctx)
 	   << " rlat " << rlatency
 	   << " lat " << latency << dendl;
 }
-
-void ReplicatedPG::log_subop_stats(OpRequestRef op, int tag_inb, int tag_lat)
-{
-  utime_t now = ceph_clock_now(cct);
-  utime_t latency = now;
-  latency -= op->request->get_recv_stamp();
-
-  uint64_t inb = op->request->get_data().length();
-
-  osd->logger->inc(l_osd_sop);
-
-  osd->logger->inc(l_osd_sop_inb, inb);
-  osd->logger->tinc(l_osd_sop_lat, latency);
-
-  if (tag_inb)
-    osd->logger->inc(tag_inb, inb);
-  osd->logger->tinc(tag_lat, latency);
-}
-
-
 
 void ReplicatedPG::do_sub_op(OpRequestRef op)
 {
@@ -7667,7 +7647,7 @@ int ReplicatedPG::recover_primary(int max, ThreadPool::TPHandle &handle)
       pg_log.set_last_requested(v);
   }
  
-  pgbackend->run_recovery_op(h, g_conf->osd_recovery_op_priority);
+  pgbackend->run_recovery_op(h, cct->_conf->osd_recovery_op_priority);
   return started;
 }
 
@@ -7951,7 +7931,7 @@ int ReplicatedPG::recover_backfill(
     prep_backfill_object_push(
       i->first, i->second.first, i->second.second, backfill_target, h);
   }
-  pgbackend->run_recovery_op(h, g_conf->osd_recovery_op_priority);
+  pgbackend->run_recovery_op(h, cct->_conf->osd_recovery_op_priority);
 
   release_waiting_for_backfill_pos();
   dout(5) << "backfill_pos is " << backfill_pos << " and pinfo.last_backfill is "
