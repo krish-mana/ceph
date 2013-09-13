@@ -34,6 +34,7 @@ noinst_HEADERS += \
 	osd/PG.h \
 	osd/PGLog.h \
 	osd/ReplicatedPG.h \
+	osd/PGBackend.h \
 	osd/ReplicatedBackend.h \
 	osd/Watch.h \
 	osd/osd_types.h
