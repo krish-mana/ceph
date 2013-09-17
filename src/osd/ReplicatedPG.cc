@@ -7955,14 +7955,8 @@ int ReplicatedPG::recover_backfill(
   int local_min = osd->store->get_ideal_list_min();
   int local_max = osd->store->get_ideal_list_max();
 
-  // re-scan our local interval to cope with recent changes
-  // FIXME: we could track the eversion_t when we last scanned, and invalidate
-  // that way.  or explicitly modify/invalidate when we actually change specific
-  // objects.
-  dout(10) << " rescanning local backfill_info from " << backfill_pos << dendl;
-  backfill_info.clear();
-  osr->flush();
-  scan_range(backfill_pos, local_min, local_max, &backfill_info, handle);
+  // update our local interval to cope with recent changes
+  update_range(&backfill_info, handle);
 
   int ops = 0;
   map<hobject_t, pair<eversion_t, eversion_t> > to_push;
@@ -8137,11 +8131,68 @@ void ReplicatedPG::prep_backfill_object_push(
   start_recovery_op(oid);
   recovering.insert(oid);
   ObjectContextRef obc = get_object_context(oid, false);
+
+  // We need to take the read_lock here in order to flush in-progress writes
+  obc->ondisk_read_lock();
   pgbackend->recover_object(
     oid,
     ObjectContextRef(),
     obc,
     h);
+  obc->ondisk_read_unlock();
+}
+
+void ReplicatedPG::update_range(
+  BackfillInterval *bi,
+  ThreadPool::TPHandle &handle)
+{
+  int local_min = osd->store->get_ideal_list_min();
+  int local_max = osd->store->get_ideal_list_max();
+  if (bi->version >= info.last_update) {
+    dout(10) << __func__<< ": bi is current " << dendl;
+    assert(bi->version == info.last_update);
+  } else if (bi->version >= info.log_tail) {
+    assert(!pg_log.get_log().empty());
+    dout(10) << __func__<< ": bi is old, (" << bi->version
+	     << ") can be updated with log" << dendl;
+    list<pg_log_entry_t>::const_iterator i =
+      pg_log.get_log().log.end();
+    --i;
+    while (i != pg_log.get_log().log.begin() &&
+           i->version > bi->version) {
+      --i;
+    }
+    if (i->version == bi->version)
+      ++i;
+
+    assert(i != pg_log.get_log().log.end());
+    dout(10) << __func__ << ": updating from version " << i->version
+	     << dendl;
+    for (; i != pg_log.get_log().log.end(); ++i) {
+      const hobject_t &soid = i->soid;
+      if (soid >= bi->begin && soid < bi->end) {
+	if (i->is_update()) {
+	  dout(10) << __func__ << ": " << i->soid << " updated to version "
+		   << i->version << dendl;
+	  bi->objects.erase(i->soid);
+	  bi->objects.insert(
+	    make_pair(
+	      i->soid,
+	      i->version));
+	} else if (i->is_delete()) {
+	  dout(10) << __func__ << ": " << i->soid << " removed" << dendl;
+	  bi->objects.erase(i->soid);
+	}
+      }
+    }
+    bi->version = info.last_update;
+  } else {
+    dout(10) << __func__<< ": bi is old, rescanning local backfill_info"
+	     << dendl;
+    backfill_info.clear();
+    osr->flush();
+    scan_range(backfill_pos, local_min, local_max, &backfill_info, handle);
+  }
 }
 
 void ReplicatedPG::scan_range(
@@ -8150,6 +8201,7 @@ void ReplicatedPG::scan_range(
 {
   assert(is_locked());
   dout(10) << "scan_range from " << begin << dendl;
+  bi->version = info.last_update;
   bi->begin = begin;
   bi->objects.clear();  // for good measure
 
