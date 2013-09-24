@@ -553,7 +553,7 @@ protected:
       f->close_section();
     }
     {
-      f->open_object_section("PGBackend");
+      f->open_object_section("pg_backend");
       pgbackend->dump_recovery_info(f);
       f->close_section();
     }
