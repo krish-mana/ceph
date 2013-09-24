@@ -273,13 +273,13 @@ void ReplicatedPG::wait_for_missing_object(const hobject_t& soid, OpRequestRef o
 
   set<hobject_t>::const_iterator p = recovering.find(soid);
   if (p != recovering.end()) {
-    dout(7) << "missing " << soid << " v " << v << ", already pulling." << dendl;
+    dout(7) << "missing " << soid << " v " << v << ", already recovering." << dendl;
   }
   else if (missing_loc.find(soid) == missing_loc.end()) {
     dout(7) << "missing " << soid << " v " << v << ", is unfound." << dendl;
   }
   else {
-    dout(7) << "missing " << soid << " v " << v << ", pulling." << dendl;
+    dout(7) << "missing " << soid << " v " << v << ", recovering." << dendl;
     PGBackend::RecoveryHandle *h = pgbackend->open_recovery_op();
     recover_missing(soid, v, cct->_conf->osd_client_op_priority, h);
     pgbackend->run_recovery_op(h, cct->_conf->osd_client_op_priority);
