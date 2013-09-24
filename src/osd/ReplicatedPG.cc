@@ -1649,7 +1649,7 @@ void ReplicatedBackend::_do_pull_response(OpRequestRef op)
 	m->get_priority());
     c->to_continue.swap(to_continue);
     t->register_on_complete(
-      new QueueInWQ(
+      new C_QueueInWQ(
 	&osd->push_wq,
 	get_parent()->bless_gencontext(c)));
   }
@@ -6993,7 +6993,7 @@ void ReplicatedBackend::sub_op_push(OpRequestRef op)
 	  op->request->get_priority());
       c->to_continue.swap(to_continue);
       t->register_on_complete(
-	new QueueInWQ(
+	new C_QueueInWQ(
 	  &osd->push_wq,
 	  get_parent()->bless_gencontext(c)));
     }
