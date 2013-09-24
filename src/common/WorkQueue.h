@@ -418,11 +418,11 @@ public:
   }
 };
 
-class QueueInWQ : public Context {
+class C_QueueInWQ : public Context {
   GenContextWQ *wq;
   GenContext<ThreadPool::TPHandle&> *c;
 public:
-  QueueInWQ(GenContextWQ *wq, GenContext<ThreadPool::TPHandle &> *c)
+  C_QueueInWQ(GenContextWQ *wq, GenContext<ThreadPool::TPHandle &> *c)
     : wq(wq), c(c) {}
   void finish(int) {
     wq->queue(c);
