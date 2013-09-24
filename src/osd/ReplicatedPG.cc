@@ -163,6 +163,7 @@ void ReplicatedPG::on_local_recover(
     assert(obc);
     obc->obs.exists = true;
     obc->ondisk_write_lock();
+    obc->obs.oi = recovery_info.oi;  // may have been updated above
 
 
     t->register_on_applied(new C_OSD_AppliedRecoveredObject(this, obc));
