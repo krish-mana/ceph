@@ -5132,8 +5132,7 @@ void ReplicatedPG::handle_watch_timeout(WatchRef watch)
   ObjectContextRef obc = watch->get_obc(); // handle_watch_timeout owns this ref
   dout(10) << "handle_watch_timeout obc " << obc << dendl;
 
-  if (is_missing_object(obc->obs.oi.soid) ||
-      is_degraded_object(obc->obs.oi.soid)) {
+  if (is_degraded_object(obc->obs.oi.soid)) {
     callbacks_for_degraded_object[obc->obs.oi.soid].push_back(
       watch->get_delayed_cb()
       );
