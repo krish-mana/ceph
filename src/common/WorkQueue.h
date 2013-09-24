@@ -392,28 +392,22 @@ public:
 
 class GenContextWQ :
   public ThreadPool::WorkQueueVal<GenContext<ThreadPool::TPHandle&>*> {
-  Mutex qlock;
   list<GenContext<ThreadPool::TPHandle&>*> _queue;
 public:
   GenContextWQ(const string &name, time_t ti, ThreadPool *tp)
     : ThreadPool::WorkQueueVal<
-        GenContext<ThreadPool::TPHandle&>*>(name, ti, ti*10, tp),
-      qlock(name.c_str()) {}
+      GenContext<ThreadPool::TPHandle&>*>(name, ti, ti*10, tp) {}
   
   void _enqueue(GenContext<ThreadPool::TPHandle&> *c) {
-    Mutex::Locker l(qlock);
     _queue.push_back(c);
   };
   void _enqueue_front(GenContext<ThreadPool::TPHandle&> *c) {
-    Mutex::Locker l(qlock);
     _queue.push_front(c);
   }
   bool _empty() {
-    Mutex::Locker l(qlock);
     return _queue.empty();
   }
   GenContext<ThreadPool::TPHandle&> *_dequeue() {
-    Mutex::Locker l(qlock);
     assert(!_queue.empty());
     GenContext<ThreadPool::TPHandle&> *c = _queue.front();
     _queue.pop_front();
