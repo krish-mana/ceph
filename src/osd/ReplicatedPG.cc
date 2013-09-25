@@ -5210,7 +5210,12 @@ ObjectContextRef ReplicatedPG::get_object_context(const hobject_t& soid,
 						  bool can_create,
 						  map<string, bufferptr> *attrs)
 {
-  assert(attrs || !pg_log.get_missing().is_missing(soid));
+  assert(
+    attrs || !pg_log.get_missing().is_missing(soid) ||
+    // or this is a revert... see recover_primary()
+    (pg_log.get_log().objects.count(soid) &&
+      pg_log.get_log().objects.find(soid)->second->op ==
+      pg_log_entry_t::LOST_REVERT));
   ObjectContextRef obc = object_contexts.lookup(soid);
   if (obc) {
     dout(10) << "get_object_context " << obc << " " << soid << dendl;
