@@ -1538,8 +1538,9 @@ void ReplicatedPG::do_scan(
 
       BackfillInterval bi;
       osr->flush();
+      bi.begin = m->begin;
       scan_range(
-	m->begin, cct->_conf->osd_backfill_scan_min,
+	cct->_conf->osd_backfill_scan_min,
 	cct->_conf->osd_backfill_scan_max, &bi, handle);
       MOSDPGScan *reply = new MOSDPGScan(MOSDPGScan::OP_SCAN_DIGEST,
 					 get_osdmap()->get_epoch(), m->query_epoch,
@@ -7993,6 +7994,7 @@ int ReplicatedPG::recover_backfill(
   int local_max = osd->store->get_ideal_list_max();
 
   // update our local interval to cope with recent changes
+  backfill_info.begin = backfill_pos;
   update_range(&backfill_info, handle);
 
   int ops = 0;
@@ -8007,7 +8009,8 @@ int ReplicatedPG::recover_backfill(
     if (backfill_info.begin <= pbi.begin &&
 	!backfill_info.extends_to_end() && backfill_info.empty()) {
       osr->flush();
-      scan_range(backfill_info.end, local_min, local_max, &backfill_info,
+      backfill_info.begin = backfill_info.end;
+      scan_range(local_min, local_max, &backfill_info,
 		 handle);
       backfill_info.trim();
     }
@@ -8226,25 +8229,23 @@ void ReplicatedPG::update_range(
   } else {
     dout(10) << __func__<< ": bi is old, rescanning local backfill_info"
 	     << dendl;
-    backfill_info.clear();
     osr->flush();
-    scan_range(backfill_pos, local_min, local_max, &backfill_info, handle);
+    scan_range(local_min, local_max, &backfill_info, handle);
   }
 }
 
 void ReplicatedPG::scan_range(
-  hobject_t begin, int min, int max, BackfillInterval *bi,
+  int min, int max, BackfillInterval *bi,
   ThreadPool::TPHandle &handle)
 {
   assert(is_locked());
-  dout(10) << "scan_range from " << begin << dendl;
+  dout(10) << "scan_range from " << bi->begin << dendl;
   bi->version = info.last_update;
-  bi->begin = begin;
   bi->objects.clear();  // for good measure
 
   vector<hobject_t> ls;
   ls.reserve(max);
-  int r = pgbackend->objects_list_partial(begin, min, max, 0, &ls, &bi->end);
+  int r = pgbackend->objects_list_partial(bi->begin, min, max, 0, &ls, &bi->end);
   assert(r >= 0);
   dout(10) << " got " << ls.size() << " items, next " << bi->end << dendl;
   dout(20) << ls << dendl;
