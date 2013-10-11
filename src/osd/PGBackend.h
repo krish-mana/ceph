@@ -274,6 +274,15 @@
        const hobject_t &from,
        const hobject_t &to
        ) = 0;
+     virtual void truncate(
+       const hobject_t &hoid,
+       uint64_t off
+       ) = 0;
+     virtual void zero(
+       const hobject_t &hoid,
+       uint64_t off,
+       uint64_t len
+       ) = 0;
 
      /// to_append *must* have come from the same PGBackend (same concrete type)
      virtual void append(
@@ -281,6 +290,7 @@
        ) = 0;
      virtual void nop() = 0;
      virtual bool empty() const = 0;
+     virtual uint64_t get_bytes_written() const = 0;
      virtual ~PGTransaction() {}
    };
    /// Get implementation specific empty transaction

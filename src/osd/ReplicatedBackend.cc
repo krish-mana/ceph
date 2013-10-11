@@ -401,6 +401,20 @@ public:
     t->touch(get_coll_ct(hoid), hoid);
   }
 
+  void truncate(
+    const hobject_t &hoid,
+    uint64_t off
+    ) {
+    t->truncate(get_coll(hoid), hoid, off);
+  }
+  void zero(
+    const hobject_t &hoid,
+    uint64_t off,
+    uint64_t len
+    ) {
+    t->zero(get_coll(hoid), hoid, off, len);
+  }
+
   void append(
     PGTransaction *_to_append
     ) {
@@ -412,6 +426,9 @@ public:
   }
   bool empty() const {
     return t->empty();
+  }
+  uint64_t get_bytes_written() const {
+    return t->get_encoded_bytes();
   }
   ~RPGTransaction() { delete t; }
 };

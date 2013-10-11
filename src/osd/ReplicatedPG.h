@@ -141,7 +141,7 @@ public:
    * op you will have to generate a separate op to finish the copy with.
    */
   /// return code, total object size, data in temp object?, final Transaction
-  typedef boost::tuple<int, size_t, bool, ObjectStore::Transaction> CopyResults;
+  typedef boost::tuple<int, size_t, bool, PGBackend::PGTransaction*> CopyResults;
   class CopyCallback : public GenContext<CopyResults&> {
   protected:
     CopyCallback() {}
@@ -365,7 +365,7 @@ public:
 
     int current_osd_subop_num;
 
-    PGBackend::Transaction *op_t;
+    PGBackend::PGTransaction *op_t;
     vector<pg_log_entry_t> log;
 
     interval_set<uint64_t> modified_ranges;
@@ -665,7 +665,7 @@ protected:
 
   // low level ops
 
-  void _make_clone(ObjectStore::Transaction& t,
+  void _make_clone(PGBackend::PGTransaction* t,
 		   const hobject_t& head, const hobject_t& coid,
 		   object_info_t *poi);
   void execute_ctx(OpContext *ctx);
@@ -826,10 +826,10 @@ protected:
                  object_locator_t oloc, version_t version,
                  const hobject_t& temp_dest_oid);
   void process_copy_chunk(hobject_t oid, tid_t tid, int r);
-  void _write_copy_chunk(CopyOpRef cop, ObjectStore::Transaction *t);
+  void _write_copy_chunk(CopyOpRef cop, PGBackend::PGTransaction *t);
   void _copy_some(ObjectContextRef obc, CopyOpRef cop);
   void _build_finish_copy_transaction(CopyOpRef cop,
-                                      ObjectStore::Transaction& t);
+                                      PGBackend::PGTransaction *t);
   int finish_copyfrom(OpContext *ctx);
   void cancel_copy(CopyOpRef cop);
   void cancel_copy_ops();
