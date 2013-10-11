@@ -365,7 +365,7 @@ public:
 
     int current_osd_subop_num;
 
-    ObjectStore::Transaction op_t, local_t;
+    PGBackend::Transaction *op_t;
     vector<pg_log_entry_t> log;
 
     interval_set<uint64_t> modified_ranges;

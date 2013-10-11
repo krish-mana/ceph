@@ -1195,8 +1195,8 @@ void ReplicatedPG::execute_ctx(OpContext *ctx)
 
   // this method must be idempotent since we may call it several times
   // before we finally apply the resulting transaction.
-  ctx->op_t = ObjectStore::Transaction();
-  ctx->local_t = ObjectStore::Transaction();
+  delete ctx->op_t;
+  ctx->op_t = pgbackend->get_transaction();
 
   // dup/replay?
   if (op->may_write()) {
@@ -1321,7 +1321,7 @@ void ReplicatedPG::execute_ctx(OpContext *ctx)
   // possible to construct an operation that does a read, does a guard
   // check (e.g., CMPXATTR), and then a write.  Then we either succeed
   // with the write, or return a CMPXATTR and the read value.
-  if ((ctx->op_t.empty() && !ctx->modify) || result < 0) {
+  if ((ctx->op_t->empty() && !ctx->modify) || result < 0) {
     // read.
     ctx->reply->claim_op_out_data(ctx->ops);
     ctx->reply->get_header().data_off = ctx->data_off;
@@ -1335,7 +1335,7 @@ void ReplicatedPG::execute_ctx(OpContext *ctx)
   ctx->reply->set_result(result);
 
   // read or error?
-  if (ctx->op_t.empty() || result < 0) {
+  if (ctx->op_t->empty() || result < 0) {
     MOSDOpReply *reply = ctx->reply;
     ctx->reply = NULL;
 
@@ -5111,7 +5111,7 @@ void ReplicatedPG::handle_watch_timeout(WatchRef watch)
 
   RepGather *repop = new_repop(ctx, obc, rep_tid);
 
-  ObjectStore::Transaction *t = &ctx->op_t;
+  PGBackend::Transaction *t = ctx->op_t;
 
   ctx->log.push_back(pg_log_entry_t(pg_log_entry_t::MODIFY, obc->obs.oi.soid,
 				    ctx->at_version,
