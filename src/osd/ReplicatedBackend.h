@@ -169,18 +169,6 @@ public:
     const string &attr,
     bufferlist *out);
 
-  /**
-   * Client IO
-   */
-  PGTransaction *get_transaction();
-  void submit_transaction(
-    PGTransaction *t,
-    vector<pg_log_entry_t> &log_entries,
-    Context *on_all_acked,
-    Context *on_all_commit,
-    tid_t tid
-    );
-
 private:
   // push
   struct PushInfo {
@@ -337,6 +325,31 @@ private:
     const ObjectRecoveryInfo& recovery_info,
     SnapSetContext *ssc
     );
+
+  /**
+   * Client IO
+   */
+  struct InProgressOp {
+    tid_t tid;
+    set<int> waiting_for_commit;
+    set<int> waiting_for_ack;
+    Context *oncommit;
+    Context *onack;
+    InProgressOp(tid_t tid, Context *oncommit, Context *onack)
+      : tid(tid), oncommit(oncommit), onack(onack) {}
+  };
+  map<tid_t, InProgressOp> in_progress_ops;
+public:
+  PGTransaction *get_transaction();
+  void submit_transaction(
+    PGTransaction *t,
+    eversion_t trim_to,
+    vector<pg_log_entry_t> &log_entries,
+    Context *on_all_acked,
+    Context *on_all_commit,
+    tid_t tid
+    );
+
 };
 
 #endif

@@ -440,11 +440,28 @@ PGBackend::PGTransaction *ReplicatedBackend::get_transaction()
 
 void ReplicatedBackend::submit_transaction(
   PGTransaction *_t,
+  eversion_t trim_to,
   vector<pg_log_entry_t> &log_entries,
   Context *on_all_acked,
   Context *on_all_commit,
   tid_t tid)
 {
-  //RPGTransaction *t = dynamic_cast<RPGTransaction*>(_t);
+  RPGTransaction *t = dynamic_cast<RPGTransaction*>(_t);
+  ObjectStore::Transaction *op_t = t->get_transaction();
+  ObjectStore::Transaction local_t;
+  if (t->get_temp_added().size()) {
+    get_temp_coll(&local_t);
+    temp_contents.insert(t->get_temp_added().begin(), t->get_temp_added().end());
+  }
+  for (set<hobject_t>::const_iterator i = t->get_temp_cleared().begin();
+       i != t->get_temp_cleared().end();
+       ++i) {
+    temp_contents.erase(*i);
+  }
+  parent->log_operation(log_entries, trim_to, &local_t);
+  local_t.append(*op_t);
+  op_t->swap(local_t);
+
+  
   return;
 }

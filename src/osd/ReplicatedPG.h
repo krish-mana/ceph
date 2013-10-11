@@ -308,6 +308,12 @@ public:
     map<string, bufferptr> &attrs) {
     return get_object_context(hoid, true, &attrs);
   }
+  void log_operation(
+    vector<pg_log_entry_t> &logv,
+    eversion_t trim_to,
+    ObjectStore::Transaction *t) {
+    append_log(logv, trim_to, *t);
+  }
 
   void op_applied_replica(
     const eversion_t &applied_version);

@@ -118,6 +118,11 @@
        int peer,
        const hobject_t &hoid) = 0;
 
+     virtual void log_operation(
+       vector<pg_log_entry_t> &logv,
+       eversion_t trim_to,
+       ObjectStore::Transaction *t) = 0;
+
      virtual ~Listener() {}
    };
    Listener *parent;
@@ -299,6 +304,7 @@
    /// execute implementation specific transaction
    virtual void submit_transaction(
      PGTransaction *t,                    ///< [in] trans to execute
+     eversion_t trim_to,                  ///< [in] trim log to here
      vector<pg_log_entry_t> &log_entries, ///< [in] log entries for t
      Context *on_all_acked,               ///< [in] called when all acked
      Context *on_all_commit,              ///< [in] called when all commit
