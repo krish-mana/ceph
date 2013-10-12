@@ -310,8 +310,10 @@ public:
   }
   void log_operation(
     vector<pg_log_entry_t> &logv,
-    eversion_t trim_to,
+    const eversion_t &trim_to,
+    const pg_stat_t &stats,
     ObjectStore::Transaction *t) {
+    info.stats = stats;
     append_log(logv, trim_to, *t);
   }
 
@@ -450,7 +452,6 @@ public:
     
     eversion_t          pg_local_last_complete;
 
-    list<ObjectStore::Transaction*> tls;
     bool queue_snap_trimmer;
     
     RepGather(OpContext *c, ObjectContextRef pi, tid_t rt, 

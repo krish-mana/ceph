@@ -335,16 +335,20 @@ private:
     set<int> waiting_for_ack;
     Context *oncommit;
     Context *onack;
-    InProgressOp(tid_t tid, Context *oncommit, Context *onack)
-      : tid(tid), oncommit(oncommit), onack(onack) {}
+    Context *on_local_applied_sync;
+    InProgressOp(tid_t tid, Context *oncommit, Context *onack, Context* appsync)
+      : tid(tid), oncommit(oncommit), onack(onack),
+	on_local_applied_sync(appsync) {}
   };
   map<tid_t, InProgressOp> in_progress_ops;
 public:
   PGTransaction *get_transaction();
   void submit_transaction(
     PGTransaction *t,
-    eversion_t trim_to,
+    const eversion_t &trim_to,
+    const pg_stat_t &stats,
     vector<pg_log_entry_t> &log_entries,
+    Context *on_local_applied_sync,
     Context *on_all_acked,
     Context *on_all_commit,
     tid_t tid

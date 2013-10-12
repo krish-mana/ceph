@@ -4557,6 +4557,7 @@ public:
 
 void ReplicatedPG::apply_repop(RepGather *repop)
 {
+#if 0
   dout(10) << "apply_repop  applying update on " << *repop << dendl;
   assert(!repop->applying);
   assert(!repop->applied);
@@ -4588,6 +4589,7 @@ void ReplicatedPG::apply_repop(RepGather *repop)
     derr << "apply_repop  queue_transactions returned " << r << " on " << *repop << dendl;
     assert(0);
   }
+#endif
 }
 
 void ReplicatedPG::op_applied(RepGather *repop)

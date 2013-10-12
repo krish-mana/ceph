@@ -440,8 +440,10 @@ PGBackend::PGTransaction *ReplicatedBackend::get_transaction()
 
 void ReplicatedBackend::submit_transaction(
   PGTransaction *_t,
-  eversion_t trim_to,
+  const eversion_t &trim_to,
+  const pg_stat_t &stats,
   vector<pg_log_entry_t> &log_entries,
+  Context *on_local_applied_sync,
   Context *on_all_acked,
   Context *on_all_commit,
   tid_t tid)
@@ -458,10 +460,15 @@ void ReplicatedBackend::submit_transaction(
        ++i) {
     temp_contents.erase(*i);
   }
-  parent->log_operation(log_entries, trim_to, &local_t);
-  local_t.append(*op_t);
-  op_t->swap(local_t);
+  parent->log_operation(log_entries, trim_to, stats, &local_t);
 
+  in_progress_ops.insert(
+    make_pair(
+      tid,
+      InProgressOp(tid, on_all_commit, on_all_acked, on_local_applied_sync)
+      )
+    );
+  delete t;
   
-  return;
+  (void)op_t;
 }
