@@ -121,7 +121,6 @@
      virtual void log_operation(
        vector<pg_log_entry_t> &logv,
        const eversion_t &trim_to,
-       const pg_stat_t &stats,
        ObjectStore::Transaction *t) = 0;
 
      virtual ~Listener() {}
@@ -304,14 +303,16 @@
 
    /// execute implementation specific transaction
    virtual void submit_transaction(
+     const hobject_t &hoid,               ///< [in] object
      PGTransaction *t,                    ///< [in] trans to execute
      const eversion_t &trim_to,           ///< [in] trim log to here
-     const pg_stat_t &stats,              ///< [in] stats
      vector<pg_log_entry_t> &log_entries, ///< [in] log entries for t
      Context *on_local_applied_sync,      ///< [in] called when applied locally
      Context *on_all_acked,               ///< [in] called when all acked
      Context *on_all_commit,              ///< [in] called when all commit
-     tid_t tid                            ///< [in] tid
+     tid_t tid,                           ///< [in] tid
+     osd_reqid_t reqid,                   ///< [in] reqid
+     OpRequestRef op                      ///< [in] op
      ) = 0;
 
    /// List objects in collection

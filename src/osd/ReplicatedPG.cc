@@ -4829,72 +4829,101 @@ void ReplicatedPG::issue_repop(RepGather *repop, utime_t now)
 {
   OpContext *ctx = repop->ctx;
   const hobject_t& soid = ctx->obs->oi.soid;
-
+  if (ctx->op &&
+    ((static_cast<MOSDOp *>(
+	ctx->op->get_req()))->get_flags() & CEPH_OSD_FLAG_PARALLELEXEC)) {
+    // replicate original op for parallel execution on replica
+    assert(0 == "broken implementation, do not use");
+  }
   dout(7) << "issue_repop rep_tid " << repop->rep_tid
           << " o " << soid
           << dendl;
 
   repop->v = ctx->at_version;
 
-  // add myself to gather set
-  repop->waitfor_ack.insert(acting[0]);
-  repop->waitfor_disk.insert(acting[0]);
+  for (vector<int>::iterator i = acting.begin() + 1;
+       i != acting.end();
+       ++i) {
+    pg_info_t &pinfo = peer_info[*i];
+    // keep peer_info up to date
+    if (pinfo.last_complete == pinfo.last_update)
+      pinfo.last_complete = ctx->at_version;
+    pinfo.last_update = ctx->at_version;
+  }
 
+  pgbackend->submit_transaction(
+    soid,
+    repop->ctx->op_t,
+    pg_trim_to,
+    repop->ctx->log,
+    0,
+    0,
+    0,
+    repop->rep_tid,
+    repop->ctx->reqid,
+    repop->ctx->op);
+}
+    
+void ReplicatedBackend::issue_op(
+  const hobject_t &soid,
+  tid_t tid,
+  osd_reqid_t reqid,
+  eversion_t pg_trim_to,
+  hobject_t new_temp_oid,
+  hobject_t discard_temp_oid,
+  vector<pg_log_entry_t> &log_entries,
+  InProgressOp *op,
+  ObjectStore::Transaction *op_t)
+{
   int acks_wanted = CEPH_OSD_FLAG_ACK | CEPH_OSD_FLAG_ONDISK;
 
-  if (ctx->op && acting.size() > 1) {
+  if (parent->get_acting().size() > 1) {
     ostringstream ss;
-    ss << "waiting for subops from " << vector<int>(acting.begin() + 1, acting.end());
-    ctx->op->mark_sub_op_sent(ss.str());
+    ss << "waiting for subops from " << 
+      vector<int>(
+	parent->get_acting().begin() + 1,
+	parent->get_acting().end());
+    if (op->op)
+      op->op->mark_sub_op_sent(ss.str());
   }
-  for (unsigned i=1; i<acting.size(); i++) {
-    int peer = acting[i];
-    pg_info_t &pinfo = peer_info[peer];
+  for (unsigned i=1; i<parent->get_acting().size(); i++) {
+    int peer = parent->get_acting()[i];
+    const pg_info_t &pinfo = parent->get_peer_info().find(peer)->second;
 
-    repop->waitfor_ack.insert(peer);
-    repop->waitfor_disk.insert(peer);
+    op->waiting_for_ack.insert(peer);
+    op->waiting_for_commit.insert(peer);
 
     // forward the write/update/whatever
-    MOSDSubOp *wr = new MOSDSubOp(repop->ctx->reqid, info.pgid, soid,
-				  false, acks_wanted,
-				  get_osdmap()->get_epoch(),
-				  repop->rep_tid, repop->ctx->at_version);
-    if (ctx->op &&
-	((static_cast<MOSDOp *>(ctx->op->get_req()))->get_flags() & CEPH_OSD_FLAG_PARALLELEXEC)) {
-      // replicate original op for parallel execution on replica
-      assert(0 == "broken implementation, do not use");
-    }
+    MOSDSubOp *wr = new MOSDSubOp(
+      reqid, get_info().pgid, soid,
+      false, acks_wanted,
+      get_osdmap()->get_epoch(),
+      tid, log_entries.rbegin()->version);
 
     // ship resulting transaction, log entries, and pg_stats
-    if (!should_send_op(peer, soid)) {
+    if (!parent->should_send_op(peer, soid)) {
       dout(10) << "issue_repop shipping empty opt to osd." << peer
-	       << ", object beyond backfill_pos "
-	       << backfill_pos << ", last_backfill is "
-	       << pinfo.last_backfill << dendl;
+	       << ", object beyond backfill_pos " << dendl;
       ObjectStore::Transaction t;
       ::encode(t, wr->get_data());
     } else {
-      ::encode(repop->ctx->op_t, wr->get_data());
+      ::encode(*op_t, wr->get_data());
     }
 
-    ::encode(repop->ctx->log, wr->logbl);
+    ::encode(log_entries, wr->logbl);
 
-    if (backfill_target >= 0 && backfill_target == peer)
+    if (pinfo.is_incomplete())
       wr->pg_stats = pinfo.stats;  // reflects backfill progress
     else
-      wr->pg_stats = info.stats;
+      wr->pg_stats = get_info().stats;
     
     wr->pg_trim_to = pg_trim_to;
 
-    wr->new_temp_oid = repop->ctx->new_temp_oid;
-    wr->discard_temp_oid = repop->ctx->discard_temp_oid;
+    wr->new_temp_oid = new_temp_oid;
+    wr->discard_temp_oid = discard_temp_oid;
 
     osd->send_message_osd_cluster(peer, wr, get_osdmap()->get_epoch());
 
-    // keep peer_info up to date
-    if (pinfo.last_complete == pinfo.last_update)
-      pinfo.last_update = ctx->at_version;
-    pinfo.last_update = ctx->at_version;
   }
 }
 

@@ -439,17 +439,49 @@ PGBackend::PGTransaction *ReplicatedBackend::get_transaction()
 }
 
 void ReplicatedBackend::submit_transaction(
+  const hobject_t &soid,
   PGTransaction *_t,
   const eversion_t &trim_to,
-  const pg_stat_t &stats,
   vector<pg_log_entry_t> &log_entries,
   Context *on_local_applied_sync,
   Context *on_all_acked,
   Context *on_all_commit,
-  tid_t tid)
+  tid_t tid,
+  osd_reqid_t reqid,
+  OpRequestRef orig_op)
 {
+  assert(!log_entries.empty());
   RPGTransaction *t = dynamic_cast<RPGTransaction*>(_t);
   ObjectStore::Transaction *op_t = t->get_transaction();
+
+  assert(t->get_temp_added().size() <= 1);
+  assert(t->get_temp_cleared().size() <= 1);
+
+  in_progress_ops.insert(
+    make_pair(
+      tid,
+      InProgressOp(
+	tid, on_all_commit, on_all_acked, on_local_applied_sync,
+	orig_op)
+      )
+    );
+  InProgressOp &op = in_progress_ops.find(tid)->second;
+
+  issue_op(
+    soid,
+    tid,
+    reqid,
+    trim_to,
+    t->get_temp_added().size() ? *(t->get_temp_added().begin()) : hobject_t(),
+    t->get_temp_cleared().size() ?
+      *(t->get_temp_cleared().begin()) :hobject_t(),
+    log_entries,
+    &op,
+    op_t);
+
+  // add myself to gather set
+  op.waiting_for_ack.insert(parent->get_acting()[0]);
+  op.waiting_for_commit.insert(parent->get_acting()[0]);
   ObjectStore::Transaction local_t;
   if (t->get_temp_added().size()) {
     get_temp_coll(&local_t);
@@ -460,15 +492,10 @@ void ReplicatedBackend::submit_transaction(
        ++i) {
     temp_contents.erase(*i);
   }
-  parent->log_operation(log_entries, trim_to, stats, &local_t);
-
-  in_progress_ops.insert(
-    make_pair(
-      tid,
-      InProgressOp(tid, on_all_commit, on_all_acked, on_local_applied_sync)
-      )
-    );
+  parent->log_operation(log_entries, trim_to, &local_t);
   delete t;
   
   (void)op_t;
+
+  //issue_op(op, op_t, 
 }

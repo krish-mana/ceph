@@ -336,23 +336,39 @@ private:
     Context *oncommit;
     Context *onack;
     Context *on_local_applied_sync;
-    InProgressOp(tid_t tid, Context *oncommit, Context *onack, Context* appsync)
+    OpRequestRef op;
+    InProgressOp(
+      tid_t tid, Context *oncommit, Context *onack, Context* appsync,
+      OpRequestRef op)
       : tid(tid), oncommit(oncommit), onack(onack),
-	on_local_applied_sync(appsync) {}
+	on_local_applied_sync(appsync), op(op) {}
   };
   map<tid_t, InProgressOp> in_progress_ops;
 public:
   PGTransaction *get_transaction();
   void submit_transaction(
+    const hobject_t &hoid,
     PGTransaction *t,
     const eversion_t &trim_to,
-    const pg_stat_t &stats,
     vector<pg_log_entry_t> &log_entries,
     Context *on_local_applied_sync,
     Context *on_all_acked,
     Context *on_all_commit,
-    tid_t tid
+    tid_t tid,
+    osd_reqid_t reqid,
+    OpRequestRef op
     );
+private:
+  void issue_op(
+    const hobject_t &soid,
+    tid_t tid,
+    osd_reqid_t reqid,
+    eversion_t pg_trim_to,
+    hobject_t new_temp_oid,
+    hobject_t discard_temp_oid,
+    vector<pg_log_entry_t> &log_entries,
+    InProgressOp *op,
+    ObjectStore::Transaction *op_t);
 
 };
 

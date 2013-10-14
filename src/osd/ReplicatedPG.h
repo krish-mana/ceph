@@ -311,9 +311,7 @@ public:
   void log_operation(
     vector<pg_log_entry_t> &logv,
     const eversion_t &trim_to,
-    const pg_stat_t &stats,
     ObjectStore::Transaction *t) {
-    info.stats = stats;
     append_log(logv, trim_to, *t);
   }
 
