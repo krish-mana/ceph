@@ -493,9 +493,9 @@ void ReplicatedBackend::submit_transaction(
     temp_contents.erase(*i);
   }
   parent->log_operation(log_entries, trim_to, &local_t);
-  delete t;
+  local_t.append(*op_t);
+  local_t.swap(*op_t);
   
-  (void)op_t;
 
-  //issue_op(op, op_t, 
+  delete t;
 }

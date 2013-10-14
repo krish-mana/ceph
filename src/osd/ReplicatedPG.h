@@ -489,7 +489,13 @@ protected:
   xlist<RepGather*> repop_queue;
   map<tid_t, RepGather*> repop_map;
 
+  friend class C_OSD_RepopApplied;
+  friend class C_OSD_RepopCommit;
+  friend class C_OSD_OpCommit;
+  friend class C_OSD_OpApplied;
   void apply_repop(RepGather *repop);
+  void repop_all_applied(RepGather *repop);
+  void repop_all_committed(RepGather *repop);
   void op_applied(RepGather *repop);
   void op_commit(RepGather *repop);
   void eval_repop(RepGather*);
@@ -525,8 +531,6 @@ protected:
     return true;
   }
 
-  friend class C_OSD_OpCommit;
-  friend class C_OSD_OpApplied;
   friend struct C_OnPushCommit;
 
   // projected object info

@@ -4592,6 +4592,14 @@ void ReplicatedPG::apply_repop(RepGather *repop)
 #endif
 }
 
+void ReplicatedPG::repop_all_applied(RepGather *repop)
+{
+}
+
+void ReplicatedPG::repop_all_committed(RepGather *repop)
+{
+}
+
 void ReplicatedPG::op_applied(RepGather *repop)
 {
   lock();
@@ -4825,6 +4833,33 @@ void ReplicatedPG::eval_repop(RepGather *repop)
   }
 }
 
+class C_OSD_RepopCommit : public Context {
+  ReplicatedPGRef pg;
+  epoch_t e;
+  ReplicatedPG::RepGather *repop;
+public:
+  C_OSD_RepopCommit(ReplicatedPG *pg, ReplicatedPG::RepGather *repop)
+    : pg(pg), repop(repop) {}
+  void finish(int) {
+    pg->lock();
+    pg->repop_all_committed(repop);
+    pg->unlock();
+  }
+};
+
+class C_OSD_RepopApplied : public Context {
+  ReplicatedPGRef pg;
+  ReplicatedPG::RepGather *repop;
+public:
+  C_OSD_RepopApplied(ReplicatedPG *pg, ReplicatedPG::RepGather *repop)
+  : pg(pg), repop(repop) {}
+  void finish(int) {
+    pg->lock();
+    pg->repop_all_applied(repop);
+    pg->unlock();
+  }
+};
+
 void ReplicatedPG::issue_repop(RepGather *repop, utime_t now)
 {
   OpContext *ctx = repop->ctx;
@@ -4851,14 +4886,27 @@ void ReplicatedPG::issue_repop(RepGather *repop, utime_t now)
     pinfo.last_update = ctx->at_version;
   }
 
+  bool unlock_snapset_obc = false;
+  if (repop->ctx->snapset_obc && repop->ctx->snapset_obc->obs.oi.soid !=
+      repop->obc->obs.oi.soid) {
+    repop->ctx->snapset_obc->ondisk_write_lock();
+    unlock_snapset_obc = true;
+  }
+
+  Context *onapplied_sync = new C_OSD_RepopCommit(this, repop);
+  Context *on_all_applied = new C_OSD_RepopApplied(this, repop);
+  Context *on_all_commit = new C_OSD_OndiskWriteUnlock(
+    repop->obc,
+    repop->ctx->clone_obc,
+    unlock_snapset_obc ? repop->ctx->snapset_obc : ObjectContextRef());
   pgbackend->submit_transaction(
     soid,
     repop->ctx->op_t,
     pg_trim_to,
     repop->ctx->log,
-    0,
-    0,
-    0,
+    onapplied_sync,
+    on_all_applied,
+    on_all_commit,
     repop->rep_tid,
     repop->ctx->reqid,
     repop->ctx->op);
