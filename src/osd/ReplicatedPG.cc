@@ -4592,12 +4592,52 @@ void ReplicatedPG::apply_repop(RepGather *repop)
 #endif
 }
 
+class C_OSD_RepopApplied : public Context {
+  ReplicatedPGRef pg;
+  boost::intrusive_ptr<ReplicatedPG::RepGather> repop;
+public:
+  C_OSD_RepopApplied(ReplicatedPG *pg, ReplicatedPG::RepGather *repop)
+  : pg(pg), repop(repop) {}
+  void finish(int) {
+    pg->lock();
+    pg->repop_all_applied(repop.get());
+    pg->unlock();
+  }
+};
+
+
 void ReplicatedPG::repop_all_applied(RepGather *repop)
 {
+  dout(10) << __func__ << ": repop tid " << repop->rep_tid << " all applied "
+	   << dendl;
+  //repop->all_applied = true;
+  if (!repop->aborted) {
+    eval_repop(repop);
+  }
 }
+
+class C_OSD_RepopCommit : public Context {
+  ReplicatedPGRef pg;
+  epoch_t e;
+  boost::intrusive_ptr<ReplicatedPG::RepGather> repop;
+public:
+  C_OSD_RepopCommit(ReplicatedPG *pg, ReplicatedPG::RepGather *repop)
+    : pg(pg), repop(repop) {}
+  void finish(int) {
+    pg->lock();
+    pg->repop_all_committed(repop.get());
+    pg->unlock();
+  }
+};
 
 void ReplicatedPG::repop_all_committed(RepGather *repop)
 {
+  dout(10) << __func__ << ": repop tid " << repop->rep_tid << " all committed "
+	   << dendl;
+  //repop->all_committed = true;
+  if (!repop->aborted) {
+    eval_repop(repop);
+  }
 }
 
 void ReplicatedPG::op_applied(RepGather *repop)
@@ -4832,33 +4872,6 @@ void ReplicatedPG::eval_repop(RepGather *repop)
     remove_repop(repop);
   }
 }
-
-class C_OSD_RepopCommit : public Context {
-  ReplicatedPGRef pg;
-  epoch_t e;
-  ReplicatedPG::RepGather *repop;
-public:
-  C_OSD_RepopCommit(ReplicatedPG *pg, ReplicatedPG::RepGather *repop)
-    : pg(pg), repop(repop) {}
-  void finish(int) {
-    pg->lock();
-    pg->repop_all_committed(repop);
-    pg->unlock();
-  }
-};
-
-class C_OSD_RepopApplied : public Context {
-  ReplicatedPGRef pg;
-  ReplicatedPG::RepGather *repop;
-public:
-  C_OSD_RepopApplied(ReplicatedPG *pg, ReplicatedPG::RepGather *repop)
-  : pg(pg), repop(repop) {}
-  void finish(int) {
-    pg->lock();
-    pg->repop_all_applied(repop);
-    pg->unlock();
-  }
-};
 
 void ReplicatedPG::issue_repop(RepGather *repop, utime_t now)
 {
@@ -8695,3 +8708,6 @@ void intrusive_ptr_release(ReplicatedPG *pg) { pg->put("intptr"); }
 uint64_t get_with_id(ReplicatedPG *pg) { return pg->get_with_id(); }
 void put_with_id(ReplicatedPG *pg, uint64_t id) { return pg->put_with_id(id); }
 #endif
+
+void intrusive_ptr_add_ref(ReplicatedPG::RepGather *repop) { repop->get(); }
+void intrusive_ptr_release(ReplicatedPG::RepGather *repop) { repop->put(); }

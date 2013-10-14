@@ -481,7 +481,6 @@ public:
   };
 
 
-
 protected:
 
   // replica ops
@@ -1020,5 +1019,9 @@ inline ostream& operator<<(ostream& out, ReplicatedPG::RepGather& repop)
   out << ")";
   return out;
 }
+
+void intrusive_ptr_add_ref(ReplicatedPG::RepGather *repop);
+void intrusive_ptr_release(ReplicatedPG::RepGather *repop);
+
 
 #endif
