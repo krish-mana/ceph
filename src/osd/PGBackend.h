@@ -111,7 +111,7 @@
        const hobject_t &hoid,
        map<string, bufferptr> &attrs) = 0;
 
-     virtual void op_applied_replica(
+     virtual void op_applied(
        const eversion_t &applied_version) = 0;
 
      virtual bool should_send_op(

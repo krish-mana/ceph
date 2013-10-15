@@ -332,16 +332,22 @@ private:
   struct InProgressOp {
     tid_t tid;
     set<int> waiting_for_commit;
-    set<int> waiting_for_ack;
-    Context *oncommit;
-    Context *onack;
+    set<int> waiting_for_applied;
+    Context *on_commit;
+    Context *on_applied;
     Context *on_local_applied_sync;
     OpRequestRef op;
+    eversion_t v;
     InProgressOp(
-      tid_t tid, Context *oncommit, Context *onack, Context* appsync,
-      OpRequestRef op)
-      : tid(tid), oncommit(oncommit), onack(onack),
-	on_local_applied_sync(appsync), op(op) {}
+      tid_t tid, Context *on_commit, Context *on_applied, Context* appsync,
+      OpRequestRef op, eversion_t v)
+      : tid(tid), on_commit(on_commit), on_applied(on_applied),
+	on_local_applied_sync(appsync), op(op), v(v) {}
+    ~InProgressOp() {
+      delete on_commit;
+      delete on_applied;
+      delete on_local_applied_sync;
+    }
   };
   map<tid_t, InProgressOp> in_progress_ops;
 public:
@@ -352,7 +358,7 @@ public:
     const eversion_t &trim_to,
     vector<pg_log_entry_t> &log_entries,
     Context *on_local_applied_sync,
-    Context *on_all_acked,
+    Context *on_all_applied,
     Context *on_all_commit,
     tid_t tid,
     osd_reqid_t reqid,
@@ -369,7 +375,9 @@ private:
     vector<pg_log_entry_t> &log_entries,
     InProgressOp *op,
     ObjectStore::Transaction *op_t);
-
+  void op_applied(InProgressOp *op);
+  void op_commit(InProgressOp *op);
+  void sub_op_modify_reply(OpRequestRef op);
 };
 
 #endif

@@ -315,7 +315,7 @@ public:
     append_log(logv, trim_to, *t);
   }
 
-  void op_applied_replica(
+  void op_applied(
     const eversion_t &applied_version);
 
   bool should_send_op(
@@ -439,9 +439,8 @@ public:
 
     bool applying, applied, aborted, done;
 
-    set<int>  waitfor_ack;
-    //set<int>  waitfor_nvram;
-    set<int>  waitfor_disk;
+    bool all_applied;
+    bool all_committed;
     bool sent_ack;
     //bool sent_nvram;
     bool sent_disk;
@@ -459,7 +458,7 @@ public:
       ctx(c), obc(pi),
       rep_tid(rt), 
       applying(false), applied(false), aborted(false), done(false),
-      sent_ack(false),
+      all_applied(false), all_committed(false), sent_ack(false),
       //sent_nvram(false),
       sent_disk(false),
       pg_local_last_complete(lc),
@@ -490,20 +489,13 @@ protected:
 
   friend class C_OSD_RepopApplied;
   friend class C_OSD_RepopCommit;
-  friend class C_OSD_OpCommit;
-  friend class C_OSD_OpApplied;
   void apply_repop(RepGather *repop);
   void repop_all_applied(RepGather *repop);
   void repop_all_committed(RepGather *repop);
-  void op_applied(RepGather *repop);
-  void op_commit(RepGather *repop);
   void eval_repop(RepGather*);
   void issue_repop(RepGather *repop, utime_t now);
   RepGather *new_repop(OpContext *ctx, ObjectContextRef obc, tid_t rep_tid);
   void remove_repop(RepGather *repop);
-  void repop_ack(RepGather *repop,
-                 int result, int ack_type,
-                 int fromosd, eversion_t pg_complete_thru=eversion_t(0,0));
 
   /// true if we can send an ondisk/commit for v
   bool already_complete(eversion_t v) {
@@ -512,7 +504,7 @@ protected:
 	 ++i) {
       if ((*i)->v > v)
         break;
-      if (!(*i)->waitfor_disk.empty())
+      if (!(*i)->all_committed)
 	return false;
     }
     return true;
@@ -524,7 +516,7 @@ protected:
 	 ++i) {
       if ((*i)->v > v)
         break;
-      if (!(*i)->waitfor_ack.empty())
+      if (!(*i)->all_applied)
 	return false;
     }
     return true;
@@ -821,7 +813,6 @@ protected:
   void sub_op_modify_applied(RepModify *rm);
   void sub_op_modify_commit(RepModify *rm);
 
-  void sub_op_modify_reply(OpRequestRef op);
   void _applied_recovered_object(ObjectContextRef obc);
   void _applied_recovered_object_replica();
   void _committed_pushed_object(epoch_t epoch, eversion_t lc);
@@ -1011,9 +1002,9 @@ inline ostream& operator<<(ostream& out, ReplicatedPG::RepGather& repop)
       << (repop.applied ? " applied" : "")
       << " " << repop.v
       << " rep_tid=" << repop.rep_tid 
-      << " wfack=" << repop.waitfor_ack
+      << " committed?=" << repop.all_committed
     //<< " wfnvram=" << repop.waitfor_nvram
-      << " wfdisk=" << repop.waitfor_disk;
+      << " applied?=" << repop.all_applied;
   if (repop.ctx->op)
     out << " op=" << *(repop.ctx->op->get_req());
   out << ")";

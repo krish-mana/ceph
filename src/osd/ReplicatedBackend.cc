@@ -12,6 +12,7 @@
  *
  */
 #include "ReplicatedBackend.h"
+#include "messages/MOSDOp.h"
 #include "messages/MOSDSubOp.h"
 #include "messages/MOSDSubOpReply.h"
 #include "messages/MOSDPGPush.h"
@@ -137,6 +138,8 @@ bool ReplicatedBackend::handle_message(
 	sub_op_push_reply(op);
 	return true;
       }
+    } else {
+      sub_op_modify_reply(op);
     }
     break;
   }
@@ -460,7 +463,7 @@ void ReplicatedBackend::submit_transaction(
       tid,
       InProgressOp(
 	tid, on_all_commit, on_all_acked, on_local_applied_sync,
-	orig_op)
+	orig_op, log_entries.rbegin()->version)
       )
     );
   InProgressOp &op = in_progress_ops.find(tid)->second;
@@ -478,7 +481,7 @@ void ReplicatedBackend::submit_transaction(
     op_t);
 
   // add myself to gather set
-  op.waiting_for_ack.insert(parent->get_acting()[0]);
+  op.waiting_for_applied.insert(parent->get_acting()[0]);
   op.waiting_for_commit.insert(parent->get_acting()[0]);
   ObjectStore::Transaction local_t;
   if (t->get_temp_added().size()) {
@@ -496,4 +499,95 @@ void ReplicatedBackend::submit_transaction(
   
 
   delete t;
+}
+
+void ReplicatedBackend::op_applied(
+  InProgressOp *op)
+{
+  dout(10) << __func__ << ": " << op->tid << dendl;
+  if (op->op)
+    op->op->mark_event("op_applied");
+
+  op->waiting_for_applied.erase(osd->whoami);
+  parent->op_applied(op->v);
+
+  if (op->waiting_for_applied.empty()) {
+    op->on_applied->complete(0);
+    op->on_applied = 0;
+  }
+}
+
+void ReplicatedBackend::op_commit(
+  InProgressOp *op)
+{
+  dout(10) << __func__ << ": " << op->tid << dendl;
+  if (op->op)
+    op->op->mark_event("op_commit");
+
+  op->waiting_for_commit.erase(osd->whoami);
+
+  if (op->waiting_for_commit.empty()) {
+    op->on_commit->complete(0);
+    op->on_commit = 0;
+  }
+}
+
+void ReplicatedBackend::sub_op_modify_reply(OpRequestRef op)
+{
+  MOSDSubOpReply *r = static_cast<MOSDSubOpReply*>(op->get_req());
+  assert(r->get_header().type == MSG_OSD_SUBOPREPLY);
+
+  op->mark_started();
+
+  // must be replication.
+  tid_t rep_tid = r->get_tid();
+  int fromosd = r->get_source().num();
+
+  if (in_progress_ops.count(rep_tid)) {
+    InProgressOp &ip_op = in_progress_ops.find(rep_tid)->second;
+    MOSDOp *m;
+    if (ip_op.op)
+      m = static_cast<MOSDOp *>(ip_op.op->get_req());
+
+    if (m)
+      dout(7) << __func__ << ": tid " << ip_op.tid << " op " //<< *m
+	      << " ack_type " << r->ack_type
+	      << " from osd." << fromosd
+	      << dendl;
+    else
+      dout(7) << __func__ << ": tid " << ip_op.tid << " (no op) "
+	      << " ack_type " << r->ack_type
+	      << " from osd." << fromosd
+	      << dendl;
+
+    // oh, good.
+
+    if (r->ack_type & CEPH_OSD_FLAG_ONDISK) {
+      assert(ip_op.waiting_for_commit.count(fromosd));
+      ip_op.waiting_for_commit.erase(fromosd);
+      ip_op.op->mark_event("sub_op_commit_rec");
+    } else {
+      assert(ip_op.waiting_for_applied.count(fromosd));
+      ip_op.op->mark_event("sub_op_applied_rec");
+    }
+    ip_op.waiting_for_applied.erase(fromosd);
+
+    // TODOSAM: fix
+#if 0
+    parent->update_peer_last_complete_ondisk(
+      fromosd,
+      r->get_last_complete_ondisk());
+#endif
+
+    if (ip_op.waiting_for_applied.empty() &&
+        ip_op.on_applied) {
+      ip_op.on_applied->complete(0);
+      ip_op.on_applied = 0;
+    }
+    if (ip_op.waiting_for_commit.empty() &&
+        ip_op.on_commit) {
+      ip_op.on_commit->complete(0);
+      ip_op.on_commit= 0;
+    }
+  }
 }

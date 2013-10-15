@@ -1512,8 +1512,6 @@ void ReplicatedPG::do_sub_op_reply(OpRequestRef op)
       return;
     }
   }
-
-  sub_op_modify_reply(op);
 }
 
 void ReplicatedPG::do_scan(
@@ -4527,34 +4525,6 @@ void ReplicatedPG::cancel_copy_ops()
 // ========================================================================
 // rep op gather
 
-class C_OSD_OpApplied : public Context {
-public:
-  ReplicatedPGRef pg;
-  ReplicatedPG::RepGather *repop;
-
-  C_OSD_OpApplied(ReplicatedPG *p, ReplicatedPG::RepGather *rg) :
-    pg(p), repop(rg) {
-    repop->get();
-  }
-  void finish(int r) {
-    pg->op_applied(repop);
-  }
-};
-
-class C_OSD_OpCommit : public Context {
-public:
-  ReplicatedPGRef pg;
-  ReplicatedPG::RepGather *repop;
-
-  C_OSD_OpCommit(ReplicatedPG *p, ReplicatedPG::RepGather *rg) :
-    pg(p), repop(rg) {
-    repop->get();
-  }
-  void finish(int r) {
-    pg->op_commit(repop);
-  }
-};
-
 void ReplicatedPG::apply_repop(RepGather *repop)
 {
 #if 0
@@ -4610,7 +4580,7 @@ void ReplicatedPG::repop_all_applied(RepGather *repop)
 {
   dout(10) << __func__ << ": repop tid " << repop->rep_tid << " all applied "
 	   << dendl;
-  //repop->all_applied = true;
+  repop->all_applied = true;
   if (!repop->aborted) {
     eval_repop(repop);
   }
@@ -4618,7 +4588,6 @@ void ReplicatedPG::repop_all_applied(RepGather *repop)
 
 class C_OSD_RepopCommit : public Context {
   ReplicatedPGRef pg;
-  epoch_t e;
   boost::intrusive_ptr<ReplicatedPG::RepGather> repop;
 public:
   C_OSD_RepopCommit(ReplicatedPG *pg, ReplicatedPG::RepGather *repop)
@@ -4634,53 +4603,27 @@ void ReplicatedPG::repop_all_committed(RepGather *repop)
 {
   dout(10) << __func__ << ": repop tid " << repop->rep_tid << " all committed "
 	   << dendl;
-  //repop->all_committed = true;
+  repop->all_committed = true;
   if (!repop->aborted) {
+    if (repop->v != eversion_t()) {
+      last_update_ondisk = repop->v;
+      last_complete_ondisk = repop->pg_local_last_complete;
+    }
     eval_repop(repop);
   }
 }
 
-void ReplicatedPG::op_applied(RepGather *repop)
+void ReplicatedPG::op_applied(const eversion_t &applied_version)
 {
-  lock();
-  dout(10) << "op_applied " << *repop << dendl;
-  if (repop->ctx->op)
-    repop->ctx->op->mark_event("op_applied");
-  
-  repop->applying = false;
-  repop->applied = true;
-
-  // (logical) local ack.
-  int whoami = osd->get_nodeid();
-
-  if (repop->ctx->clone_obc) {
-    repop->ctx->clone_obc = ObjectContextRef();
-  }
-  if (repop->ctx->snapset_obc) {
-    repop->ctx->snapset_obc = ObjectContextRef();
-  }
-
-  repop->src_obc.clear();
-  repop->obc = ObjectContextRef();
-
-  if (!repop->aborted) {
-    assert(repop->waitfor_ack.count(whoami) ||
-	   repop->waitfor_disk.count(whoami) == 0);  // commit before ondisk
-    repop->waitfor_ack.erase(whoami);
-
-    if (repop->v != eversion_t()) {
-      assert(info.last_update >= repop->v);
-      assert(last_update_applied < repop->v);
-      last_update_applied = repop->v;
-    }
-
-    // chunky scrub
+  dout(10) << "op_applied on primary on version " << applied_version << dendl;
+  assert(applied_version > last_update_applied);
+  assert(applied_version <= info.last_update);
+  last_update_applied = applied_version;
+  if (is_primary()) {
     if (scrubber.active && scrubber.is_chunky) {
       if (last_update_applied == scrubber.subset_last_update) {
         osd->scrub_wq.queue(this);
       }
-
-    // classic scrub
     } else if (last_update_applied == info.last_update && scrubber.block_writes) {
       dout(10) << "requeueing scrub for cleanup" << dendl;
       scrubber.finalizing = true;
@@ -4689,48 +4632,16 @@ void ReplicatedPG::op_applied(RepGather *repop)
       scrubber.waiting_on_whom.insert(osd->whoami);
       osd->scrub_wq.queue(this);
     }
-  }
-
-  if (!repop->aborted)
-    eval_repop(repop);
-
-  repop->put();
-  unlock();
-}
-
-void ReplicatedPG::op_commit(RepGather *repop)
-{
-  lock();
-  if (repop->ctx->op)
-    repop->ctx->op->mark_event("op_commit");
-
-  if (repop->aborted) {
-    dout(10) << "op_commit " << *repop << " -- aborted" << dendl;
-  } else if (repop->waitfor_disk.count(osd->get_nodeid()) == 0) {
-    dout(10) << "op_commit " << *repop << " -- already marked ondisk" << dendl;
   } else {
-    dout(10) << "op_commit " << *repop << dendl;
-    int whoami = osd->get_nodeid();
-
-    repop->waitfor_disk.erase(whoami);
-
-    // remove from ack waitfor list too.  sub_op_modify_commit()
-    // behaves the same in that the COMMIT implies and ACK and there
-    // is no separate reply sent.
-    repop->waitfor_ack.erase(whoami);
-    
-    if (repop->v != eversion_t()) {
-      last_update_ondisk = repop->v;
-      last_complete_ondisk = repop->pg_local_last_complete;
+    dout(10) << "op_applied on replica on version " << applied_version << dendl;
+    if (scrubber.active_rep_scrub) {
+      if (last_update_applied == scrubber.active_rep_scrub->scrub_to) {
+	osd->rep_scrub_wq.queue(scrubber.active_rep_scrub);
+	scrubber.active_rep_scrub = 0;
+      }
     }
-    eval_repop(repop);
   }
-
-  repop->put();
-  unlock();
 }
-
-
 
 void ReplicatedPG::eval_repop(RepGather *repop)
 {
@@ -4761,7 +4672,7 @@ void ReplicatedPG::eval_repop(RepGather *repop)
     // ondisk instead of ack followed by ondisk.
 
     // ondisk?
-    if (repop->waitfor_disk.empty()) {
+    if (repop->all_committed) {
 
       log_op_stats(repop->ctx);
       publish_stats_to_osd();
@@ -4804,7 +4715,7 @@ void ReplicatedPG::eval_repop(RepGather *repop)
     }
 
     // applied?
-    if (repop->waitfor_ack.empty()) {
+    if (repop->all_applied) {
 
       // send dup acks, in order
       if (waiting_for_ack.count(repop->v)) {
@@ -4849,8 +4760,7 @@ void ReplicatedPG::eval_repop(RepGather *repop)
   }
 
   // done.
-  if (repop->waitfor_ack.empty() && repop->waitfor_disk.empty() &&
-      repop->applied) {
+  if (repop->all_applied && repop->all_committed) {
     repop->done = true;
 
     calc_min_last_complete_ondisk();
@@ -4951,7 +4861,7 @@ void ReplicatedBackend::issue_op(
     int peer = parent->get_acting()[i];
     const pg_info_t &pinfo = parent->get_peer_info().find(peer)->second;
 
-    op->waiting_for_ack.insert(peer);
+    op->waiting_for_applied.insert(peer);
     op->waiting_for_commit.insert(peer);
 
     // forward the write/update/whatever
@@ -5016,58 +4926,6 @@ void ReplicatedPG::remove_repop(RepGather *repop)
 
   osd->logger->set(l_osd_op_wip, repop_map.size());
 }
-
-void ReplicatedPG::repop_ack(RepGather *repop, int result, int ack_type,
-			     int fromosd, eversion_t peer_lcod)
-{
-  MOSDOp *m = NULL;
-
-  if (repop->ctx->op)
-    m = static_cast<MOSDOp *>(repop->ctx->op->get_req());
-
-  if (m)
-    dout(7) << "repop_ack rep_tid " << repop->rep_tid << " op " << *m
-	    << " result " << result
-	    << " ack_type " << ack_type
-	    << " from osd." << fromosd
-	    << dendl;
-  else
-    dout(7) << "repop_ack rep_tid " << repop->rep_tid << " (no op) "
-	    << " result " << result
-	    << " ack_type " << ack_type
-	    << " from osd." << fromosd
-	    << dendl;
-  
-  if (ack_type & CEPH_OSD_FLAG_ONDISK) {
-    if (repop->ctx->op)
-      repop->ctx->op->mark_event("sub_op_commit_rec");
-    // disk
-    if (repop->waitfor_disk.count(fromosd)) {
-      repop->waitfor_disk.erase(fromosd);
-      //repop->waitfor_nvram.erase(fromosd);
-      repop->waitfor_ack.erase(fromosd);
-      peer_last_complete_ondisk[fromosd] = peer_lcod;
-    }
-/*} else if (ack_type & CEPH_OSD_FLAG_ONNVRAM) {
-    // nvram
-    repop->waitfor_nvram.erase(fromosd);
-    repop->waitfor_ack.erase(fromosd);*/
-  } else {
-    // ack
-    if (repop->ctx->op)
-      repop->ctx->op->mark_event("sub_op_applied_rec");
-    repop->waitfor_ack.erase(fromosd);
-  }
-
-  if (!repop->aborted)
-    eval_repop(repop);
-}
-
-
-
-
-
-
 
 // -------------------------------------------------------
 
@@ -5685,23 +5543,6 @@ void ReplicatedPG::sub_op_modify(OpRequestRef op)
   // op is cleaned up by oncommit/onapply when both are executed
 }
 
-void ReplicatedPG::op_applied_replica(
-  const eversion_t &applied_version)
-{
-  dout(10) << "op_applied_replica on version " << applied_version << dendl;
-  if (applied_version != eversion_t()) {
-    assert(info.last_update >= applied_version);
-    assert(last_update_applied < applied_version);
-    last_update_applied = applied_version;
-  }
-  if (scrubber.active_rep_scrub) {
-    if (last_update_applied == scrubber.active_rep_scrub->scrub_to) {
-      osd->rep_scrub_wq.queue(scrubber.active_rep_scrub);
-      scrubber.active_rep_scrub = 0;
-    }
-  }
-}
-
 void ReplicatedPG::sub_op_modify_applied(RepModify *rm)
 {
   lock();
@@ -5720,7 +5561,7 @@ void ReplicatedPG::sub_op_modify_applied(RepModify *rm)
       osd->send_message_osd_cluster(rm->ackerosd, ack, get_osdmap()->get_epoch());
     }
     
-    op_applied_replica(m->version);
+    op_applied(m->version);
   } else {
     dout(10) << "sub_op_modify_applied on " << rm << " op " << *rm->op->get_req()
 	     << " from epoch " << rm->epoch_started << " < last_peering_reset "
@@ -5770,34 +5611,6 @@ void ReplicatedPG::sub_op_modify_commit(RepModify *rm)
     put("RepModify");
   }
 }
-
-void ReplicatedPG::sub_op_modify_reply(OpRequestRef op)
-{
-  MOSDSubOpReply *r = static_cast<MOSDSubOpReply*>(op->get_req());
-  assert(r->get_header().type == MSG_OSD_SUBOPREPLY);
-
-  op->mark_started();
-
-  // must be replication.
-  tid_t rep_tid = r->get_tid();
-  int fromosd = r->get_source().num();
-  
-  if (repop_map.count(rep_tid)) {
-    // oh, good.
-    repop_ack(repop_map[rep_tid], 
-	      r->get_result(), r->ack_type,
-	      fromosd, 
-	      r->get_last_complete_ondisk());
-  }
-}
-
-
-
-
-
-
-
-
 
 
 // ===========================================================
@@ -8672,7 +8485,7 @@ boost::statechart::result ReplicatedPG::WaitingOnReplicas::react(const SnapTrim&
   for (set<RepGather *>::iterator i = repops.begin();
        i != repops.end();
        repops.erase(i++)) {
-    if (!(*i)->applied || !(*i)->waitfor_ack.empty()) {
+    if (!(*i)->applied || !(*i)->all_applied) {
       return discard_event();
     } else {
       (*i)->put();
