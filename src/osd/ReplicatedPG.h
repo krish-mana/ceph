@@ -502,7 +502,6 @@ protected:
 
   friend class C_OSD_RepopApplied;
   friend class C_OSD_RepopCommit;
-  void apply_repop(RepGather *repop);
   void repop_all_applied(RepGather *repop);
   void repop_all_committed(RepGather *repop);
   void eval_repop(RepGather*);

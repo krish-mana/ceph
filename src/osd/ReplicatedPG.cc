@@ -1363,9 +1363,6 @@ void ReplicatedPG::execute_ctx(OpContext *ctx)
   // trim log?
   calc_trim_to();
 
-  // TODOSAM: relocate
-  //append_log(ctx->log, pg_trim_to, ctx->local_t);
-  
   // verify that we are doing this in order?
   if (cct->_conf->osd_debug_op_order && m->get_source().is_client()) {
     map<client_t,tid_t>& cm = debug_op_order[obc->obs.oi.soid];
@@ -4124,8 +4121,6 @@ hobject_t ReplicatedPG::generate_temp_object()
   ostringstream ss;
   ss << "temp_" << info.pgid << "_" << get_role() << "_" << osd->monc->get_global_id() << "_" << (++temp_seq);
   hobject_t hoid = hobject_t::make_temp(ss.str());
-  // TODOSAM: adjust when this method gets absorbed into ReplicatedBackend
-  pgbackend->add_temp_obj(hoid);
   dout(20) << __func__ << " " << hoid << dendl;
   return hoid;
 }
@@ -4384,8 +4379,6 @@ void ReplicatedPG::process_copy_chunk(hobject_t oid, tid_t tid, int r)
       RepGather *repop = new_repop(tctx, obc, rep_tid);
 
       if (cop->temp_cursor.is_initial()) {
-	// TODOSAM: relocate
-	//cop->temp_coll = get_temp_coll(&tctx->local_t);
 	repop->ctx->new_temp_oid = cop->temp_oid;
       }
 
@@ -4454,8 +4447,6 @@ void ReplicatedPG::_build_finish_copy_transaction(CopyOpRef cop,
     // finish writing to temp object, then move into place
     _write_copy_chunk(cop, t);
     t->rename(cop->temp_oid, obs.oi.soid);
-    // TODOSAM: adjust when this method gets absorbed into ReplicatedBackend
-    pgbackend->clear_temp_obj(cop->temp_oid);
   }
 }
 
@@ -4526,39 +4517,6 @@ void ReplicatedPG::cancel_copy_ops()
 
 // ========================================================================
 // rep op gather
-
-void ReplicatedPG::apply_repop(RepGather *repop)
-{
-#if 0
-  dout(10) << "apply_repop  applying update on " << *repop << dendl;
-  assert(!repop->applying);
-  assert(!repop->applied);
-
-  repop->applying = true;
-
-  // TODOSAM: fix
-  //repop->tls.push_back(&repop->ctx->op_t);
-
-  bool unlock_snapset_obc = false;
-  if (repop->ctx->snapset_obc && repop->ctx->snapset_obc->obs.oi.soid !=
-      repop->obc->obs.oi.soid) {
-    repop->ctx->snapset_obc->ondisk_write_lock();
-    unlock_snapset_obc = true;
-  }
-
-  Context *oncommit = new C_OSD_OpCommit(this, repop);
-  Context *onapplied = new C_OSD_OpApplied(this, repop);
-  Context *onapplied_sync = new C_OSD_OndiskWriteUnlock(
-    repop->obc,
-    repop->ctx->clone_obc,
-    unlock_snapset_obc ? repop->ctx->snapset_obc : ObjectContextRef());
-  int r = osd->store->queue_transactions(osr.get(), repop->tls, onapplied, oncommit, onapplied_sync, repop->ctx->op);
-  if (r) {
-    derr << "apply_repop  queue_transactions returned " << r << " on " << *repop << dendl;
-    assert(0);
-  }
-#endif
-}
 
 class C_OSD_RepopApplied : public Context {
   ReplicatedPGRef pg;
@@ -5077,9 +5035,6 @@ void ReplicatedPG::handle_watch_timeout(WatchRef watch)
   ::encode(obc->obs.oi, bl);
   t->setattr(obc->obs.oi.soid, OI_ATTR, bl);
 
-  // TODOSAM: reolocate
-  //append_log(repop->ctx->log, eversion_t(), repop->ctx->local_t);
-
   // obc ref swallowed by repop!
   issue_repop(repop, repop->ctx->mtime);
   eval_repop(repop);
@@ -5472,13 +5427,11 @@ void ReplicatedBackend::sub_op_modify(OpRequestRef op)
 
     if (m->new_temp_oid != hobject_t()) {
       dout(20) << __func__ << " start tracking temp " << m->new_temp_oid << dendl;
-      // TODOSAM: adjust when this method gets absorbed into ReplicatedBackend
       add_temp_obj(m->new_temp_oid);
       get_temp_coll(&rm->localt);
     }
     if (m->discard_temp_oid != hobject_t()) {
       dout(20) << __func__ << " stop tracking temp " << m->discard_temp_oid << dendl;
-      // TODOSAM: adjust when this method gets absorbed into ReplicatedBackend
       clear_temp_obj(m->discard_temp_oid);
     }
 
@@ -8415,8 +8368,6 @@ boost::statechart::result ReplicatedPG::TrimmingObjects::react(const SnapTrim&)
   assert(repop);
   repop->queue_snap_trimmer = true;
 
-  // TODOSAM: relocate
-  //pg->append_log(repop->ctx->log, eversion_t(), repop->ctx->local_t);
   pg->issue_repop(repop, repop->ctx->mtime);
   pg->eval_repop(repop);
 
