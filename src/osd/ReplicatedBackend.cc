@@ -124,6 +124,8 @@ bool ReplicatedBackend::handle_message(
       default:
 	break;
       }
+    } else {
+      sub_op_modify(op);
     }
     break;
   }
@@ -515,7 +517,7 @@ void ReplicatedBackend::submit_transaction(
        ++i) {
     temp_contents.erase(*i);
   }
-  parent->log_operation(log_entries, trim_to, &local_t);
+  parent->log_operation(log_entries, trim_to, true, &local_t);
   local_t.append(*op_t);
   local_t.swap(*op_t);
   
@@ -604,12 +606,9 @@ void ReplicatedBackend::sub_op_modify_reply(OpRequestRef op)
     }
     ip_op.waiting_for_applied.erase(fromosd);
 
-    // TODOSAM: fix
-#if 0
     parent->update_peer_last_complete_ondisk(
       fromosd,
       r->get_last_complete_ondisk());
-#endif
 
     if (ip_op.waiting_for_applied.empty() &&
         ip_op.on_applied) {

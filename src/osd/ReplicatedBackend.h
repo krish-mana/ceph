@@ -380,6 +380,44 @@ private:
   void op_applied(InProgressOp *op);
   void op_commit(InProgressOp *op);
   void sub_op_modify_reply(OpRequestRef op);
+  void sub_op_modify(OpRequestRef op);
+
+  struct RepModify {
+    OpRequestRef op;
+    bool applied, committed;
+    int ackerosd;
+    eversion_t last_complete;
+    epoch_t epoch_started;
+
+    uint64_t bytes_written;
+
+    ObjectStore::Transaction opt, localt;
+    
+    RepModify() : applied(false), committed(false), ackerosd(-1),
+		  epoch_started(0), bytes_written(0) {}
+  };
+  typedef std::tr1::shared_ptr<RepModify> RepModifyRef;
+
+  struct C_OSD_RepModifyApply : public Context {
+    ReplicatedBackend *pg;
+    RepModifyRef rm;
+    C_OSD_RepModifyApply(ReplicatedBackend *pg, RepModifyRef r)
+      : pg(pg), rm(r) {}
+    void finish(int r) {
+      pg->sub_op_modify_applied(rm);
+    }
+  };
+  struct C_OSD_RepModifyCommit : public Context {
+    ReplicatedBackend *pg;
+    RepModifyRef rm;
+    C_OSD_RepModifyCommit(ReplicatedBackend *pg, RepModifyRef r)
+      : pg(pg), rm(r) {}
+    void finish(int r) {
+      pg->sub_op_modify_commit(rm);
+    }
+  };
+  void sub_op_modify_applied(RepModifyRef rm);
+  void sub_op_modify_commit(RepModifyRef rm);
 };
 
 #endif

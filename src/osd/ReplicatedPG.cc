@@ -1496,8 +1496,6 @@ void ReplicatedPG::do_sub_op(OpRequestRef op)
       return;
     }
   }
-
-  sub_op_modify(op);
 }
 
 void ReplicatedPG::do_sub_op_reply(OpRequestRef op)
@@ -5426,7 +5424,7 @@ void ReplicatedPG::put_snapset_context(SnapSetContext *ssc)
 
 // sub op modify
 
-void ReplicatedPG::sub_op_modify(OpRequestRef op)
+void ReplicatedBackend::sub_op_modify(OpRequestRef op)
 {
   MOSDSubOp *m = static_cast<MOSDSubOp*>(op->get_req());
   assert(m->get_header().type == MSG_OSD_SUBOP);
@@ -5450,24 +5448,19 @@ void ReplicatedPG::sub_op_modify(OpRequestRef op)
 	   << dendl;  
 
   // sanity checks
-  assert(m->map_epoch >= info.history.same_interval_since);
-  assert(is_active());
-  assert(is_replica());
+  assert(m->map_epoch >= get_info().history.same_interval_since);
   
   // we better not be missing this.
-  assert(!pg_log.get_missing().is_missing(soid));
+  assert(!parent->get_log().get_missing().is_missing(soid));
 
-  int ackerosd = acting[0];
+  int ackerosd = *(parent->get_acting().begin());
   
   op->mark_started();
 
-  RepModify *rm = new RepModify;
-  rm->pg = this;
-  get("RepModify");
+  RepModifyRef rm(new RepModify);
   rm->op = op;
-  rm->ctx = 0;
   rm->ackerosd = ackerosd;
-  rm->last_complete = info.last_complete;
+  rm->last_complete = get_info().last_complete;
   rm->epoch_started = get_osdmap()->get_epoch();
 
   if (!m->noop) {
@@ -5480,13 +5473,13 @@ void ReplicatedPG::sub_op_modify(OpRequestRef op)
     if (m->new_temp_oid != hobject_t()) {
       dout(20) << __func__ << " start tracking temp " << m->new_temp_oid << dendl;
       // TODOSAM: adjust when this method gets absorbed into ReplicatedBackend
-      pgbackend->add_temp_obj(m->new_temp_oid);
+      add_temp_obj(m->new_temp_oid);
       get_temp_coll(&rm->localt);
     }
     if (m->discard_temp_oid != hobject_t()) {
       dout(20) << __func__ << " stop tracking temp " << m->discard_temp_oid << dendl;
       // TODOSAM: adjust when this method gets absorbed into ReplicatedBackend
-      pgbackend->clear_temp_obj(m->discard_temp_oid);
+      clear_temp_obj(m->discard_temp_oid);
     }
 
     ::decode(rm->opt, p);
@@ -5499,13 +5492,12 @@ void ReplicatedPG::sub_op_modify(OpRequestRef op)
 	  i != log.end();
 	  ++i) {
 	if (i->soid.pool == -1)
-	  i->soid.pool = info.pgid.pool();
+	  i->soid.pool = get_info().pgid.pool();
       }
-      rm->opt.set_pool_override(info.pgid.pool());
+      rm->opt.set_pool_override(get_info().pgid.pool());
     }
     rm->opt.set_replica();
 
-    info.stats = m->pg_stats;
     bool update_snaps = false;
     if (!rm->opt.empty()) {
       // If the opt is non-empty, we infer we are before
@@ -5514,102 +5506,79 @@ void ReplicatedPG::sub_op_modify(OpRequestRef op)
       // collections now.  Otherwise, we do it later on push.
       update_snaps = true;
     }
-    append_log(log, m->pg_trim_to, rm->localt, update_snaps);
-
-    rm->tls.push_back(&rm->localt);
-    rm->tls.push_back(&rm->opt);
-    
+    parent->update_stats(m->pg_stats);
+    parent->log_operation(
+      log,
+      m->pg_trim_to,
+      update_snaps,
+      &(rm->localt));
+      
     rm->bytes_written = rm->opt.get_encoded_bytes();
 
   } else {
+    assert(0);
+    #if 0
     // just trim the log
     if (m->pg_trim_to != eversion_t()) {
       pg_log.trim(m->pg_trim_to, info);
       dirty_info = true;
       write_if_dirty(rm->localt);
-      rm->tls.push_back(&rm->localt);
     }
+    #endif
   }
   
   op->mark_started();
 
-  Context *oncommit = new C_OSD_RepModifyCommit(rm);
-  Context *onapply = new C_OSD_RepModifyApply(rm);
-  int r = osd->store->queue_transactions(osr.get(), rm->tls, onapply, oncommit, 0, op);
-  if (r) {
-    dout(0) << "error applying transaction: r = " << r << dendl;
-    assert(0);
-  }
+  rm->localt.append(rm->opt);
+  rm->localt.register_on_commit(
+    parent->bless_context(
+      new C_OSD_RepModifyCommit(this, rm)));
+  rm->localt.register_on_applied(
+    parent->bless_context(
+      new C_OSD_RepModifyApply(this, rm)));
+  parent->queue_transaction(&(rm->localt), op);
   // op is cleaned up by oncommit/onapply when both are executed
 }
 
-void ReplicatedPG::sub_op_modify_applied(RepModify *rm)
+void ReplicatedBackend::sub_op_modify_applied(RepModifyRef rm)
 {
-  lock();
   rm->op->mark_event("sub_op_applied");
   rm->applied = true;
 
-  if (!pg_has_reset_since(rm->epoch_started)) {
-    dout(10) << "sub_op_modify_applied on " << rm << " op " << *rm->op->get_req() << dendl;
-    MOSDSubOp *m = static_cast<MOSDSubOp*>(rm->op->get_req());
-    assert(m->get_header().type == MSG_OSD_SUBOP);
-    
-    if (!rm->committed) {
-      // send ack to acker only if we haven't sent a commit already
-      MOSDSubOpReply *ack = new MOSDSubOpReply(m, 0, get_osdmap()->get_epoch(), CEPH_OSD_FLAG_ACK);
-      ack->set_priority(CEPH_MSG_PRIO_HIGH); // this better match commit priority!
-      osd->send_message_osd_cluster(rm->ackerosd, ack, get_osdmap()->get_epoch());
-    }
-    
-    op_applied(m->version);
-  } else {
-    dout(10) << "sub_op_modify_applied on " << rm << " op " << *rm->op->get_req()
-	     << " from epoch " << rm->epoch_started << " < last_peering_reset "
-	     << last_peering_reset << dendl;
+  dout(10) << "sub_op_modify_applied on " << rm << " op "
+	   << *rm->op->get_req() << dendl;
+  MOSDSubOp *m = static_cast<MOSDSubOp*>(rm->op->get_req());
+  assert(m->get_header().type == MSG_OSD_SUBOP);
+  
+  if (!rm->committed) {
+    // send ack to acker only if we haven't sent a commit already
+    MOSDSubOpReply *ack = new MOSDSubOpReply(m, 0, get_osdmap()->get_epoch(), CEPH_OSD_FLAG_ACK);
+    ack->set_priority(CEPH_MSG_PRIO_HIGH); // this better match commit priority!
+    osd->send_message_osd_cluster(rm->ackerosd, ack, get_osdmap()->get_epoch());
   }
-
-  bool done = rm->applied && rm->committed;
-  unlock();
-  if (done) {
-    delete rm->ctx;
-    delete rm;
-    put("RepModify");
-  }
+  
+  parent->op_applied(m->version);
 }
 
-void ReplicatedPG::sub_op_modify_commit(RepModify *rm)
+void ReplicatedBackend::sub_op_modify_commit(RepModifyRef rm)
 {
-  lock();
   rm->op->mark_commit_sent();
   rm->committed = true;
 
-  if (!pg_has_reset_since(rm->epoch_started)) {
-    // send commit.
-    dout(10) << "sub_op_modify_commit on op " << *rm->op->get_req()
-	     << ", sending commit to osd." << rm->ackerosd
-	     << dendl;
-    
-    if (get_osdmap()->is_up(rm->ackerosd)) {
-      last_complete_ondisk = rm->last_complete;
-      MOSDSubOpReply *commit = new MOSDSubOpReply(static_cast<MOSDSubOp*>(rm->op->get_req()), 0, get_osdmap()->get_epoch(), CEPH_OSD_FLAG_ONDISK);
-      commit->set_last_complete_ondisk(rm->last_complete);
-      commit->set_priority(CEPH_MSG_PRIO_HIGH); // this better match ack priority!
-      osd->send_message_osd_cluster(rm->ackerosd, commit, get_osdmap()->get_epoch());
-    }
-  } else {
-    dout(10) << "sub_op_modify_commit " << rm << " op " << *rm->op->get_req()
-	     << " from epoch " << rm->epoch_started << " < last_peering_reset "
-	     << last_peering_reset << dendl;
-  }
+  // send commit.
+  dout(10) << "sub_op_modify_commit on op " << *rm->op->get_req()
+	   << ", sending commit to osd." << rm->ackerosd
+	   << dendl;
+  
+  assert(get_osdmap()->is_up(rm->ackerosd));
+  // TODOSAM: fix
+  //last_complete_ondisk = rm->last_complete;
+  MOSDSubOpReply *commit = new MOSDSubOpReply(static_cast<MOSDSubOp*>(rm->op->get_req()), 0, get_osdmap()->get_epoch(), CEPH_OSD_FLAG_ONDISK);
+  commit->set_last_complete_ondisk(rm->last_complete);
+  commit->set_priority(CEPH_MSG_PRIO_HIGH); // this better match ack priority!
+  osd->send_message_osd_cluster(rm->ackerosd, commit, get_osdmap()->get_epoch());
   
   log_subop_stats(osd, rm->op, l_osd_sop_w_inb, l_osd_sop_w_lat);
-  bool done = rm->applied && rm->committed;
-  unlock();
-  if (done) {
-    delete rm->ctx;
-    delete rm;
-    put("RepModify");
-  }
 }
 
 

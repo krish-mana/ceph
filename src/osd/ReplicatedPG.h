@@ -313,8 +313,9 @@ public:
   void log_operation(
     vector<pg_log_entry_t> &logv,
     const eversion_t &trim_to,
+    bool update_snaps,
     ObjectStore::Transaction *t) {
-    append_log(logv, trim_to, *t);
+    append_log(logv, trim_to, *t, update_snaps);
   }
 
   void op_applied(
@@ -329,7 +330,17 @@ public:
       // only skip normal (not temp objects) objects
       hoid.pool == (int64_t)info.pgid.pool());
   }
+  
+  void update_peer_last_complete_ondisk(
+    int fromosd,
+    eversion_t lcod) {
+    peer_last_complete_ondisk[fromosd] = lcod;
+  }
 
+  void update_stats(
+    const pg_stat_t &stat) {
+    info.stats = stat;
+  }
 
   /*
    * Capture all object state associated with an in-progress read or write.
@@ -725,38 +736,6 @@ protected:
   void send_remove_op(const hobject_t& oid, eversion_t v, int peer);
 
 
-  struct RepModify {
-    ReplicatedPG *pg;
-    OpRequestRef op;
-    OpContext *ctx;
-    bool applied, committed;
-    int ackerosd;
-    eversion_t last_complete;
-    epoch_t epoch_started;
-
-    uint64_t bytes_written;
-
-    ObjectStore::Transaction opt, localt;
-    list<ObjectStore::Transaction*> tls;
-    
-    RepModify() : pg(NULL), ctx(NULL), applied(false), committed(false), ackerosd(-1),
-		  epoch_started(0), bytes_written(0) {}
-  };
-
-  struct C_OSD_RepModifyApply : public Context {
-    RepModify *rm;
-    C_OSD_RepModifyApply(RepModify *r) : rm(r) { }
-    void finish(int r) {
-      rm->pg->sub_op_modify_applied(rm);
-    }
-  };
-  struct C_OSD_RepModifyCommit : public Context {
-    RepModify *rm;
-    C_OSD_RepModifyCommit(RepModify *r) : rm(r) { }
-    void finish(int r) {
-      rm->pg->sub_op_modify_commit(rm);
-    }
-  };
   struct C_OSD_OndiskWriteUnlock : public Context {
     ObjectContextRef obc, obc2, obc3;
     C_OSD_OndiskWriteUnlock(
@@ -810,10 +789,6 @@ protected:
   };
 
   void sub_op_remove(OpRequestRef op);
-
-  void sub_op_modify(OpRequestRef op);
-  void sub_op_modify_applied(RepModify *rm);
-  void sub_op_modify_commit(RepModify *rm);
 
   void _applied_recovered_object(ObjectContextRef obc);
   void _applied_recovered_object_replica();
