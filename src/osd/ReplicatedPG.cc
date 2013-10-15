@@ -1617,6 +1617,8 @@ void ReplicatedBackend::_do_push(OpRequestRef op)
     new C_OSD_SendMessageOnConn(
       osd, reply, m->get_connection()));
 
+  t->register_on_applied(
+    new ObjectStore::C_DeleteTransaction(t));
   get_parent()->queue_transaction(t);
 }
 
@@ -1685,6 +1687,8 @@ void ReplicatedBackend::_do_pull_response(OpRequestRef op)
 	osd, reply, m->get_connection()));
   }
 
+  t->register_on_applied(
+    new ObjectStore::C_DeleteTransaction(t));
   get_parent()->queue_transaction(t);
 }
 
@@ -4537,10 +4541,6 @@ void ReplicatedPG::apply_repop(RepGather *repop)
   // TODOSAM: fix
   //repop->tls.push_back(&repop->ctx->op_t);
 
-  repop->obc->ondisk_write_lock();
-  if (repop->ctx->clone_obc)
-    repop->ctx->clone_obc->ondisk_write_lock();
-
   bool unlock_snapset_obc = false;
   if (repop->ctx->snapset_obc && repop->ctx->snapset_obc->obs.oi.soid !=
       repop->obc->obs.oi.soid) {
@@ -4662,10 +4662,6 @@ void ReplicatedPG::eval_repop(RepGather *repop)
   if (repop->done)
     return;
 
-  // apply?
-  if (!repop->applied && !repop->applying)
-    apply_repop(repop);
-  
   if (m) {
 
     // an 'ondisk' reply implies 'ack'. so, prefer to send just one
@@ -4808,6 +4804,10 @@ void ReplicatedPG::issue_repop(RepGather *repop, utime_t now)
       pinfo.last_complete = ctx->at_version;
     pinfo.last_update = ctx->at_version;
   }
+
+  repop->obc->ondisk_write_lock();
+  if (repop->ctx->clone_obc)
+    repop->ctx->clone_obc->ondisk_write_lock();
 
   bool unlock_snapset_obc = false;
   if (repop->ctx->snapset_obc && repop->ctx->snapset_obc->obs.oi.soid !=
@@ -6873,6 +6873,8 @@ void ReplicatedBackend::sub_op_push(OpRequestRef op)
     t->register_on_complete(new C_OSD_SendMessageOnConn(
 			      osd, reply, m->get_connection()));
   }
+  t->register_on_applied(
+    new ObjectStore::C_DeleteTransaction(t));
   get_parent()->queue_transaction(t);
   return;
 }
@@ -7124,8 +7126,6 @@ void ReplicatedPG::apply_and_flush_repops(bool requeue)
     RepGather *repop = repop_queue.front();
     repop_queue.pop_front();
     dout(10) << " applying repop tid " << repop->rep_tid << dendl;
-    if (!repop->applied && !repop->applying)
-      apply_repop(repop);
     repop->aborted = true;
 
     if (requeue) {
@@ -8485,7 +8485,7 @@ boost::statechart::result ReplicatedPG::WaitingOnReplicas::react(const SnapTrim&
   for (set<RepGather *>::iterator i = repops.begin();
        i != repops.end();
        repops.erase(i++)) {
-    if (!(*i)->applied || !(*i)->all_applied) {
+    if (!(*i)->all_applied) {
       return discard_event();
     } else {
       (*i)->put();

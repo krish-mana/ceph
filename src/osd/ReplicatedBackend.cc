@@ -439,6 +439,28 @@ PGBackend::PGTransaction *ReplicatedBackend::get_transaction()
   return new RPGTransaction(coll, get_temp_coll());
 }
 
+class C_OSD_OnOpCommit : public Context {
+  ReplicatedBackend *pg;
+  ReplicatedBackend::InProgressOp *op;
+public:
+  C_OSD_OnOpCommit(ReplicatedBackend *pg, ReplicatedBackend::InProgressOp *op) 
+    : pg(pg), op(op) {}
+  void finish(int) {
+    pg->op_applied(op);
+  }
+};
+
+class C_OSD_OnOpApplied : public Context {
+  ReplicatedBackend *pg;
+  ReplicatedBackend::InProgressOp *op;
+public:
+  C_OSD_OnOpApplied(ReplicatedBackend *pg, ReplicatedBackend::InProgressOp *op) 
+    : pg(pg), op(op) {}
+  void finish(int) {
+    pg->op_applied(op);
+  }
+};
+
 void ReplicatedBackend::submit_transaction(
   const hobject_t &soid,
   PGTransaction *_t,
@@ -497,7 +519,17 @@ void ReplicatedBackend::submit_transaction(
   local_t.append(*op_t);
   local_t.swap(*op_t);
   
-
+  op_t->register_on_applied_sync(on_local_applied_sync);
+  op_t->register_on_applied(
+    parent->bless_context(
+      new C_OSD_OnOpApplied(this, &op)));
+  op_t->register_on_applied(
+    new ObjectStore::C_DeleteTransaction(op_t));
+  op_t->register_on_commit(
+    parent->bless_context(
+      new C_OSD_OnOpCommit(this, &op)));
+      
+  parent->queue_transaction(op_t, op.op);
   delete t;
 }
 

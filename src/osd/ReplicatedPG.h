@@ -268,8 +268,10 @@ public:
   void send_message(int to_osd, Message *m) {
     osd->send_message_osd_cluster(to_osd, m, get_osdmap()->get_epoch());
   }
-  void queue_transaction(ObjectStore::Transaction *t) {
-    osd->store->queue_transaction(osr.get(), t);
+  void queue_transaction(ObjectStore::Transaction *t, OpRequestRef op) {
+    list<ObjectStore::Transaction *> tls;
+    tls.push_back(t);
+    osd->store->queue_transaction(osr.get(), t, 0, 0, 0, op);
   }
   epoch_t get_epoch() {
     return get_osdmap()->get_epoch();
@@ -437,7 +439,7 @@ public:
 
     tid_t rep_tid;
 
-    bool applying, applied, aborted, done;
+    bool aborted, done;
 
     bool all_applied;
     bool all_committed;
@@ -457,7 +459,7 @@ public:
       nref(1),
       ctx(c), obc(pi),
       rep_tid(rt), 
-      applying(false), applied(false), aborted(false), done(false),
+      aborted(false), done(false),
       all_applied(false), all_committed(false), sent_ack(false),
       //sent_nvram(false),
       sent_disk(false),
@@ -998,8 +1000,6 @@ public:
 inline ostream& operator<<(ostream& out, ReplicatedPG::RepGather& repop)
 {
   out << "repgather(" << &repop
-      << (repop.applying ? " applying" : "")
-      << (repop.applied ? " applied" : "")
       << " " << repop.v
       << " rep_tid=" << repop.rep_tid 
       << " committed?=" << repop.all_committed
