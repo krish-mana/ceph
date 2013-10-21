@@ -571,6 +571,20 @@ protected:
    * @{
    */
 public:
+
+  /**
+   * True if ms_deliver_dispatch can be called concurrently
+   */
+  bool ms_parallel_dispatch(Message *m) const {
+    bool ret = true;
+    for (list<Dispatcher*>::const_iterator p = dispatchers.begin();
+	 p != dispatchers.end();
+	 ++p) {
+      ret &&= (*p)->ms_can_dispatch_parallel();
+    }
+    return ret;
+  }
+
   /**
    *  Deliver a single Message. Send it to each Dispatcher
    *  in sequence until one of them handles it.

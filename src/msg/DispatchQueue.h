@@ -68,6 +68,7 @@ class DispatchQueue {
   SimpleMessenger *msgr;
   Mutex lock;
   Cond cond;
+  const bool parallel_dispatch;
 
   PrioritizedQueue<QueueItem, uint64_t> mqueue;
 
@@ -172,6 +173,7 @@ class DispatchQueue {
   DispatchQueue(CephContext *cct, SimpleMessenger *msgr)
     : cct(cct), msgr(msgr),
       lock("SimpleMessenger::DispatchQeueu::lock"), 
+      parallel_dispatch(msgr->ms_parallel_dispatch()),
       mqueue(cct->_conf->ms_pq_max_tokens_per_priority,
 	     cct->_conf->ms_pq_min_cost),
       next_pipe_id(1),

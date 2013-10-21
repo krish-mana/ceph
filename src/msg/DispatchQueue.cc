@@ -154,6 +154,10 @@ void DispatchQueue::discard_queue(uint64_t id) {
   }
 }
 
+void DispatchQueue::flush_queue(uint64_t id) {
+  Mutex::Locker l(lock);
+}
+
 void DispatchQueue::start()
 {
   assert(!stop);
