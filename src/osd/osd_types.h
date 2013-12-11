@@ -54,7 +54,10 @@
 typedef hobject_t collection_list_handle_t;
 
 typedef uint8_t shard_id_t;
-typedef pair<int, shard_id_t> pg_shard_t;
+struct pg_shard_t {
+  int osd;
+  shard_id_t shard;
+}
 
 inline ostream& operator<<(ostream& out, const osd_reqid_t& r) {
   return out << r.name << "." << r.inc << ":" << r.tid;

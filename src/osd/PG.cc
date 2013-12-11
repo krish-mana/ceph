@@ -139,14 +139,15 @@ void PGPool::update(OSDMapRef map)
 }
 
 PG::PG(OSDService *o, OSDMapRef curmap,
-       const PGPool &_pool, pg_t p, const hobject_t& loid,
+       const PGPool &_pool, spg_t p, const hobject_t& loid,
        const hobject_t& ioid) :
+  pgid(p),
   osd(o),
   cct(o->cct),
   osdriver(osd->store, coll_t(), OSD::make_snapmapper_oid()),
   snap_mapper(
     &osdriver,
-    p.m_seed,
+    p.seed(),
     p.get_split_bits(curmap->get_pg_num(_pool.id)),
     _pool.id),
   map_lock("PG::map_lock"),
@@ -1233,7 +1234,7 @@ void PG::activate(ObjectStore::Transaction& t,
 	      past_intervals));
 	} else {
 	  dout(10) << "activate peer osd." << peer << " is up to date, but sending pg_log anyway" << dendl;
-	  m = new MOSDPGLog(get_osdmap()->get_epoch(), info);
+	  m = new MOSDPGLog(get_osdmap()->get_epoch(), pgid, info);
 	}
       } else if (pg_log.get_tail() > pi.last_update || pi.last_backfill == hobject_t()) {
 	// backfill

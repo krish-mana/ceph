@@ -190,6 +190,7 @@ public:
 
   /*** PG ****/
 protected:
+  spg_t pgid;
   OSDService *osd;
   CephContext *cct;
   OSDriver osdriver;
@@ -404,15 +405,15 @@ protected:
    */
   
   bool        need_up_thru;
-  set<int>    stray_set;   // non-acting osds that have PG data.
+  set<shard_id_t>    stray_set;   // non-acting osds that have PG data.
   eversion_t  oldest_update; // acting: lowest (valid) last_update in active set
-  map<int,pg_info_t>    peer_info;   // info from peers (stray or prior)
-  set<int> peer_purged; // peers purged
-  map<int,pg_missing_t> peer_missing;
-  set<int>             peer_log_requested;  // logs i've requested (and start stamps)
-  set<int>             peer_missing_requested;
-  set<int>             stray_purged;  // i deleted these strays; ignore racing PGInfo from them
-  set<int>             peer_activated;
+  map<shard_id_t, pg_info_t>    peer_info;   // info from peers (stray or prior)
+  set<shard_id_t> peer_purged; // peers purged
+  map<shard_id_t, pg_missing_t> peer_missing;
+  set<shard_id_t> peer_log_requested;  // logs i've requested (and start stamps)
+  set<shard_id_t> peer_missing_requested;
+  set<shard_id_t> stray_purged;  // i deleted these strays; ignore racing PGInfo from them
+  set<shard_id_t> peer_activated;
 
   // primary-only, recovery-only state
   set<int>             might_have_unfound;  // These osds might have objects on them
@@ -1697,7 +1698,7 @@ public:
 
  public:
   PG(OSDService *o, OSDMapRef curmap,
-     const PGPool &pool, pg_t p, const hobject_t& loid, const hobject_t& ioid);
+     const PGPool &pool, spg_t p, const hobject_t& loid, const hobject_t& ioid);
   virtual ~PG();
 
  private:
