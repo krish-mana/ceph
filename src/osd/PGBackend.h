@@ -77,12 +77,28 @@
        const ObjectRecoveryInfo &recovery_info,
        const object_stat_sum_t &stat
        ) = 0;
+     void on_peer_recover(
+       pg_shard_t peer,
+       const hobject_t &oid,
+       const ObjectRecoveryInfo &recovery_info,
+       const object_stat_sum_t &stat
+       ) {
+       on_peer_recover(peer.osd, oid, recovery_info, stat);
+     }
 
      virtual void begin_peer_recover(
        int peer,
        const hobject_t oid) = 0;
+     void begin_peer_recover(
+       pg_shard_t peer,
+       const hobject_t oid) {
+       return begin_peer_recover(peer.osd, oid);
+     }
 
      virtual void failed_push(int from, const hobject_t &soid) = 0;
+     void failed_push(pg_shard_t from, const hobject_t &soid) {
+       return failed_push(from.osd, soid);
+     }
 
      
      virtual void cancel_pull(const hobject_t &soid) = 0;
@@ -103,12 +119,29 @@
        OpRequestRef op = OpRequestRef()
        ) = 0;
      virtual epoch_t get_epoch() = 0;
+
      virtual const vector<int> &get_actingbackfill() = 0;
+     const set<pg_shard_t> &get_actingbackfill_shards() {
+       return *(new set<pg_shard_t>);
+     }
+
      virtual std::string gen_dbg_prefix() const = 0;
 
      virtual const map<hobject_t, set<int> > &get_missing_loc() = 0;
+     const map<hobject_t, set<pg_shard_t> > &get_missing_loc_shards() {
+       return *(new map<hobject_t, set<pg_shard_t> >);
+     }
+
      virtual const map<int, pg_missing_t> &get_peer_missing() = 0;
+     virtual const map<pg_shard_t, pg_missing_t> &get_shard_missing() {
+       return *(new map<pg_shard_t, pg_missing_t>);
+     }
+
      virtual const map<int, pg_info_t> &get_peer_info() = 0;
+     const map<pg_shard_t, pg_info_t> &get_shard_info() {
+       return *(new map<pg_shard_t, pg_info_t>);
+     }
+
      virtual const pg_missing_t &get_local_missing() = 0;
      virtual const PGLog &get_log() = 0;
      virtual bool pgb_is_primary() const = 0;
@@ -125,6 +158,9 @@
      virtual bool should_send_op(
        int peer,
        const hobject_t &hoid) = 0;
+     bool should_send_op(
+       pg_shard_t peer,
+       const hobject_t &hoid) { return should_send_op(peer.osd, hoid); }
 
      virtual void log_operation(
        vector<pg_log_entry_t> &logv,
@@ -135,6 +171,11 @@
      virtual void update_peer_last_complete_ondisk(
        int fromosd,
        eversion_t lcod) = 0;
+     void update_peer_last_complete_ondisk(
+       pg_shard_t fromosd,
+       eversion_t lcod) {
+       return update_peer_last_complete_ondisk(fromosd.osd, lcod);
+     }
 
      virtual void update_stats(
        const pg_stat_t &stat) = 0;
