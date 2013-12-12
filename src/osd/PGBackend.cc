@@ -14,6 +14,15 @@
 
 
 #include "PGBackend.h"
+#include "OSD.h"
+
+#define dout_subsys ceph_subsys_osd
+#define DOUT_PREFIX_ARGS this
+#undef dout_prefix
+#define dout_prefix _prefix(_dout, this)
+static ostream& _prefix(std::ostream *_dout, PGBackend *pgb) {
+  return *_dout << pgb->get_parent()->gen_dbg_prefix();
+}
 
 // -- ObjectModDesc --
 struct RollbackVisitor : public ObjectModDesc::Visitor {
@@ -64,3 +73,27 @@ void PGBackend::rollback(
 }
 
 
+void PGBackend::on_change(ObjectStore::Transaction *t)
+{
+  dout(10) << __func__ << dendl;
+  // clear temp
+  for (set<hobject_t>::iterator i = temp_contents.begin();
+       i != temp_contents.end();
+       ++i) {
+    dout(10) << __func__ << ": Removing oid "
+	     << *i << " from the temp collection" << dendl;
+    t->remove(get_temp_coll(t), *i);
+  }
+  temp_contents.clear();
+  _on_change(t);
+}
+
+coll_t PGBackend::get_temp_coll(ObjectStore::Transaction *t)
+{
+  if (temp_created)
+    return temp_coll;
+  if (!osd->store->collection_exists(temp_coll))
+      t->create_collection(temp_coll);
+  temp_created = true;
+  return temp_coll;
+}

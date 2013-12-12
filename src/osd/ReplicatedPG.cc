@@ -6533,7 +6533,7 @@ void ReplicatedBackend::submit_push_data(
   } else {
     dout(10) << __func__ << ": Creating oid "
 	     << recovery_info.soid << " in the temp collection" << dendl;
-    temp_contents.insert(recovery_info.soid);
+    add_temp_obj(recovery_info.soid);
     target_coll = get_temp_coll(t);
   }
 
@@ -6561,10 +6561,9 @@ void ReplicatedBackend::submit_push_data(
 
   if (complete) {
     if (!first) {
-      assert(temp_contents.count(recovery_info.soid));
       dout(10) << __func__ << ": Removing oid "
 	       << recovery_info.soid << " from the temp collection" << dendl;
-      temp_contents.erase(recovery_info.soid);
+      clear_temp_obj(recovery_info.soid);
       t->collection_move(coll, target_coll, recovery_info.soid);
     }
 
