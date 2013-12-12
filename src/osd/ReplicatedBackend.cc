@@ -29,9 +29,8 @@ static ostream& _prefix(std::ostream *_dout, ReplicatedBackend *pgb) {
 
 ReplicatedBackend::ReplicatedBackend(
   PGBackend::Listener *pg, coll_t coll, OSDService *osd) :
-  PGBackend(pg), temp_created(false),
-  temp_coll(coll_t::make_temp_coll(pg->get_info().pgid)),
-  coll(coll), osd(osd), cct(osd->cct) {}
+  PGBackend(pg, osd, coll_t::make_temp_coll(pg->get_info().pgid)),
+  coll(coll), cct(osd->cct) {}
 
 void ReplicatedBackend::run_recovery_op(
   PGBackend::RecoveryHandle *_h,
@@ -185,18 +184,8 @@ void ReplicatedBackend::clear_state()
   pull_from_peer.clear();
 }
 
-void ReplicatedBackend::on_change(ObjectStore::Transaction *t)
+void ReplicatedBackend::_on_change(ObjectStore::Transaction *t)
 {
-  dout(10) << __func__ << dendl;
-  // clear temp
-  for (set<hobject_t>::iterator i = temp_contents.begin();
-       i != temp_contents.end();
-       ++i) {
-    dout(10) << __func__ << ": Removing oid "
-	     << *i << " from the temp collection" << dendl;
-    t->remove(get_temp_coll(t), *i);
-  }
-  temp_contents.clear();
   for (map<tid_t, InProgressOp>::iterator i = in_progress_ops.begin();
        i != in_progress_ops.end();
        in_progress_ops.erase(i++)) {
@@ -206,16 +195,6 @@ void ReplicatedBackend::on_change(ObjectStore::Transaction *t)
       delete i->second.on_applied;
   }
   clear_state();
-}
-
-coll_t ReplicatedBackend::get_temp_coll(ObjectStore::Transaction *t)
-{
-  if (temp_created)
-    return temp_coll;
-  if (!osd->store->collection_exists(temp_coll))
-      t->create_collection(temp_coll);
-  temp_created = true;
-  return temp_coll;
 }
 
 void ReplicatedBackend::on_flushed()
@@ -632,13 +611,10 @@ void ReplicatedBackend::submit_transaction(
   ObjectStore::Transaction local_t;
   if (t->get_temp_added().size()) {
     get_temp_coll(&local_t);
-    temp_contents.insert(t->get_temp_added().begin(), t->get_temp_added().end());
+    add_temp_objs(t->get_temp_added());
   }
-  for (set<hobject_t>::const_iterator i = t->get_temp_cleared().begin();
-       i != t->get_temp_cleared().end();
-       ++i) {
-    temp_contents.erase(*i);
-  }
+  clear_temp_objs(t->get_temp_cleared());
+
   parent->log_operation(log_entries, trim_to, true, &local_t);
   local_t.append(*op_t);
   local_t.swap(*op_t);
