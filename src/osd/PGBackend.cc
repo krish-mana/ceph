@@ -97,3 +97,145 @@ coll_t PGBackend::get_temp_coll(ObjectStore::Transaction *t)
   temp_created = true;
   return temp_coll;
 }
+
+int PGBackend::objects_list_partial(
+  const hobject_t &begin,
+  int min,
+  int max,
+  snapid_t seq,
+  vector<hobject_t> *ls,
+  hobject_t *next)
+{
+  assert(ls);
+  ghobject_t _next(begin);
+  ls->reserve(max);
+  int r = 0;
+  while (!_next.is_max() && ls->size() < (unsigned)min) {
+    vector<ghobject_t> objects;
+    int r = osd->store->collection_list_partial(
+      coll,
+      _next,
+      min - ls->size(),
+      max - ls->size(),
+      seq,
+      &objects,
+      &_next);
+    if (r != 0)
+      break;
+    for (vector<ghobject_t>::iterator i = objects.begin();
+	 i != objects.end();
+	 ++i) {
+      assert(i->is_no_shard());
+      if (i->is_no_gen()) {
+	ls->push_back(i->hobj);
+      }
+    }
+  }
+  if (r == 0)
+    *next = _next.hobj;
+  return r;
+}
+
+int PGBackend::objects_list_range(
+  const hobject_t &start,
+  const hobject_t &end,
+  snapid_t seq,
+  vector<hobject_t> *ls)
+{
+  assert(ls);
+  vector<ghobject_t> objects;
+  int r = osd->store->collection_list_range(
+    coll,
+    start,
+    end,
+    seq,
+    &objects);
+  ls->reserve(objects.size());
+  for (vector<ghobject_t>::iterator i = objects.begin();
+       i != objects.end();
+       ++i) {
+    assert(i->is_no_shard());
+    if (i->is_no_gen()) {
+      ls->push_back(i->hobj);
+    }
+  }
+  return r;
+}
+
+int PGBackend::objects_get_attr(
+  const hobject_t &hoid,
+  const string &attr,
+  bufferlist *out)
+{
+  bufferptr bp;
+  int r = osd->store->getattr(
+    coll,
+    hoid,
+    attr.c_str(),
+    bp);
+  if (r >= 0 && out) {
+    out->clear();
+    out->push_back(bp);
+  }
+  return r;
+}
+
+int PGBackend::objects_get_attrs(
+  const hobject_t &hoid,
+  map<string, bufferlist> *out)
+{
+  return osd->store->getattrs(
+    coll,
+    hoid,
+    *out);
+}
+
+void PGBackend::rollback_setattrs(
+  const hobject_t &hoid,
+  map<string, boost::optional<bufferlist> > &old_attrs,
+  ObjectStore::Transaction *t) {
+  map<string, bufferlist> to_set;
+  set<string> to_remove;
+  for (map<string, boost::optional<bufferlist> >::iterator i = old_attrs.begin();
+       i != old_attrs.end();
+       ++i) {
+    if (i->second) {
+      to_set[i->first] = i->second.get();
+    } else {
+      t->rmattr(coll, hoid, i->first);
+    }
+  }
+  t->setattrs(coll, hoid, to_set);
+}
+
+void PGBackend::rollback_append(
+  const hobject_t &hoid,
+  uint64_t old_size,
+  ObjectStore::Transaction *t) {
+  t->truncate(coll, hoid, old_size);
+}
+
+void PGBackend::rollback_unstash(
+  const hobject_t &hoid,
+  version_t old_version,
+  ObjectStore::Transaction *t) {
+  t->remove(coll, hoid);
+  t->collection_move_rename(
+    coll,
+    ghobject_t(hoid, old_version, 0),
+    coll,
+    hoid);
+}
+
+void PGBackend::rollback_create(
+  const hobject_t &hoid,
+  ObjectStore::Transaction *t) {
+  t->remove(coll, hoid);
+}
+
+void PGBackend::trim_stashed_object(
+  const hobject_t &hoid,
+  version_t old_version,
+  ObjectStore::Transaction *t) {
+  t->remove(coll, ghobject_t(hoid, old_version, 0));
+}
