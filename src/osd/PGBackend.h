@@ -187,8 +187,9 @@
    };
    Listener *parent;
    Listener *get_parent() const { return parent; }
-   PGBackend(Listener *l, OSDService *osd, coll_t temp_coll) :
+   PGBackend(Listener *l, OSDService *osd, coll_t temp_coll, coll_t coll) :
      osd(osd), parent(l), temp_created(false),
+     coll(coll),
      temp_coll(temp_coll) {}
    bool is_primary() const { return get_parent()->pgb_is_primary(); }
    OSDMapRef get_osdmap() const { return get_parent()->pgb_get_osdmap(); }
@@ -290,6 +291,7 @@
 
  private:
    bool temp_created;
+   const coll_t coll;
    const coll_t temp_coll;
    set<hobject_t> temp_contents;
  public:
@@ -437,57 +439,57 @@
      ObjectStore::Transaction *t);
 
    /// Rollback reset attrs
-   virtual void rollback_setattrs(
+   void rollback_setattrs(
      const hobject_t &hoid,
      map<string, boost::optional<bufferlist> > &old_attrs,
-     ObjectStore::Transaction *t) = 0;
+     ObjectStore::Transaction *t);
 
    /// Rollback truncate
-   virtual void rollback_append(
+   void rollback_append(
      const hobject_t &hoid,
      uint64_t old_size,
-     ObjectStore::Transaction *t) = 0;
+     ObjectStore::Transaction *t);
 
    /// Rollback unstash
-   virtual void rollback_unstash(
+   void rollback_unstash(
      const hobject_t &hoid,
      version_t old_version,
-     ObjectStore::Transaction *t) = 0;
+     ObjectStore::Transaction *t);
 
    /// Rollback create
-   virtual void rollback_create(
+   void rollback_create(
      const hobject_t &hoid,
-     ObjectStore::Transaction *t) = 0;
+     ObjectStore::Transaction *t);
 
    /// Trim object stashed at stashed_version
-   virtual void trim_stashed_object(
+   void trim_stashed_object(
      const hobject_t &hoid,
      version_t stashed_version,
-     ObjectStore::Transaction *t) = 0;
+     ObjectStore::Transaction *t);
 
    /// List objects in collection
-   virtual int objects_list_partial(
+   int objects_list_partial(
      const hobject_t &begin,
      int min,
      int max,
      snapid_t seq,
      vector<hobject_t> *ls,
-     hobject_t *next) = 0;
+     hobject_t *next);
 
-   virtual int objects_list_range(
+   int objects_list_range(
      const hobject_t &start,
      const hobject_t &end,
      snapid_t seq,
-     vector<hobject_t> *ls) = 0;
+     vector<hobject_t> *ls);
 
-   virtual int objects_get_attr(
+   int objects_get_attr(
      const hobject_t &hoid,
      const string &attr,
-     bufferlist *out) = 0;
+     bufferlist *out);
 
-   virtual int objects_get_attrs(
+   int objects_get_attrs(
      const hobject_t &hoid,
-     map<string, bufferlist> *out) = 0;
+     map<string, bufferlist> *out);
 
    virtual int objects_read_sync(
      const hobject_t &hoid,
