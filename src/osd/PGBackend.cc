@@ -92,7 +92,7 @@ coll_t PGBackend::get_temp_coll(ObjectStore::Transaction *t)
 {
   if (temp_created)
     return temp_coll;
-  if (!osd->store->collection_exists(temp_coll))
+  if (!store->collection_exists(temp_coll))
       t->create_collection(temp_coll);
   temp_created = true;
   return temp_coll;
@@ -112,7 +112,7 @@ int PGBackend::objects_list_partial(
   int r = 0;
   while (!_next.is_max() && ls->size() < (unsigned)min) {
     vector<ghobject_t> objects;
-    int r = osd->store->collection_list_partial(
+    int r = store->collection_list_partial(
       coll,
       _next,
       min - ls->size(),
@@ -143,7 +143,7 @@ int PGBackend::objects_list_range(
 {
   assert(ls);
   vector<ghobject_t> objects;
-  int r = osd->store->collection_list_range(
+  int r = store->collection_list_range(
     coll,
     start,
     end,
@@ -166,7 +166,7 @@ int PGBackend::objects_get_attr(
   bufferlist *out)
 {
   bufferptr bp;
-  int r = osd->store->getattr(
+  int r = store->getattr(
     coll,
     hoid,
     attr.c_str(),
@@ -182,7 +182,7 @@ int PGBackend::objects_get_attrs(
   const hobject_t &hoid,
   map<string, bufferlist> *out)
 {
-  return osd->store->getattrs(
+  return store->getattrs(
     coll,
     hoid,
     *out);
