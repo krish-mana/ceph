@@ -189,6 +189,9 @@
        GenContext<ThreadPool::TPHandle&> *c) = 0;
 
      virtual int whoami() const = 0;
+     virtual pg_shard_t whoami_shard() const {
+       return pg_shard_t::undefined_shard();
+     }
 
      virtual void send_message_osd_cluster(
        int peer, Message *m, epoch_t from_epoch) = 0;
