@@ -401,6 +401,11 @@ unittest_pglog_CXXFLAGS = $(UNITTEST_CXXFLAGS)
 unittest_pglog_LDADD = $(LIBOSD) $(UNITTEST_LDADD) $(CEPH_GLOBAL)
 check_PROGRAMS += unittest_pglog
 
+unittest_ectransaction_SOURCES = test/osd/TestECTransaction.cc
+unittest_ectransaction_CXXFLAGS = $(UNITTEST_CXXFLAGS)
+unittest_ectransaction_LDADD = $(LIBOSD) $(UNITTEST_LDADD) $(CEPH_GLOBAL)
+check_PROGRAMS += unittest_ectransaction
+
 unittest_ecbackend_SOURCES = test/osd/TestECBackend.cc
 unittest_ecbackend_CXXFLAGS = $(UNITTEST_CXXFLAGS)
 unittest_ecbackend_LDADD = $(LIBOSD) $(UNITTEST_LDADD) $(CEPH_GLOBAL)
