@@ -112,16 +112,13 @@ public:
 private:
   struct RecoveryOp {
     tid_t tid;
-    hobject_t soid;
+    hobject_t hoid;
+    eversion_t v;
     ObjectContextRef obc;
     map<string, bufferlist> xattrs;
     
     ObjectRecoveryInfo recovery_info;
     ObjectRecoveryProgress recovery_progress;
-
-    RecoveryOp() {
-      recovery_progress.omap_complete = true;
-    }
   };
   struct ReadOp {
     tid_t tid;

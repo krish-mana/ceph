@@ -28,16 +28,25 @@ static ostream& _prefix(std::ostream *_dout, ECBackend *pgb) {
   return *_dout << pgb->get_parent()->gen_dbg_prefix();
 }
 
+struct ECRecoveryHandle : public PGBackend::RecoveryHandle {
+  list<RecoveryOp> ops;
+};
 
 PGBackend::RecoveryHandle *open_recovery_op()
 {
-  return 0;
+  return new ECRecoveryHandle;
 }
 
 void ECBackend::run_recovery_op(
-  RecoveryHandle *h,
+  RecoveryHandle *_h,
   int priority)
 {
+  ECRecoveryHandle *h = static_cast<ECRecoveryHandle*>(_h);
+  for (list<RecoveryOp>::iterator i = h->ops.begin();
+       i != h->ops.end();
+       ++i) {
+    //start_recovery_op(*i);
+  }
 }
 
 void ECBackend::recover_object(
@@ -45,9 +54,21 @@ void ECBackend::recover_object(
   eversion_t v,
   ObjectContextRef head,
   ObjectContextRef obc,
-  RecoveryHandle *h)
+  RecoveryHandle *_h)
 {
-  
+  ECRecoveryHandle *h = static_cast<ECRecoveryHandle*>(_h);
+  h->ops.push_back(RecoveryOp());
+  h->back().tid = get_parent()->get_tid();
+  h->back().v = v;
+  h->back().soid = hoid;
+  h->back().obc = obc;
+  h->back().recovery_info.soid = hoid;
+  h->back().recovery_info.version = v;
+  if (obc) {
+    h->back().recovery_info.size = obc->oi.size;
+    h->back().recovery_info.oi = obc->oi;
+  }
+  h->back().recovery_progress.omap_complete = true;
 }
 
 bool ECBackend::handle_message(
