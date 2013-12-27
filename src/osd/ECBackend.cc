@@ -250,6 +250,10 @@ void ECBackend::handle_sub_read_reply(
   assert(iter->second.in_progress.count(from));
   iter->second.complete[from].swap(op.buffers_read);
   iter->second.in_progress.erase(from);
+  if (!op.attrs_read.empty()) {
+    assert(iter->second.attrs_read);
+    iter->second.attrs_read->swap(op.attrs_read);
+  }
   if (!iter->second.in_progress.empty())
     return;
   // done
