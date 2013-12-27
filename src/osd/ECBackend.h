@@ -140,6 +140,7 @@ private:
 	  >
 	>
       > complete;
+    map<hobject_t, map<string, bufferlist> > *attrs_read;
     set<pg_shard_t> in_progress;
     Context *on_complete;
   };
@@ -152,6 +153,8 @@ private:
 	boost::tuple<uint64_t, uint64_t, bufferlist*>
 	>
       > &to_read,
+    const set<hobject_t> &attrs_to_read,
+    map<hobject_t, map<string, bufferlist> > *attrs_read,
     Context *c);
 
   struct Op {

@@ -88,6 +88,7 @@ void ECSubRead::encode(bufferlist &bl) const
   ENCODE_START(1, 1, bl);
   ::encode(tid, bl);
   ::encode(to_read, bl);
+  ::encode(attrs_to_read, bl);
   ENCODE_FINISH(bl);
 }
 
@@ -96,6 +97,7 @@ void ECSubRead::decode(bufferlist::iterator &bl)
   DECODE_START(1, bl);
   ::decode(tid, bl);
   ::decode(to_read, bl);
+  ::decode(attrs_to_read, bl);
   DECODE_FINISH(bl);
 }
 
@@ -104,7 +106,8 @@ std::ostream &operator<<(
 {
   return lhs
     << "ECSubRead(tid=" << rhs.tid
-    << ", to_read=" << rhs.to_read << ")";
+    << ", to_read=" << rhs.to_read
+    << ", attrs_to_read=" << rhs.attrs_to_read << ")";
 }
 
 void ECSubReadReply::encode(bufferlist &bl) const
@@ -112,6 +115,7 @@ void ECSubReadReply::encode(bufferlist &bl) const
   ENCODE_START(1, 1, bl);
   ::encode(tid, bl);
   ::encode(buffers_read, bl);
+  ::encode(attrs_read, bl);
   ENCODE_FINISH(bl);
 }
 
@@ -120,6 +124,7 @@ void ECSubReadReply::decode(bufferlist::iterator &bl)
   DECODE_START(1, bl);
   ::decode(tid, bl);
   ::decode(buffers_read, bl);
+  ::decode(attrs_read, bl);
   DECODE_FINISH(bl);
 }
 
@@ -127,5 +132,7 @@ std::ostream &operator<<(
   std::ostream &lhs, const ECSubReadReply &rhs)
 {
   return lhs
-    << "ECSubReadReply(tid=" << rhs.tid << ")";
+    << "ECSubReadReply(tid=" << rhs.tid
+    << ", attrs_read=" << rhs.attrs_read.size()
+    << ")";
 }

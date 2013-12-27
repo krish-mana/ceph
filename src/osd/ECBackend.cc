@@ -47,6 +47,7 @@ void ECBackend::recover_object(
   ObjectContextRef obc,
   RecoveryHandle *h)
 {
+  
 }
 
 bool ECBackend::handle_message(
@@ -215,6 +216,14 @@ void ECBackend::handle_sub_read(
 	)
       );
   }
+  for (set<hobject_t>::iterator i = op.attrs_to_read.begin();
+       i != op.attrs_to_read.end();
+       ++i) {
+    store->getattrs(
+      i->is_temp() ? temp_coll : coll,
+      *i,
+      reply->attrs_read[*i]);
+  }
 }
 
 void ECBackend::handle_sub_write_reply(
@@ -372,6 +381,8 @@ void ECBackend::start_read_op(
       boost::tuple<uint64_t, uint64_t, bufferlist*>
       >
     > &to_read,
+  const set<hobject_t> &attrs_to_read,
+  map<hobject_t, map<string, bufferlist> > *attrs_read,
   Context *onfinish)
 {
   assert(!tid_to_read_map.count(tid));
@@ -379,6 +390,7 @@ void ECBackend::start_read_op(
   op.to_read = to_read;
   op.in_progress = min_to_read;
   op.on_complete = onfinish;
+  op.attrs_read = attrs_read;
 
   ECSubRead readmsg;
   readmsg.tid = tid;
@@ -404,6 +416,7 @@ void ECBackend::start_read_op(
 	i->first,
 	make_pair(obj_offset, obj_len)));
   }
+  bool requested_attrs = false;
   for (set<pg_shard_t>::iterator i = op.in_progress.begin();
        i != op.in_progress.end();
        ++i) {
@@ -411,6 +424,10 @@ void ECBackend::start_read_op(
     msg->pgid = get_parent()->whoami_spg_t();
     msg->map_epoch = get_parent()->get_epoch();
     msg->op = readmsg;
+    if (!requested_attrs && attrs_read) {
+      msg->op.attrs_to_read = attrs_to_read;
+      requested_attrs = true;
+    }
     get_parent()->send_message_osd_cluster(
       i->osd,
       msg,
@@ -498,6 +515,8 @@ void ECBackend::start_read(Op *op) {
   start_read_op(
     op->tid,
     to_read,
+    set<hobject_t>(),
+    NULL,
     new ReadCB(this, op));
 }
 
@@ -669,6 +688,8 @@ void ECBackend::objects_read_async(
   start_read_op(
     get_parent()->get_tid(),
     for_read_op,
+    set<hobject_t>(),
+    NULL,
     new CallClientContexts(to_read, on_complete));
   return;
 }
