@@ -42,6 +42,7 @@ void ECBackend::run_recovery_op(
 
 void ECBackend::recover_object(
   const hobject_t &hoid,
+  eversion_t v,
   ObjectContextRef head,
   ObjectContextRef obc,
   RecoveryHandle *h)
