@@ -29,7 +29,7 @@ static ostream& _prefix(std::ostream *_dout, ECBackend *pgb) {
 }
 
 struct ECRecoveryHandle : public PGBackend::RecoveryHandle {
-  list<RecoveryOp> ops;
+  list<ECBackend::RecoveryOp> ops;
 };
 
 PGBackend::RecoveryHandle *open_recovery_op()
@@ -58,17 +58,17 @@ void ECBackend::recover_object(
 {
   ECRecoveryHandle *h = static_cast<ECRecoveryHandle*>(_h);
   h->ops.push_back(RecoveryOp());
-  h->back().tid = get_parent()->get_tid();
-  h->back().v = v;
-  h->back().soid = hoid;
-  h->back().obc = obc;
-  h->back().recovery_info.soid = hoid;
-  h->back().recovery_info.version = v;
+  h->ops.back().tid = get_parent()->get_tid();
+  h->ops.back().v = v;
+  h->ops.back().hoid = hoid;
+  h->ops.back().obc = obc;
+  h->ops.back().recovery_info.soid = hoid;
+  h->ops.back().recovery_info.version = v;
   if (obc) {
-    h->back().recovery_info.size = obc->oi.size;
-    h->back().recovery_info.oi = obc->oi;
+    h->ops.back().recovery_info.size = obc->obs.oi.size;
+    h->ops.back().recovery_info.oi = obc->obs.oi;
   }
-  h->back().recovery_progress.omap_complete = true;
+  h->ops.back().recovery_progress.omap_complete = true;
 }
 
 bool ECBackend::handle_message(

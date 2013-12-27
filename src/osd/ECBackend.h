@@ -110,6 +110,7 @@ public:
     Context *on_complete);
 
 private:
+  friend struct ECRecoveryHandle;
   struct RecoveryOp {
     tid_t tid;
     hobject_t hoid;
