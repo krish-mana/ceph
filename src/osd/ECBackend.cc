@@ -37,10 +37,53 @@ PGBackend::RecoveryHandle *open_recovery_op()
   return new ECRecoveryHandle;
 }
 
+struct RecoveryMessages {
+  list<
+    pair<
+      hobject_t,
+      boost::tuple<uint64_t, uint64_t, bufferlist *>
+      >
+    > to_read;
+  set<hobject_t> xattrs_to_fetch;
+  set<GenContext<RecoveryMessages&>*> on_read_complete;
+  void read(
+    GenContext<RecoveryMessages&> *c, const hobject_t &hoid, 
+    uint64_t off, uint64_t len, bufferlist *out) {
+    to_read.push_back(
+      make_pair(
+	hoid,
+	boost::make_tuple(off, len, out)));
+    on_read_complete.insert(c);
+  }
+  void fetch_xattrs(
+    GenContext<RecoveryMessages&> *c, const hobject_t &hoid, 
+    uint64_t off, uint64_t len, bufferlist *out) {
+    to_read.push_back(
+      make_pair(
+	hoid,
+	boost::make_tuple(off, len, out)));
+    on_read_complete.insert(c);
+  }
+
+  map<pg_shard_t, vector<PushOp> > pushes;
+  map<pg_shard_t, vector<PushReplyOp> > push_replies;
+};
+
+void ECBackend::dispatch_recovery_messages(RecoveryMessages &m)
+{
+}
+
 void ECBackend::run_recovery_op(
   RecoveryHandle *_h,
   int priority)
 {
+  list<
+    pair<
+      hobject_t,
+      boost::tuple<uint64_t, uint64_t, bufferlist *>
+      >
+    > to_read;
+  set<hobject_t> xattrs_to_fetch;
   ECRecoveryHandle *h = static_cast<ECRecoveryHandle*>(_h);
   for (list<RecoveryOp>::iterator i = h->ops.begin();
        i != h->ops.end();
@@ -58,7 +101,6 @@ void ECBackend::recover_object(
 {
   ECRecoveryHandle *h = static_cast<ECRecoveryHandle*>(_h);
   h->ops.push_back(RecoveryOp());
-  h->ops.back().tid = get_parent()->get_tid();
   h->ops.back().v = v;
   h->ops.back().hoid = hoid;
   h->ops.back().obc = obc;
@@ -271,10 +313,17 @@ void ECBackend::handle_sub_read_reply(
   assert(iter->second.in_progress.count(from));
   iter->second.complete[from].swap(op.buffers_read);
   iter->second.in_progress.erase(from);
-  if (!op.attrs_read.empty()) {
-    assert(iter->second.attrs_read);
-    iter->second.attrs_read->swap(op.attrs_read);
+
+  for (map<hobject_t, map<string, bufferlist> >::iterator i =
+	 op.attrs_read.begin();
+       i != op.attrs_read.end();
+       ++i) {
+      map<hobject_t, map<string, bufferlist>*>::iterator j =
+	iter->second.attrs_to_read.find(i->first);
+      assert(j != iter->second.attrs_to_read.end());
+      *(j->second) = i->second;
   }
+
   if (!iter->second.in_progress.empty())
     return;
   // done
@@ -406,8 +455,7 @@ void ECBackend::start_read_op(
       boost::tuple<uint64_t, uint64_t, bufferlist*>
       >
     > &to_read,
-  const set<hobject_t> &attrs_to_read,
-  map<hobject_t, map<string, bufferlist> > *attrs_read,
+  const map<hobject_t, map<string, bufferlist> *> &attrs_to_read,
   Context *onfinish)
 {
   assert(!tid_to_read_map.count(tid));
@@ -415,7 +463,7 @@ void ECBackend::start_read_op(
   op.to_read = to_read;
   op.in_progress = min_to_read;
   op.on_complete = onfinish;
-  op.attrs_read = attrs_read;
+  op.attrs_to_read = attrs_to_read;
 
   ECSubRead readmsg;
   readmsg.tid = tid;
@@ -449,8 +497,15 @@ void ECBackend::start_read_op(
     msg->pgid = get_parent()->whoami_spg_t();
     msg->map_epoch = get_parent()->get_epoch();
     msg->op = readmsg;
-    if (!requested_attrs && attrs_read) {
-      msg->op.attrs_to_read = attrs_to_read;
+    if (!requested_attrs) {
+      set<hobject_t> attrs;
+      for (map<hobject_t, map<string, bufferlist>*>::const_iterator i =
+	     attrs_to_read.begin();
+	   i != attrs_to_read.end();
+	   ++i) {
+	attrs.insert(i->first);
+      }
+      msg->op.attrs_to_read = attrs;
       requested_attrs = true;
     }
     get_parent()->send_message_osd_cluster(
@@ -540,8 +595,7 @@ void ECBackend::start_read(Op *op) {
   start_read_op(
     op->tid,
     to_read,
-    set<hobject_t>(),
-    NULL,
+    map<hobject_t, map<string, bufferlist>*>(),
     new ReadCB(this, op));
 }
 
@@ -713,8 +767,7 @@ void ECBackend::objects_read_async(
   start_read_op(
     get_parent()->get_tid(),
     for_read_op,
-    set<hobject_t>(),
-    NULL,
+    map<hobject_t, map<string, bufferlist>*>(),
     new CallClientContexts(to_read, on_complete));
   return;
 }

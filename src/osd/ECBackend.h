@@ -112,7 +112,6 @@ public:
 private:
   friend struct ECRecoveryHandle;
   struct RecoveryOp {
-    tid_t tid;
     hobject_t hoid;
     eversion_t v;
     ObjectContextRef obc;
@@ -138,7 +137,7 @@ private:
 	  >
 	>
       > complete;
-    map<hobject_t, map<string, bufferlist> > *attrs_read;
+    map<hobject_t, map<string, bufferlist> *> attrs_to_read;
     set<pg_shard_t> in_progress;
     Context *on_complete;
   };
@@ -151,8 +150,7 @@ private:
 	boost::tuple<uint64_t, uint64_t, bufferlist*>
 	>
       > &to_read,
-    const set<hobject_t> &attrs_to_read,
-    map<hobject_t, map<string, bufferlist> > *attrs_read,
+    const map<hobject_t, map<string, bufferlist> *> &attrs_to_read,
     Context *c);
 
   struct Op {
@@ -186,6 +184,9 @@ private:
       delete on_all_commit;
     }
   };
+
+  struct RecoveryMessages;
+  void dispatch_recovery_messages(RecoveryMessages &m);
   ObjectStore *store;
   set<hobject_t> unstable;
 
