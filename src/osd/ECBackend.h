@@ -27,6 +27,7 @@
 #include "messages/MOSDECSubOpRead.h"
 #include "messages/MOSDECSubOpReadReply.h"
 
+struct RecoveryMessages;
 class ECBackend : public PGBackend {
 public:
   RecoveryHandle *open_recovery_op();
@@ -185,8 +186,7 @@ private:
     }
   };
 
-  struct RecoveryMessages;
-  void dispatch_recovery_messages(RecoveryMessages &m);
+  void dispatch_recovery_messages(RecoveryMessages *m);
   ObjectStore *store;
   set<hobject_t> unstable;
 
@@ -195,6 +195,7 @@ private:
   list<Op*> reading;
   list<Op*> writing;
 
+  CephContext *cct;
   ErasureCodeInterfaceRef ec_impl;
   const uint64_t stripe_width;
   const uint64_t stripe_size;
@@ -215,6 +216,7 @@ private:
   void start_write(Op *op);
 public:
   ECBackend(
+    CephContext *cct,
     ObjectStore *store,
     coll_t coll,
     coll_t temp_coll,
@@ -223,6 +225,7 @@ public:
     uint64_t stripe_width,
     uint64_t stripe_size)
     : PGBackend(pg, store, coll, temp_coll),
+      cct(cct),
       ec_impl(ec_impl), stripe_width(stripe_width),
       stripe_size(stripe_size) {}
   void go_active(

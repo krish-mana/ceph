@@ -19,6 +19,8 @@
 
 #include "ECUtil.h"
 #include "ECBackend.h"
+#include "messages/MOSDPGPush.h"
+#include "messages/MOSDPGPushReply.h"
 
 #define dout_subsys ceph_subsys_osd
 #define DOUT_PREFIX_ARGS this
@@ -69,8 +71,30 @@ struct RecoveryMessages {
   map<pg_shard_t, vector<PushReplyOp> > push_replies;
 };
 
-void ECBackend::dispatch_recovery_messages(RecoveryMessages &m)
+void ECBackend::dispatch_recovery_messages(RecoveryMessages *m)
 {
+  for (map<pg_shard_t, vector<PushOp> >::iterator i = m->pushes.begin();
+       i != m->pushes.end();
+       m->pushes.erase(i++)) {
+    MOSDPGPush *msg = new MOSDPGPush();
+    msg->pgid = spg_t(get_parent()->get_info().pgid, i->first.shard);
+    msg->pushes.swap(i->second);
+    msg->compute_cost(cct);
+    get_parent()->send_message(
+      i->first.osd,
+      msg);
+  }
+  for (map<pg_shard_t, vector<PushReplyOp> >::iterator i = m->push_replies.begin();
+       i != m->push_replies.end();
+       m->push_replies.erase(i++)) {
+    MOSDPGPushReply *msg = new MOSDPGPushReply();
+    msg->pgid = spg_t(get_parent()->get_info().pgid, i->first.shard);
+    msg->replies.swap(i->second);
+    msg->compute_cost(cct);
+    get_parent()->send_message(
+      i->first.osd,
+      msg);
+  }
 }
 
 void ECBackend::run_recovery_op(
