@@ -40,35 +40,43 @@ PGBackend::RecoveryHandle *open_recovery_op()
 }
 
 struct RecoveryMessages {
-  list<
-    pair<
-      hobject_t,
-      boost::tuple<uint64_t, uint64_t, bufferlist *>
-      >
-    > to_read;
-  set<hobject_t> xattrs_to_fetch;
-  set<GenContext<RecoveryMessages&>*> on_read_complete;
-  void read(
-    GenContext<RecoveryMessages&> *c, const hobject_t &hoid, 
-    uint64_t off, uint64_t len, bufferlist *out) {
-    to_read.push_back(
-      make_pair(
-	hoid,
-	boost::make_tuple(off, len, out)));
-    on_read_complete.insert(c);
+  map<hobject_t, list<boost::tuple<uint64_t, uint64_t, bufferlist> > to_read;
+  map<hobject_t, map<string, bufferlist> > xattrs_to_read;
+
+  void read(const hobject_t &hoid, uint64_t off, uint64_t len) {
+    to_read[hoid].push_back(boost::make_tuple(off, len, bufferlist()));
   }
   void fetch_xattrs(
-    GenContext<RecoveryMessages&> *c, const hobject_t &hoid, 
-    uint64_t off, uint64_t len, bufferlist *out) {
-    to_read.push_back(
-      make_pair(
-	hoid,
-	boost::make_tuple(off, len, out)));
-    on_read_complete.insert(c);
+    const hobject_t &hoid) {
+    to_read[hoid];
+    xattrs_to_read[hoid];
   }
 
   map<pg_shard_t, vector<PushOp> > pushes;
   map<pg_shard_t, vector<PushReplyOp> > push_replies;
+};
+
+void ECBackend::handle_recovery_read_complete(
+  list<boost::tuple<uint64_t, uint64_t, bufferlist> > *to_read,
+  map<string, bufferlist> *attrs)
+{
+  
+}
+
+struct OnRecoveryReadComplete : public Context {
+  map<
+    hobject_t,
+    boost::tuple<uint64_t, uint64_t, bufferlist>
+    > data;
+  map<hobject_t, map<string, bufferlist> > attrs;
+  ECBackend *pg;
+  void finish(int) {
+    for (map<hobject_t,
+	   boost::tuple<uint64_t, uint64_t, bufferlist> > ::iterator i =
+	   data.begin();
+	 i != data.end();
+	 data.erase(i++);
+  }
 };
 
 void ECBackend::dispatch_recovery_messages(RecoveryMessages *m)
@@ -95,6 +103,7 @@ void ECBackend::dispatch_recovery_messages(RecoveryMessages *m)
       i->first.osd,
       msg);
   }
+  
 }
 
 void ECBackend::run_recovery_op(
