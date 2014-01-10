@@ -57,20 +57,20 @@ struct RecoveryMessages {
 };
 
 void ECBackend::handle_recovery_push(
-  PushOp *op,
+  PushOp &op,
   RecoveryMessages *m)
 {
 }
 
 void ECBackend::handle_recovery_push_reply(
-  PushReplyOp *op,
+  PushReplyOp &op,
   RecoveryMessages *m)
 {
 }
 
 void ECBackend::handle_recovery_read_complete(
   const hobject_t &hoid,
-  list<boost::tuple<uint64_t, uint64_t, bufferlist> > *to_read,
+  list<boost::tuple<uint64_t, uint64_t, bufferlist> > &to_read,
   map<string, bufferlist> *attrs,
   RecoveryMessages *m)
 {
@@ -95,19 +95,19 @@ struct OnRecoveryReadComplete : public Context {
 	i->first);
       pg->handle_recovery_read_complete(
 	i->first,
-	&(i->second),
+	i->second,
 	aiter == attrs.end() ? NULL : &(aiter->second),
 	&rm);
     }
-    pg->dispatch_recovery_messages(&rm);
+    pg->dispatch_recovery_messages(rm);
   }
 };
 
-void ECBackend::dispatch_recovery_messages(RecoveryMessages *m)
+void ECBackend::dispatch_recovery_messages(RecoveryMessages &m)
 {
-  for (map<pg_shard_t, vector<PushOp> >::iterator i = m->pushes.begin();
-       i != m->pushes.end();
-       m->pushes.erase(i++)) {
+  for (map<pg_shard_t, vector<PushOp> >::iterator i = m.pushes.begin();
+       i != m.pushes.end();
+       m.pushes.erase(i++)) {
     MOSDPGPush *msg = new MOSDPGPush();
     msg->pgid = spg_t(get_parent()->get_info().pgid, i->first.shard);
     msg->pushes.swap(i->second);
@@ -116,9 +116,9 @@ void ECBackend::dispatch_recovery_messages(RecoveryMessages *m)
       i->first.osd,
       msg);
   }
-  for (map<pg_shard_t, vector<PushReplyOp> >::iterator i = m->push_replies.begin();
-       i != m->push_replies.end();
-       m->push_replies.erase(i++)) {
+  for (map<pg_shard_t, vector<PushReplyOp> >::iterator i = m.push_replies.begin();
+       i != m.push_replies.end();
+       m.push_replies.erase(i++)) {
     MOSDPGPushReply *msg = new MOSDPGPushReply();
     msg->pgid = spg_t(get_parent()->get_info().pgid, i->first.shard);
     msg->replies.swap(i->second);
@@ -204,6 +204,28 @@ bool ECBackend::handle_message(
       _op->get_req());
     pg_shard_t from(op->get_source().num(), op->pgid.shard);
     handle_sub_read_reply(from, op->op);
+    return true;
+  }
+  case MSG_OSD_PG_PUSH: {
+    MOSDPGPush *op = static_cast<MOSDPGPush *>(_op->get_req());
+    RecoveryMessages rm;
+    for (vector<PushOp>::iterator i = op->pushes.begin();
+	 i != op->pushes.end();
+	 ++i) {
+      handle_recovery_push(*i, &rm);
+    }
+    dispatch_recovery_messages(rm);
+    return true;
+  }
+  case MSG_OSD_PG_PUSH_REPLY: {
+    MOSDPGPushReply *op = static_cast<MOSDPGPushReply *>(_op->get_req());
+    RecoveryMessages rm;
+    for (vector<PushReplyOp>::iterator i = op->replies.begin();
+	 i != op->replies.end();
+	 ++i) {
+      handle_recovery_push_reply(*i, &rm);
+    }
+    dispatch_recovery_messages(rm);
     return true;
   }
   default:
