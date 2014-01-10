@@ -187,6 +187,19 @@ private:
   };
 
   void dispatch_recovery_messages(RecoveryMessages *m);
+  friend struct OnRecoveryReadComplete;
+  void handle_recovery_read_complete(
+    const hobject_t &hoid,
+    list<boost::tuple<uint64_t, uint64_t, bufferlist> > *to_read,
+    map<string, bufferlist> *attrs,
+    RecoveryMessages *m);
+  void handle_recovery_push(
+    PushOp *op,
+    RecoveryMessages *m);
+  void handle_recovery_push_reply(
+    PushReplyOp *op,
+    RecoveryMessages *m);
+
   ObjectStore *store;
   set<hobject_t> unstable;
 

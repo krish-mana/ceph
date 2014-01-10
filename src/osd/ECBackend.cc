@@ -40,7 +40,7 @@ PGBackend::RecoveryHandle *open_recovery_op()
 }
 
 struct RecoveryMessages {
-  map<hobject_t, list<boost::tuple<uint64_t, uint64_t, bufferlist> > to_read;
+  map<hobject_t, list<boost::tuple<uint64_t, uint64_t, bufferlist> > > to_read;
   map<hobject_t, map<string, bufferlist> > xattrs_to_read;
 
   void read(const hobject_t &hoid, uint64_t off, uint64_t len) {
@@ -56,9 +56,23 @@ struct RecoveryMessages {
   map<pg_shard_t, vector<PushReplyOp> > push_replies;
 };
 
+void ECBackend::handle_recovery_push(
+  PushOp *op,
+  RecoveryMessages *m)
+{
+}
+
+void ECBackend::handle_recovery_push_reply(
+  PushReplyOp *op,
+  RecoveryMessages *m)
+{
+}
+
 void ECBackend::handle_recovery_read_complete(
+  const hobject_t &hoid,
   list<boost::tuple<uint64_t, uint64_t, bufferlist> > *to_read,
-  map<string, bufferlist> *attrs)
+  map<string, bufferlist> *attrs,
+  RecoveryMessages *m)
 {
   
 }
@@ -66,16 +80,26 @@ void ECBackend::handle_recovery_read_complete(
 struct OnRecoveryReadComplete : public Context {
   map<
     hobject_t,
-    boost::tuple<uint64_t, uint64_t, bufferlist>
+    list<boost::tuple<uint64_t, uint64_t, bufferlist> >
     > data;
   map<hobject_t, map<string, bufferlist> > attrs;
   ECBackend *pg;
   void finish(int) {
+    RecoveryMessages rm;
     for (map<hobject_t,
-	   boost::tuple<uint64_t, uint64_t, bufferlist> > ::iterator i =
+	     list<boost::tuple<uint64_t, uint64_t, bufferlist> > >::iterator i =
 	   data.begin();
 	 i != data.end();
-	 data.erase(i++);
+	 data.erase(i++)) {
+      map<hobject_t, map<string, bufferlist> >::iterator aiter = attrs.find(
+	i->first);
+      pg->handle_recovery_read_complete(
+	i->first,
+	&(i->second),
+	aiter == attrs.end() ? NULL : &(aiter->second),
+	&rm);
+    }
+    pg->dispatch_recovery_messages(&rm);
   }
 };
 
