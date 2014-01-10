@@ -40,16 +40,16 @@ PGBackend::RecoveryHandle *open_recovery_op()
 }
 
 struct RecoveryMessages {
-  map<hobject_t, list<boost::tuple<uint64_t, uint64_t, bufferlist> > > to_read;
-  map<hobject_t, map<string, bufferlist> > xattrs_to_read;
+  map<hobject_t, list<pair<uint64_t, uint64_t> > > to_read;
+  set<hobject_t> xattrs_to_read;
 
   void read(const hobject_t &hoid, uint64_t off, uint64_t len) {
-    to_read[hoid].push_back(boost::make_tuple(off, len, bufferlist()));
+    to_read[hoid].push_back(make_pair(off, len));
   }
   void fetch_xattrs(
     const hobject_t &hoid) {
     to_read[hoid];
-    xattrs_to_read[hoid];
+    xattrs_to_read.insert(hoid);
   }
 
   map<pg_shard_t, vector<PushOp> > pushes;
@@ -74,7 +74,6 @@ void ECBackend::handle_recovery_read_complete(
   map<string, bufferlist> *attrs,
   RecoveryMessages *m)
 {
-  
 }
 
 struct OnRecoveryReadComplete : public Context {
@@ -116,7 +115,8 @@ void ECBackend::dispatch_recovery_messages(RecoveryMessages &m)
       i->first.osd,
       msg);
   }
-  for (map<pg_shard_t, vector<PushReplyOp> >::iterator i = m.push_replies.begin();
+  for (map<pg_shard_t, vector<PushReplyOp> >::iterator i =
+	 m.push_replies.begin();
        i != m.push_replies.end();
        m.push_replies.erase(i++)) {
     MOSDPGPushReply *msg = new MOSDPGPushReply();
@@ -127,7 +127,47 @@ void ECBackend::dispatch_recovery_messages(RecoveryMessages &m)
       i->first.osd,
       msg);
   }
-  
+  OnRecoveryReadComplete *c = new OnRecoveryReadComplete;
+  list<
+    pair<
+      hobject_t,
+      boost::tuple<uint64_t, uint64_t, bufferlist*>
+      >
+    > to_read;
+  map<hobject_t, map<string, bufferlist> *> xattrs_to_read;
+  for (map<hobject_t, list<pair<uint64_t, uint64_t> > >::iterator i =
+	 m.to_read.begin();
+       i != m.to_read.end();
+       m.to_read.erase(i++)) {
+    list<boost::tuple<uint64_t, uint64_t, bufferlist> > &dlist =
+      c->data[i->first];
+    for (list<pair<uint64_t, uint64_t> >::iterator j = i->second.begin();
+	 j != i->second.end();
+	 i->second.erase(j++)) {
+      bufferlist *blptr = &(
+	dlist.insert(
+	  dlist.end(),
+	  boost::make_tuple(
+	    j->first,
+	    j->second,
+	    bufferlist()))->get<2>());
+      to_read.push_back(
+	make_pair(
+	  i->first,
+	  boost::make_tuple(j->first, j->second, blptr)));
+    }
+    if (m.xattrs_to_read.count(i->first)) {
+      xattrs_to_read.insert(
+	make_pair(
+	  i->first,
+	  &(c->attrs[i->first])));
+    }
+    start_read_op(
+      get_parent()->get_tid(),
+      to_read,
+      xattrs_to_read,
+      c);
+  }
 }
 
 void ECBackend::run_recovery_op(
