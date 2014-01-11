@@ -202,11 +202,8 @@ private:
     }
   };
 
-  void start_recovery_op(
-    const RecoveryOp &op,
-    RecoveryMessages *m);
-  void do_recovery_progress(
-    const RecoveryOp &op,
+  void continue_recovery_op(
+    RecoveryOp &op,
     RecoveryMessages *m);
 
   void dispatch_recovery_messages(RecoveryMessages &m);

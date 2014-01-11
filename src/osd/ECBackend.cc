@@ -178,7 +178,7 @@ void ECBackend::continue_recovery_op(
     switch (op.state) {
     case RecoveryOp::IDLE: {
       // start read
-      if (recovery_progress.first)
+      if (op.recovery_progress.first)
 	m->fetch_xattrs(op.hoid);
     }
     default:
@@ -197,8 +197,8 @@ void ECBackend::run_recovery_op(
        i != h->ops.end();
        ++i) {
     assert(!recovery_ops.count(i->hoid));
-    RecoveryOp &op = recovery_ops.insert(make_pair(op.hoid, *i)).second->second;
-    do_recovery_progress(op, m);
+    RecoveryOp &op = recovery_ops.insert(make_pair(op.hoid, *i)).first->second;
+    continue_recovery_op(op, &m);
   }
   dispatch_recovery_messages(m);
 }
