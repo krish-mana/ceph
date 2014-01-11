@@ -170,23 +170,37 @@ void ECBackend::dispatch_recovery_messages(RecoveryMessages &m)
   }
 }
 
+void ECBackend::continue_recovery_op(
+  RecoveryOp &op,
+  RecoveryMessages *m)
+{
+  while (true) {
+    switch (op.state) {
+    case RecoveryOp::IDLE: {
+      // start read
+      if (recovery_progress.first)
+	m->fetch_xattrs(op.hoid);
+    }
+    default:
+      assert(0);
+    }
+  }
+}
+
 void ECBackend::run_recovery_op(
   RecoveryHandle *_h,
   int priority)
 {
-  list<
-    pair<
-      hobject_t,
-      boost::tuple<uint64_t, uint64_t, bufferlist *>
-      >
-    > to_read;
-  set<hobject_t> xattrs_to_fetch;
   ECRecoveryHandle *h = static_cast<ECRecoveryHandle*>(_h);
+  RecoveryMessages m;
   for (list<RecoveryOp>::iterator i = h->ops.begin();
        i != h->ops.end();
        ++i) {
-    //start_recovery_op(*i);
+    assert(!recovery_ops.count(i->hoid));
+    RecoveryOp &op = recovery_ops.insert(make_pair(op.hoid, *i)).second->second;
+    do_recovery_progress(op, m);
   }
+  dispatch_recovery_messages(m);
 }
 
 void ECBackend::recover_object(

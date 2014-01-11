@@ -116,11 +116,27 @@ private:
     hobject_t hoid;
     eversion_t v;
     ObjectContextRef obc;
-    map<string, bufferlist> xattrs;
-    
+
     ObjectRecoveryInfo recovery_info;
     ObjectRecoveryProgress recovery_progress;
+
+    bool pending_read;
+    set<pg_shard_t> pending_pushes;
+    enum { IDLE, READING, WRITING, COMPLETE } state;
+
+    // must be filled if state == WRITING
+    map<string, bufferlist> xattrs;
+
+    // valid in state READING
+    pair<uint64_t, uint64_t> extent_requested;
+
+    // valid when continue_recovery_op is called with !pending_read,
+    // state == READING, must contain extent in extent_requested
+    bufferlist bl;
+
+    RecoveryOp() : pending_read(false), state(IDLE) {}
   };
+  map<hobject_t, RecoveryOp> recovery_ops;
   struct ReadOp {
     tid_t tid;
     list<
@@ -185,6 +201,13 @@ private:
       delete on_all_commit;
     }
   };
+
+  void start_recovery_op(
+    const RecoveryOp &op,
+    RecoveryMessages *m);
+  void do_recovery_progress(
+    const RecoveryOp &op,
+    RecoveryMessages *m);
 
   void dispatch_recovery_messages(RecoveryMessages &m);
   friend struct OnRecoveryReadComplete;
