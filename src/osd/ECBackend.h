@@ -112,10 +112,17 @@ public:
 
 private:
   friend struct ECRecoveryHandle;
+  uint64_t get_recovery_chunk_size() const {
+    uint64_t max = cct->_conf->osd_recovery_max_chunk;
+    max -= max % stripe_size;
+    max += stripe_size;
+    return max;
+  }
   struct RecoveryOp {
     hobject_t hoid;
     eversion_t v;
-    ObjectContextRef obc;
+    set<shard_id_t> present_on;
+    set<shard_id_t> missing_on;
 
     ObjectRecoveryInfo recovery_info;
     ObjectRecoveryProgress recovery_progress;
@@ -126,6 +133,7 @@ private:
 
     // must be filled if state == WRITING
     map<string, bufferlist> xattrs;
+    ObjectContextRef obc;
 
     // valid in state READING
     pair<uint64_t, uint64_t> extent_requested;
@@ -142,7 +150,8 @@ private:
     list<
       pair<
 	hobject_t,
-	boost::tuple<uint64_t, uint64_t, bufferlist*>
+	boost::tuple<
+	  uint64_t, uint64_t, bufferlist*, map<shard_id_t, bufferlist*> >
 	>
       > to_read;
     map<
@@ -164,7 +173,8 @@ private:
     const list<
       pair<
 	hobject_t,
-	boost::tuple<uint64_t, uint64_t, bufferlist*>
+	boost::tuple<
+	  uint64_t, uint64_t, bufferlist*, map<shard_id_t, bufferlist*> >
 	>
       > &to_read,
     const map<hobject_t, map<string, bufferlist> *> &attrs_to_read,
@@ -210,7 +220,8 @@ private:
   friend struct OnRecoveryReadComplete;
   void handle_recovery_read_complete(
     const hobject_t &hoid,
-    list<boost::tuple<uint64_t, uint64_t, bufferlist> > &to_read,
+    list<
+      boost::tuple<uint64_t, uint64_t, map<shard_id_t, bufferlist> > > &to_read,
     map<string, bufferlist> *attrs,
     RecoveryMessages *m);
   void handle_recovery_push(

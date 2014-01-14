@@ -40,11 +40,14 @@ PGBackend::RecoveryHandle *open_recovery_op()
 }
 
 struct RecoveryMessages {
-  map<hobject_t, list<pair<uint64_t, uint64_t> > > to_read;
+  map<hobject_t,
+      list<boost::tuple<uint64_t, uint64_t, set<shard_id_t> > > > to_read;
   set<hobject_t> xattrs_to_read;
 
-  void read(const hobject_t &hoid, uint64_t off, uint64_t len) {
-    to_read[hoid].push_back(make_pair(off, len));
+  void read(
+    const hobject_t &hoid, uint64_t off, uint64_t len,
+    const set<shard_id_t> &need) {
+    to_read[hoid].push_back(boost::make_tuple(off, len, need));
   }
   void fetch_xattrs(
     const hobject_t &hoid) {
@@ -70,7 +73,7 @@ void ECBackend::handle_recovery_push_reply(
 
 void ECBackend::handle_recovery_read_complete(
   const hobject_t &hoid,
-  list<boost::tuple<uint64_t, uint64_t, bufferlist> > &to_read,
+  list<boost::tuple<uint64_t, uint64_t, map<shard_id_t, bufferlist> > > &to_read,
   map<string, bufferlist> *attrs,
   RecoveryMessages *m)
 {
@@ -79,14 +82,16 @@ void ECBackend::handle_recovery_read_complete(
 struct OnRecoveryReadComplete : public Context {
   map<
     hobject_t,
-    list<boost::tuple<uint64_t, uint64_t, bufferlist> >
+    list<boost::tuple<uint64_t, uint64_t, map<shard_id_t, bufferlist> > >
     > data;
   map<hobject_t, map<string, bufferlist> > attrs;
   ECBackend *pg;
   void finish(int) {
     RecoveryMessages rm;
-    for (map<hobject_t,
-	     list<boost::tuple<uint64_t, uint64_t, bufferlist> > >::iterator i =
+    for (map<
+	   hobject_t,
+	   list<boost::tuple<uint64_t, uint64_t, map<shard_id_t, bufferlist> > >
+	   >::iterator i =
 	   data.begin();
 	 i != data.end();
 	 data.erase(i++)) {
@@ -131,30 +136,45 @@ void ECBackend::dispatch_recovery_messages(RecoveryMessages &m)
   list<
     pair<
       hobject_t,
-      boost::tuple<uint64_t, uint64_t, bufferlist*>
+      boost::tuple<uint64_t, uint64_t, bufferlist*,
+		   map<shard_id_t, bufferlist*> >
       >
     > to_read;
   map<hobject_t, map<string, bufferlist> *> xattrs_to_read;
-  for (map<hobject_t, list<pair<uint64_t, uint64_t> > >::iterator i =
+  for (map<
+	 hobject_t,
+	 list<boost::tuple<uint64_t, uint64_t, set<shard_id_t> > >
+	 >::iterator i =
 	 m.to_read.begin();
        i != m.to_read.end();
        m.to_read.erase(i++)) {
-    list<boost::tuple<uint64_t, uint64_t, bufferlist> > &dlist =
+    list<
+      boost::tuple<uint64_t, uint64_t, map<shard_id_t, bufferlist> > > &dlist =
       c->data[i->first];
-    for (list<pair<uint64_t, uint64_t> >::iterator j = i->second.begin();
+    for (list<boost::tuple<uint64_t, uint64_t, set<shard_id_t> > >::iterator j =
+	   i->second.begin();
 	 j != i->second.end();
 	 i->second.erase(j++)) {
-      bufferlist *blptr = &(
-	dlist.insert(
-	  dlist.end(),
-	  boost::make_tuple(
-	    j->first,
-	    j->second,
-	    bufferlist()))->get<2>());
+      dlist.push_back(
+	boost::make_tuple(
+	  j->get<0>(),
+	  j->get<1>(),
+	  map<shard_id_t, bufferlist>()));
       to_read.push_back(
 	make_pair(
 	  i->first,
-	  boost::make_tuple(j->first, j->second, blptr)));
+	  boost::make_tuple(
+	    j->get<0>(), j->get<1>(),
+	    (bufferlist*)NULL, map<shard_id_t, bufferlist*>())));
+      for (set<shard_id_t>::iterator k = j->get<2>().begin();
+	   k != j->get<2>().end();
+	   ++k) {
+	dlist.back().get<2>().insert(make_pair(*k, bufferlist()));
+	to_read.back().second.get<3>().insert(
+	  make_pair(
+	    *k,
+	    &(dlist.back().get<2>()[*k])));
+      }
     }
     if (m.xattrs_to_read.count(i->first)) {
       xattrs_to_read.insert(
@@ -180,6 +200,9 @@ void ECBackend::continue_recovery_op(
       // start read
       if (op.recovery_progress.first)
 	m->fetch_xattrs(op.hoid);
+      m->read(op.hoid, 0, get_recovery_chunk_size(), op.missing_on);
+      op.extent_requested = make_pair(0, get_recovery_chunk_size());
+      op.state = RecoveryOp::READING;
     }
     default:
       assert(0);
@@ -467,7 +490,8 @@ void ECBackend::handle_sub_read_reply(
   list<
     pair<
       hobject_t,
-      boost::tuple<uint64_t, uint64_t, bufferlist*>
+      boost::tuple<
+	uint64_t, uint64_t, bufferlist*, map<shard_id_t, bufferlist*> >
       >
     >::iterator out_iter;
 
@@ -497,16 +521,39 @@ void ECBackend::handle_sub_read_reply(
       chunks[i->first.shard].claim(i->second->second.second);
       ++(i->second);
     }
-    bufferlist decoded;
-    int r = ECUtil::decode(
-      stripe_size, stripe_width, ec_impl, chunks,
-      &decoded);
-    assert(r == 0);
-    out_iter->second.get<2>()->substr_of(
-      decoded,
-      out_iter->second.get<0>() - ECUtil::logical_to_prev_stripe_bound_obj(
-	stripe_size, stripe_width, out_iter->second.get<0>()),
-      out_iter->second.get<1>());
+    if (out_iter->second.get<2>()) {
+      bufferlist decoded;
+      int r = ECUtil::decode(
+	stripe_size, stripe_width, ec_impl, chunks,
+	&decoded);
+      assert(r == 0);
+      out_iter->second.get<2>()->substr_of(
+	decoded,
+	out_iter->second.get<0>() - ECUtil::logical_to_prev_stripe_bound_obj(
+	  stripe_size, stripe_width, out_iter->second.get<0>()),
+	out_iter->second.get<1>());
+    }
+    if (out_iter->second.get<3>().size()) {
+      assert(out_iter->second.get<0>() % stripe_size == 0);
+      assert(out_iter->second.get<1>() % stripe_size == 0);
+      map<int, bufferlist> decoded;
+      set<int> need;
+      for (map<shard_id_t, bufferlist*>::iterator i =
+	     out_iter->second.get<3>().begin();
+	   i != out_iter->second.get<3>().end();
+	   ++i) {
+	need.insert(i->first);
+      }
+      int r = ec_impl->decode(need, chunks, &decoded);
+      assert(r == 0);
+      for (map<shard_id_t, bufferlist*>::iterator i =
+	     out_iter->second.get<3>().begin();
+	   i != out_iter->second.get<3>().end();
+	   ++i) {
+	assert(i->second);
+	i->second->claim(decoded[i->first]);
+      }
+    }
   }
   readop.on_complete->complete(0);
   tid_to_read_map.erase(iter);
@@ -585,7 +632,8 @@ void ECBackend::start_read_op(
   const list<
     pair<
       hobject_t,
-      boost::tuple<uint64_t, uint64_t, bufferlist*>
+      boost::tuple<
+	uint64_t, uint64_t, bufferlist*, map<shard_id_t, bufferlist*> >
       >
     > &to_read,
   const map<hobject_t, map<string, bufferlist> *> &attrs_to_read,
@@ -603,7 +651,8 @@ void ECBackend::start_read_op(
   for (list<
 	 pair<
 	   hobject_t,
-	   boost::tuple<uint64_t, uint64_t, bufferlist*>
+	   boost::tuple<
+	     uint64_t, uint64_t, bufferlist*, map<shard_id_t, bufferlist*> >
 	   >
 	 >::const_iterator i = to_read.begin();
        i != to_read.end();
@@ -703,7 +752,8 @@ void ECBackend::start_read(Op *op) {
   list<
     pair<
       hobject_t,
-      boost::tuple<uint64_t, uint64_t, bufferlist*>
+      boost::tuple<
+	uint64_t, uint64_t, bufferlist*, map<shard_id_t, bufferlist*> >
       >
     > to_read;
   for (map<hobject_t, uint64_t>::iterator i = op->must_read.begin();
@@ -722,7 +772,8 @@ void ECBackend::start_read(Op *op) {
 	boost::make_tuple(
 	  i->second,
 	  stripe_width,
-	  &(iter->second.second))));
+	  &(iter->second.second),
+	  map<shard_id_t, bufferlist*>())));
   }
 
   start_read_op(
@@ -884,7 +935,8 @@ void ECBackend::objects_read_async(
   list<
     pair<
       hobject_t,
-      boost::tuple<uint64_t, uint64_t, bufferlist*>
+      boost::tuple<
+	uint64_t, uint64_t, bufferlist*, map<shard_id_t, bufferlist* > >
       >
     > for_read_op;
   for (list<pair<pair<uint64_t, uint64_t>,
@@ -895,7 +947,9 @@ void ECBackend::objects_read_async(
     for_read_op.push_back(
       make_pair(
 	hoid,
-	boost::make_tuple(i->first.first, i->first.second, i->second.first)));
+	boost::make_tuple(
+	  i->first.first, i->first.second, i->second.first,
+	  map<shard_id_t, bufferlist*>())));
   }
   start_read_op(
     get_parent()->get_tid(),
