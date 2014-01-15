@@ -132,6 +132,7 @@ private:
     enum { IDLE, READING, WRITING, COMPLETE } state;
 
     // must be filled if state == WRITING
+    map<shard_id_t, bufferlist> returned_data;
     map<string, bufferlist> xattrs;
     ObjectContextRef obc;
 

@@ -77,6 +77,14 @@ void ECBackend::handle_recovery_read_complete(
   map<string, bufferlist> *attrs,
   RecoveryMessages *m)
 {
+  assert(to_read.size() == 1);
+  assert(recovery_ops.count(hoid));
+  RecoveryOp &op = recovery_ops[hoid];
+  op.returned_data.swap(to_read.front().get<2>());
+  if (attrs)
+    op.xattrs.swap(*attrs);
+  assert(op.xattrs.size());
+  continue_recovery_op(op, m);
 }
 
 struct OnRecoveryReadComplete : public Context {
