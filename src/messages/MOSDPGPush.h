@@ -24,6 +24,7 @@ class MOSDPGPush : public Message {
 
 
 public:
+  pg_shard_t from;
   spg_t pgid;
   epoch_t map_epoch;
   vector<PushOp> pushes;
@@ -57,6 +58,10 @@ public:
       ::decode(pgid.shard, p);
     else
       pgid.shard = ghobject_t::NO_SHARD;
+    if (header.version >= 2)
+      ::decode(from, payload);
+    else
+      from = pg_shard_t(get_source().num(), ghobject_t::NO_SHARD);
   }
 
   virtual void encode_payload(uint64_t features) {
@@ -65,6 +70,7 @@ public:
     ::encode(pushes, payload);
     ::encode(cost, payload);
     ::encode(pgid.shard, payload);
+    ::encode(from, payload);
   }
 
   const char *get_type_name() const { return "MOSDPGPush"; }

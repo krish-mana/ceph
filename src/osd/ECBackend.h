@@ -231,6 +231,7 @@ private:
     RecoveryMessages *m);
   void handle_recovery_push_reply(
     PushReplyOp &op,
+    pg_shard_t from,
     RecoveryMessages *m);
 
   ObjectStore *store;

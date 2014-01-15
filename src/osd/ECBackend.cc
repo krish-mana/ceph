@@ -65,13 +65,58 @@ void ECBackend::handle_recovery_push(
   RecoveryMessages *m)
 {
   bool oneshot = op.before_progress.first && op.after_progress.data_complete;
-  assert(oneshot);
+  coll_t tcoll = oneshot ? coll : get_temp_coll(&(m->t));
+  assert(op.data_included.size() == 1);
+  uint64_t start = op.data_included.range_start();
+  uint64_t end = op.data_included.range_end();
+  assert(op.data.length() == (end - start));
+
+  if (op.before_progress.first) {
+    if (!oneshot)
+      add_temp_obj(op.soid);
+    m->t.setattrs(tcoll, op.soid, op.attrset);
+  }
+
+  m->t.write(
+    tcoll,
+    op.soid,
+    start,
+    op.data.length(),
+    op.data);
+
+  if (op.after_progress.data_complete && !oneshot) {
+    clear_temp_obj(op.soid);
+    m->t.collection_move(
+      coll,
+      tcoll,
+      op.soid);
+  }
+  if (op.before_progress.first && get_parent()->pgb_is_primary()) {
+    get_parent()->on_local_recover_start(
+      op.soid,
+      &(m->t));
+  }
+  if (op.after_progress.data_complete && !(get_parent()->pgb_is_primary())) {
+    get_parent()->on_local_recover(
+      op.soid,
+      object_stat_sum_t(),
+      op.recovery_info,
+      ObjectContextRef(),
+      &(m->t));
+  }
 }
 
 void ECBackend::handle_recovery_push_reply(
   PushReplyOp &op,
+  pg_shard_t from,
   RecoveryMessages *m)
 {
+  if (!recovery_ops.count(op.soid))
+    return;
+  RecoveryOp &rop = recovery_ops[op.soid];
+  assert(rop.waiting_on_pushes.count(from));
+  rop.waiting_on_pushes.erase(from);
+  continue_recovery_op(rop, m);
 }
 
 void ECBackend::handle_recovery_read_complete(
@@ -128,6 +173,7 @@ void ECBackend::dispatch_recovery_messages(RecoveryMessages &m)
        i != m.pushes.end();
        m.pushes.erase(i++)) {
     MOSDPGPush *msg = new MOSDPGPush();
+    msg->from = get_parent()->whoami_shard();
     msg->pgid = spg_t(get_parent()->get_info().pgid, i->first.shard);
     msg->pushes.swap(i->second);
     msg->compute_cost(cct);
@@ -140,6 +186,7 @@ void ECBackend::dispatch_recovery_messages(RecoveryMessages &m)
        i != m.push_replies.end();
        m.push_replies.erase(i++)) {
     MOSDPGPushReply *msg = new MOSDPGPushReply();
+    msg->from = get_parent()->whoami_shard();
     msg->pgid = spg_t(get_parent()->get_info().pgid, i->first.shard);
     msg->replies.swap(i->second);
     msg->compute_cost(cct);
@@ -383,7 +430,7 @@ bool ECBackend::handle_message(
     for (vector<PushReplyOp>::iterator i = op->replies.begin();
 	 i != op->replies.end();
 	 ++i) {
-      handle_recovery_push_reply(*i, &rm);
+      handle_recovery_push_reply(*i, op->from, &rm);
     }
     dispatch_recovery_messages(rm);
     return true;
