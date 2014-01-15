@@ -177,6 +177,10 @@ private:
       > &to_read,
     const map<hobject_t, map<string, bufferlist> *> &attrs_to_read,
     Context *c);
+  void clear_read_op(
+    tid_t tid);
+  void restart_read_op(
+    ReadOp &op);
 
   struct Op {
     hobject_t hoid;

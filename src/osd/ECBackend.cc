@@ -57,12 +57,15 @@ struct RecoveryMessages {
 
   map<pg_shard_t, vector<PushOp> > pushes;
   map<pg_shard_t, vector<PushReplyOp> > push_replies;
+  ObjectStore::Transaction t;
 };
 
 void ECBackend::handle_recovery_push(
   PushOp &op,
   RecoveryMessages *m)
 {
+  bool oneshot = op.before_progress.first && op.after_progress.data_complete;
+  assert(oneshot);
 }
 
 void ECBackend::handle_recovery_push_reply(
@@ -206,65 +209,87 @@ void ECBackend::continue_recovery_op(
   RecoveryOp &op,
   RecoveryMessages *m)
 {
-  switch (op.state) {
-  case RecoveryOp::IDLE: {
-    // start read
-    op.state = RecoveryOp::READING;
-    if (op.recovery_progress.first && !op.obc) {
-      m->fetch_xattrs(op.hoid);
-    }
-    m->read(op.hoid, op.recovery_progress.data_recovered_to,
-	    get_recovery_chunk_size(), op.missing_on_shards);
-    op.extent_requested = make_pair(op.recovery_progress.data_recovered_to,
-				    get_recovery_chunk_size());
-    return;
-  }
-  case RecoveryOp::READING: {
-    // read completed, start write
-    assert(op.xattrs.size());
-    assert(op.returned_data.size());
-    op.state = RecoveryOp::WRITING;
-    ObjectRecoveryProgress after_progress = op.recovery_progress;
-    after_progress.data_recovered_to += get_recovery_chunk_size();
-    after_progress.first = false;
-    if (after_progress.data_recovered_to >= op.obc->obs.oi.size)
-      after_progress.data_complete = true;
-    for (set<pg_shard_t>::iterator mi = op.missing_on.begin();
-	 mi != op.missing_on.end();
-	 ++mi) {
-      assert(op.returned_data.count(mi->shard));
-      m->pushes[*mi].push_back(PushOp());
-      PushOp &pop = m->pushes[*mi].back();
-      pop.soid = op.hoid;
-      pop.version = op.v;
-      pop.data = op.returned_data[mi->shard];
-      pop.data_included.insert(
-	ECUtil::logical_to_prev_stripe_bound_obj(
-	  stripe_size,
-	  stripe_width,
-	  op.recovery_progress.data_recovered_to),
-	pop.data.length()
-	);
+  while (1) {
+    switch (op.state) {
+    case RecoveryOp::IDLE: {
+      // start read
+      op.state = RecoveryOp::READING;
       if (op.recovery_progress.first) {
-	// TODOSAM: fix PushOp bufferptr nonsense
-	// pop.attrset = op.xattrs;
+	m->fetch_xattrs(op.hoid);
       }
-      pop.recovery_info = op.recovery_info;
-      pop.before_progress = op.recovery_progress;
-      pop.after_progress = after_progress;
+      assert(!op.recovery_progress.data_complete);
+      m->read(op.hoid, op.recovery_progress.data_recovered_to,
+	      get_recovery_chunk_size(), op.missing_on_shards);
+      op.extent_requested = make_pair(op.recovery_progress.data_recovered_to,
+				      get_recovery_chunk_size());
+      return;
     }
-    op.waiting_on_pushes = op.missing_on;
-  }
-  case RecoveryOp::WRITING: {
-    if (op.waiting_on_pushes.empty()) {
-      if (op.recovery_progress.data_complete) {
-	op.state = RecoveryOp::COMPLETE;
-	// TODOSAM: finish up
+    case RecoveryOp::READING: {
+      // read completed, start write
+      assert(op.xattrs.size());
+      assert(op.returned_data.size());
+      op.state = RecoveryOp::WRITING;
+      ObjectRecoveryProgress after_progress = op.recovery_progress;
+      after_progress.data_recovered_to += get_recovery_chunk_size();
+      after_progress.first = false;
+      if (after_progress.data_recovered_to >= op.obc->obs.oi.size)
+	after_progress.data_complete = true;
+      for (set<pg_shard_t>::iterator mi = op.missing_on.begin();
+	   mi != op.missing_on.end();
+	   ++mi) {
+	assert(op.returned_data.count(mi->shard));
+	m->pushes[*mi].push_back(PushOp());
+	PushOp &pop = m->pushes[*mi].back();
+	pop.soid = op.hoid;
+	pop.version = op.v;
+	pop.data = op.returned_data[mi->shard];
+	pop.data_included.insert(
+	  ECUtil::logical_to_prev_stripe_bound_obj(
+	    stripe_size,
+	    stripe_width,
+	    op.recovery_progress.data_recovered_to),
+	  pop.data.length()
+	  );
+	if (op.recovery_progress.first) {
+	  // TODOSAM: fix PushOp bufferptr nonsense
+	  // pop.attrset = op.xattrs;
+	}
+	pop.recovery_info = op.recovery_info;
+	pop.before_progress = op.recovery_progress;
+	pop.after_progress = after_progress;
+      }
+      op.waiting_on_pushes = op.missing_on;
+    }
+    case RecoveryOp::WRITING: {
+      if (op.waiting_on_pushes.empty()) {
+	if (op.recovery_progress.data_complete) {
+	  op.state = RecoveryOp::COMPLETE;
+	  if (get_parent()->get_local_missing().is_missing(op.hoid)) {
+	    object_stat_sum_t stats;
+	    stats.num_objects_recovered = 1;
+	    stats.num_bytes_recovered = op.obc->obs.oi.size;
+	    get_parent()->on_local_recover(
+	      op.hoid,
+	      stats,
+	      op.recovery_info,
+	      op.obc,
+	      &(m->t));
+	  }
+	  get_parent()->on_global_recover(op.hoid);
+	  recovery_ops.erase(op.hoid);
+	  return;
+	} else {
+	  op.state = RecoveryOp::IDLE;
+	  continue;
+	}
       }
     }
-  }
-  default:
-    assert(0);
+    case RecoveryOp::COMPLETE: {
+      assert(0); // should never be called once complete
+    };
+    default:
+      assert(0);
+    }
   }
 }
 
@@ -817,6 +842,16 @@ void ECBackend::start_read_op(
       msg,
       get_parent()->get_epoch());
   }
+}
+
+void ECBackend::clear_read_op(
+  tid_t tid)
+{
+}
+
+void ECBackend::restart_read_op(
+  ReadOp &op)
+{
 }
 
 void ECBackend::call_commit_apply_cbs()
