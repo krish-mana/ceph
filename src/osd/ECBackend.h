@@ -121,8 +121,8 @@ private:
   struct RecoveryOp {
     hobject_t hoid;
     eversion_t v;
-    set<shard_id_t> present_on;
-    set<shard_id_t> missing_on;
+    set<pg_shard_t> missing_on;
+    set<shard_id_t> missing_on_shards;
 
     ObjectRecoveryInfo recovery_info;
     ObjectRecoveryProgress recovery_progress;
@@ -135,13 +135,10 @@ private:
     map<shard_id_t, bufferlist> returned_data;
     map<string, bufferlist> xattrs;
     ObjectContextRef obc;
+    set<pg_shard_t> waiting_on_pushes;
 
     // valid in state READING
     pair<uint64_t, uint64_t> extent_requested;
-
-    // valid when continue_recovery_op is called with !pending_read,
-    // state == READING, must contain extent in extent_requested
-    bufferlist bl;
 
     RecoveryOp() : pending_read(false), state(IDLE) {}
   };
