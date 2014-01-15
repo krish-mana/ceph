@@ -296,6 +296,16 @@ public:
 	min_to_read.insert(*i);
     }
   }
+
+  int get_min_avail_to_read(
+    const hobject_t &hoid,
+    set<pg_shard_t> *to_read);
+
+  int get_min_avail_to_read_shards(
+    const hobject_t &hoid,
+    const set<int> &want,
+    set<pg_shard_t> *to_read);
+
   void clear() {
     actingbackfill.clear();
     min_to_read.clear();

@@ -627,6 +627,52 @@ void ECBackend::submit_transaction(
   check_pending_ops();
 }
 
+int ECBackend::get_min_avail_to_read(
+  const hobject_t &hoid,
+  set<pg_shard_t> *to_read)
+{
+  set<int> want;
+  for (int i = 0; i < 0/*ec_impl->get_data_chunk_count()*/; ++i)
+    want.insert(i);
+  return get_min_avail_to_read_shards(hoid, want, to_read);
+}
+
+int ECBackend::get_min_avail_to_read_shards(
+  const hobject_t &hoid,
+  const set<int> &want,
+  set<pg_shard_t> *to_read)
+{
+  map<hobject_t, set<pg_shard_t> >::const_iterator miter =
+    get_parent()->get_missing_loc_shards().find(hoid);
+  if (miter != get_parent()->get_missing_loc_shards().end()) {
+    set<int> have;
+    set<int> need;
+    for (set<pg_shard_t>::iterator i = miter->second.begin();
+	 i != miter->second.end();
+	 ++i) {
+      have.insert(i->shard);
+    }
+    int r = ec_impl->minimum_to_decode(want, have, &need);
+    if (r < 0)
+      return r;
+    if (!to_read)
+      return 0;
+    for (set<pg_shard_t>::iterator i = miter->second.begin();
+	 i != miter->second.end() && !need.empty();
+	 ++i) {
+      if (need.count(i->shard)) {
+	to_read->insert(*i);
+	need.erase(i->shard);
+      }
+    }
+    return 0;
+  } else {
+    if (to_read)
+      *to_read = min_to_read;
+    return 0;
+  }
+}
+
 void ECBackend::start_read_op(
   tid_t tid,
   const list<
@@ -642,12 +688,10 @@ void ECBackend::start_read_op(
   assert(!tid_to_read_map.count(tid));
   ReadOp &op(tid_to_read_map[tid]);
   op.to_read = to_read;
-  op.in_progress = min_to_read;
   op.on_complete = onfinish;
   op.attrs_to_read = attrs_to_read;
 
-  ECSubRead readmsg;
-  readmsg.tid = tid;
+  map<pg_shard_t, ECSubRead> messages;
   for (list<
 	 pair<
 	   hobject_t,
@@ -666,32 +710,52 @@ void ECBackend::start_read_op(
 	stripe_size, stripe_width,
 	i->second.get<0>());
     uint64_t obj_len = obj_end - obj_offset;
-    readmsg.to_read.push_back(
-      make_pair(
+    set<pg_shard_t> min;
+    if (i->second.get<2>()) {
+      int r = get_min_avail_to_read(
 	i->first,
-	make_pair(obj_offset, obj_len)));
+	&min);
+      assert(r == 0); // caller must have confirmed that we have enough shards
+    } else if (i->second.get<3>().size()) {
+      set<int> needed;
+      for (map<shard_id_t, bufferlist*>::const_iterator j =
+	     i->second.get<3>().begin();
+	   j != i->second.get<3>().end();
+	   ++j) {
+	needed.insert(j->first);
+      }
+      int r = get_min_avail_to_read_shards(
+	i->first,
+	needed,
+	&min);
+      assert(r == 0); // caller must have confirmed that we have enough shards
+    } else {
+      assert(0); // if a caller only needs xattrs, fix this
+    }
+    bool must_request_attrs = attrs_to_read.count(i->first);
+    for (set<pg_shard_t>::iterator j = min.begin();
+	 j != min.end();
+	 ++j) {
+      messages[*j].to_read.push_back(
+	make_pair(
+	  i->first,
+	  make_pair(obj_offset, obj_len)));
+      if (must_request_attrs) {
+	messages[*j].attrs_to_read.insert(i->first);
+	must_request_attrs = false;
+      }
+    }
   }
-  bool requested_attrs = false;
-  for (set<pg_shard_t>::iterator i = op.in_progress.begin();
-       i != op.in_progress.end();
+  for (map<pg_shard_t, ECSubRead>::iterator i = messages.begin();
+       i != messages.end();
        ++i) {
+    i->second.tid = tid;
     MOSDECSubOpRead *msg = new MOSDECSubOpRead;
     msg->pgid = get_parent()->whoami_spg_t();
     msg->map_epoch = get_parent()->get_epoch();
-    msg->op = readmsg;
-    if (!requested_attrs) {
-      set<hobject_t> attrs;
-      for (map<hobject_t, map<string, bufferlist>*>::const_iterator i =
-	     attrs_to_read.begin();
-	   i != attrs_to_read.end();
-	   ++i) {
-	attrs.insert(i->first);
-      }
-      msg->op.attrs_to_read = attrs;
-      requested_attrs = true;
-    }
+    msg->op = i->second;
     get_parent()->send_message_osd_cluster(
-      i->osd,
+      i->first.osd,
       msg,
       get_parent()->get_epoch());
   }
