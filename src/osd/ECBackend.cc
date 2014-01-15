@@ -700,6 +700,28 @@ void ECBackend::handle_sub_read_reply(
 
 void ECBackend::check_recovery_sources(const OSDMapRef osdmap)
 {
+  set<tid_t> tids_to_restart;
+  for (map<pg_shard_t, set<tid_t> >::iterator i = shard_to_read_map.begin();
+       i != shard_to_read_map.end();
+       ++i) {
+    if (osdmap->is_down(i->first.osd)) {
+      tids_to_restart.insert(i->second.begin(), i->second.end());
+    }
+  }
+  for (set<tid_t>::iterator i = tids_to_restart.begin();
+       i != tids_to_restart.end();
+       ++i) {
+    map<tid_t, ReadOp>::iterator j = tid_to_read_map.find(*i);
+    assert(j != tid_to_read_map.end());
+    restart_read_op(j->second);
+  }
+  for (map<pg_shard_t, set<tid_t> >::iterator i = shard_to_read_map.begin();
+       i != shard_to_read_map.end();
+       ++i) {
+    if (osdmap->is_down(i->first.osd)) {
+      assert(0); // should have been handled already
+    }
+  }
 }
 
 void ECBackend::_on_change(ObjectStore::Transaction *t)
