@@ -245,7 +245,6 @@ void ECBackend::dispatch_recovery_messages(RecoveryMessages &m)
 	  &(c->attrs[i->first])));
     }
     start_read_op(
-      get_parent()->get_tid(),
       to_read,
       xattrs_to_read,
       c);
@@ -595,10 +594,18 @@ void ECBackend::handle_sub_read_reply(
   ECSubReadReply &op)
 {
   map<tid_t, ReadOp>::iterator iter = tid_to_read_map.find(op.tid);
-  assert(iter != tid_to_read_map.end());
+  if (iter == tid_to_read_map.end()) {
+    //canceled
+    return;
+  }
   assert(iter->second.in_progress.count(from));
   iter->second.complete[from].swap(op.buffers_read);
   iter->second.in_progress.erase(from);
+
+  map<pg_shard_t, set<tid_t> >::iterator siter = shard_to_read_map.find(from);
+  assert(siter != shard_to_read_map.end());
+  assert(siter->second.count(op.tid));
+  siter->second.erase(op.tid);
 
   for (map<hobject_t, map<string, bufferlist> >::iterator i =
 	 op.attrs_read.begin();
@@ -686,7 +693,9 @@ void ECBackend::handle_sub_read_reply(
     }
   }
   readop.on_complete->complete(0);
-  tid_to_read_map.erase(iter);
+  readop.on_complete = NULL;
+  assert(readop.in_progress.empty());
+  tid_to_read_map.erase(readop.tid);
 }
 
 void ECBackend::check_recovery_sources(const OSDMapRef osdmap)
@@ -705,6 +714,7 @@ void ECBackend::clear_state()
   writing.clear();
   tid_to_op_map.clear();
   tid_to_read_map.clear();
+  shard_to_read_map.clear();
 }
 
 void ECBackend::on_flushed()
@@ -804,7 +814,6 @@ int ECBackend::get_min_avail_to_read_shards(
 }
 
 void ECBackend::start_read_op(
-  tid_t tid,
   const list<
     pair<
       hobject_t,
@@ -813,13 +822,16 @@ void ECBackend::start_read_op(
       >
     > &to_read,
   const map<hobject_t, map<string, bufferlist> *> &attrs_to_read,
-  Context *onfinish)
+  Context *onfinish,
+  OpRequestRef _op)
 {
+  tid_t tid = get_parent()->get_tid();
   assert(!tid_to_read_map.count(tid));
   ReadOp &op(tid_to_read_map[tid]);
   op.to_read = to_read;
   op.on_complete = onfinish;
   op.attrs_to_read = attrs_to_read;
+  op.op = _op;
 
   map<pg_shard_t, ECSubRead> messages;
   for (list<
@@ -879,6 +891,8 @@ void ECBackend::start_read_op(
   for (map<pg_shard_t, ECSubRead>::iterator i = messages.begin();
        i != messages.end();
        ++i) {
+    op.in_progress.insert(i->first);
+    shard_to_read_map[i->first].insert(op.tid);
     i->second.tid = tid;
     MOSDECSubOpRead *msg = new MOSDECSubOpRead;
     msg->pgid = get_parent()->whoami_spg_t();
@@ -891,14 +905,34 @@ void ECBackend::start_read_op(
   }
 }
 
-void ECBackend::clear_read_op(
+void ECBackend::cancel_read_op(
   tid_t tid)
 {
+  assert(tid_to_read_map.count(tid));
+  ReadOp &op = tid_to_read_map[tid];
+  for (set<pg_shard_t>::iterator i = op.in_progress.begin();
+       i != op.in_progress.end();
+       ++i) {
+    map<pg_shard_t, set<tid_t> >::iterator siter = shard_to_read_map.find(*i);
+    assert(siter != shard_to_read_map.end());
+    assert(siter->second.count(tid));
+    siter->second.erase(tid);
+    if (siter->second.empty())
+      shard_to_read_map.erase(siter);
+  }
+  tid_to_read_map.erase(tid);
 }
 
 void ECBackend::restart_read_op(
   ReadOp &op)
 {
+  start_read_op(
+    op.to_read,
+    op.attrs_to_read,
+    op.on_complete,
+    op.op);
+  cancel_read_op(
+    op.tid);
 }
 
 void ECBackend::call_commit_apply_cbs()
@@ -981,10 +1015,10 @@ void ECBackend::start_read(Op *op) {
   }
 
   start_read_op(
-    op->tid,
     to_read,
     map<hobject_t, map<string, bufferlist>*>(),
-    new ReadCB(this, op));
+    new ReadCB(this, op),
+    op->client_op);
 }
 
 void ECBackend::start_write(Op *op) {
@@ -1156,7 +1190,6 @@ void ECBackend::objects_read_async(
 	  map<shard_id_t, bufferlist*>())));
   }
   start_read_op(
-    get_parent()->get_tid(),
     for_read_op,
     map<hobject_t, map<string, bufferlist>*>(),
     new CallClientContexts(to_read, on_complete));

@@ -144,6 +144,7 @@ private:
   };
   map<hobject_t, RecoveryOp> recovery_ops;
   struct ReadOp {
+    OpRequestRef op; // may be null if not on behalf of a client
     tid_t tid;
     list<
       pair<
@@ -164,10 +165,13 @@ private:
     map<hobject_t, map<string, bufferlist> *> attrs_to_read;
     set<pg_shard_t> in_progress;
     Context *on_complete;
+
+    ReadOp() : on_complete(NULL) {}
+    ~ReadOp() { delete on_complete; }
   };
   map<tid_t, ReadOp> tid_to_read_map;
+  map<pg_shard_t, set<tid_t> > shard_to_read_map;
   void start_read_op(
-    tid_t tid,
     const list<
       pair<
 	hobject_t,
@@ -176,8 +180,9 @@ private:
 	>
       > &to_read,
     const map<hobject_t, map<string, bufferlist> *> &attrs_to_read,
-    Context *c);
-  void clear_read_op(
+    Context *c,
+    OpRequestRef op = OpRequestRef());
+  void cancel_read_op(
     tid_t tid);
   void restart_read_op(
     ReadOp &op);
