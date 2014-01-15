@@ -879,7 +879,10 @@ void ECBackend::start_read_op(
       int r = get_min_avail_to_read(
 	i->first,
 	&min);
-      assert(r == 0); // caller must have confirmed that we have enough shards
+      if (r != 0) {
+	assert(0);
+	// TODOSAM: correctly handle case where we don't have enough copies
+      }
     } else if (i->second.get<3>().size()) {
       set<int> needed;
       for (map<shard_id_t, bufferlist*>::const_iterator j =
@@ -892,7 +895,10 @@ void ECBackend::start_read_op(
 	i->first,
 	needed,
 	&min);
-      assert(r == 0); // caller must have confirmed that we have enough shards
+      if (r != 0) {
+	assert(0);
+	// TODOSAM: correctly handle case where we don't have enough copies
+      }
     } else {
       assert(0); // if a caller only needs xattrs, fix this
     }
