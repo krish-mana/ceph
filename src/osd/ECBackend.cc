@@ -19,6 +19,8 @@
 
 #include "ECUtil.h"
 #include "ECBackend.h"
+#include "messages/MOSDPGPush.h"
+#include "messages/MOSDPGPushReply.h"
 
 #define dout_subsys ceph_subsys_osd
 #define DOUT_PREFIX_ARGS this
@@ -28,16 +30,329 @@ static ostream& _prefix(std::ostream *_dout, ECBackend *pgb) {
   return *_dout << pgb->get_parent()->gen_dbg_prefix();
 }
 
+struct ECRecoveryHandle : public PGBackend::RecoveryHandle {
+  list<ECBackend::RecoveryOp> ops;
+};
 
 PGBackend::RecoveryHandle *open_recovery_op()
 {
-  return 0;
+  return new ECRecoveryHandle;
+}
+
+struct RecoveryMessages {
+  map<hobject_t,
+      list<boost::tuple<uint64_t, uint64_t, set<shard_id_t> > > > to_read;
+  set<hobject_t> xattrs_to_read;
+
+  void read(
+    const hobject_t &hoid, uint64_t off, uint64_t len,
+    const set<shard_id_t> &need) {
+    to_read[hoid].push_back(boost::make_tuple(off, len, need));
+  }
+  void fetch_xattrs(
+    const hobject_t &hoid) {
+    to_read[hoid];
+    xattrs_to_read.insert(hoid);
+  }
+
+  map<pg_shard_t, vector<PushOp> > pushes;
+  map<pg_shard_t, vector<PushReplyOp> > push_replies;
+  ObjectStore::Transaction t;
+};
+
+void ECBackend::handle_recovery_push(
+  PushOp &op,
+  RecoveryMessages *m)
+{
+  bool oneshot = op.before_progress.first && op.after_progress.data_complete;
+  coll_t tcoll = oneshot ? coll : get_temp_coll(&(m->t));
+  assert(op.data_included.size() == 1);
+  uint64_t start = op.data_included.range_start();
+  uint64_t end = op.data_included.range_end();
+  assert(op.data.length() == (end - start));
+
+  if (op.before_progress.first) {
+    if (!oneshot)
+      add_temp_obj(op.soid);
+    m->t.setattrs(tcoll, op.soid, op.attrset);
+  }
+
+  m->t.write(
+    tcoll,
+    op.soid,
+    start,
+    op.data.length(),
+    op.data);
+
+  if (op.after_progress.data_complete && !oneshot) {
+    clear_temp_obj(op.soid);
+    m->t.collection_move(
+      coll,
+      tcoll,
+      op.soid);
+  }
+  if (op.before_progress.first && get_parent()->pgb_is_primary()) {
+    get_parent()->on_local_recover_start(
+      op.soid,
+      &(m->t));
+  }
+  if (op.after_progress.data_complete && !(get_parent()->pgb_is_primary())) {
+    get_parent()->on_local_recover(
+      op.soid,
+      object_stat_sum_t(),
+      op.recovery_info,
+      ObjectContextRef(),
+      &(m->t));
+  }
+}
+
+void ECBackend::handle_recovery_push_reply(
+  PushReplyOp &op,
+  pg_shard_t from,
+  RecoveryMessages *m)
+{
+  if (!recovery_ops.count(op.soid))
+    return;
+  RecoveryOp &rop = recovery_ops[op.soid];
+  assert(rop.waiting_on_pushes.count(from));
+  rop.waiting_on_pushes.erase(from);
+  continue_recovery_op(rop, m);
+}
+
+void ECBackend::handle_recovery_read_complete(
+  const hobject_t &hoid,
+  list<boost::tuple<uint64_t, uint64_t, map<shard_id_t, bufferlist> > > &to_read,
+  map<string, bufferlist> *attrs,
+  RecoveryMessages *m)
+{
+  assert(to_read.size() == 1);
+  assert(recovery_ops.count(hoid));
+  RecoveryOp &op = recovery_ops[hoid];
+  op.returned_data.swap(to_read.front().get<2>());
+  if (attrs) {
+    op.xattrs.swap(*attrs);
+    // TODOSAM: fix PGBackend get_obc bufferptr nonsense
+    //op.obc = get_parent()->get_obc(hoid, op.xattrs);
+  }
+  assert(op.xattrs.size());
+  assert(op.obc);
+  continue_recovery_op(op, m);
+}
+
+struct OnRecoveryReadComplete : public Context {
+  map<
+    hobject_t,
+    list<boost::tuple<uint64_t, uint64_t, map<shard_id_t, bufferlist> > >
+    > data;
+  map<hobject_t, map<string, bufferlist> > attrs;
+  ECBackend *pg;
+  void finish(int) {
+    RecoveryMessages rm;
+    for (map<
+	   hobject_t,
+	   list<boost::tuple<uint64_t, uint64_t, map<shard_id_t, bufferlist> > >
+	   >::iterator i =
+	   data.begin();
+	 i != data.end();
+	 data.erase(i++)) {
+      map<hobject_t, map<string, bufferlist> >::iterator aiter = attrs.find(
+	i->first);
+      pg->handle_recovery_read_complete(
+	i->first,
+	i->second,
+	aiter == attrs.end() ? NULL : &(aiter->second),
+	&rm);
+    }
+    pg->dispatch_recovery_messages(rm);
+  }
+};
+
+void ECBackend::dispatch_recovery_messages(RecoveryMessages &m)
+{
+  for (map<pg_shard_t, vector<PushOp> >::iterator i = m.pushes.begin();
+       i != m.pushes.end();
+       m.pushes.erase(i++)) {
+    MOSDPGPush *msg = new MOSDPGPush();
+    msg->from = get_parent()->whoami_shard();
+    msg->pgid = spg_t(get_parent()->get_info().pgid, i->first.shard);
+    msg->pushes.swap(i->second);
+    msg->compute_cost(cct);
+    get_parent()->send_message(
+      i->first.osd,
+      msg);
+  }
+  for (map<pg_shard_t, vector<PushReplyOp> >::iterator i =
+	 m.push_replies.begin();
+       i != m.push_replies.end();
+       m.push_replies.erase(i++)) {
+    MOSDPGPushReply *msg = new MOSDPGPushReply();
+    msg->from = get_parent()->whoami_shard();
+    msg->pgid = spg_t(get_parent()->get_info().pgid, i->first.shard);
+    msg->replies.swap(i->second);
+    msg->compute_cost(cct);
+    get_parent()->send_message(
+      i->first.osd,
+      msg);
+  }
+  OnRecoveryReadComplete *c = new OnRecoveryReadComplete;
+  list<
+    pair<
+      hobject_t,
+      boost::tuple<uint64_t, uint64_t, bufferlist*,
+		   map<shard_id_t, bufferlist*> >
+      >
+    > to_read;
+  map<hobject_t, map<string, bufferlist> *> xattrs_to_read;
+  for (map<
+	 hobject_t,
+	 list<boost::tuple<uint64_t, uint64_t, set<shard_id_t> > >
+	 >::iterator i =
+	 m.to_read.begin();
+       i != m.to_read.end();
+       m.to_read.erase(i++)) {
+    list<
+      boost::tuple<uint64_t, uint64_t, map<shard_id_t, bufferlist> > > &dlist =
+      c->data[i->first];
+    for (list<boost::tuple<uint64_t, uint64_t, set<shard_id_t> > >::iterator j =
+	   i->second.begin();
+	 j != i->second.end();
+	 i->second.erase(j++)) {
+      dlist.push_back(
+	boost::make_tuple(
+	  j->get<0>(),
+	  j->get<1>(),
+	  map<shard_id_t, bufferlist>()));
+      to_read.push_back(
+	make_pair(
+	  i->first,
+	  boost::make_tuple(
+	    j->get<0>(), j->get<1>(),
+	    (bufferlist*)NULL, map<shard_id_t, bufferlist*>())));
+      for (set<shard_id_t>::iterator k = j->get<2>().begin();
+	   k != j->get<2>().end();
+	   ++k) {
+	dlist.back().get<2>().insert(make_pair(*k, bufferlist()));
+	to_read.back().second.get<3>().insert(
+	  make_pair(
+	    *k,
+	    &(dlist.back().get<2>()[*k])));
+      }
+    }
+    if (m.xattrs_to_read.count(i->first)) {
+      xattrs_to_read.insert(
+	make_pair(
+	  i->first,
+	  &(c->attrs[i->first])));
+    }
+    start_read_op(
+      to_read,
+      xattrs_to_read,
+      c);
+  }
+}
+
+void ECBackend::continue_recovery_op(
+  RecoveryOp &op,
+  RecoveryMessages *m)
+{
+  while (1) {
+    switch (op.state) {
+    case RecoveryOp::IDLE: {
+      // start read
+      op.state = RecoveryOp::READING;
+      if (op.recovery_progress.first) {
+	m->fetch_xattrs(op.hoid);
+      }
+      assert(!op.recovery_progress.data_complete);
+      m->read(op.hoid, op.recovery_progress.data_recovered_to,
+	      get_recovery_chunk_size(), op.missing_on_shards);
+      op.extent_requested = make_pair(op.recovery_progress.data_recovered_to,
+				      get_recovery_chunk_size());
+      return;
+    }
+    case RecoveryOp::READING: {
+      // read completed, start write
+      assert(op.xattrs.size());
+      assert(op.returned_data.size());
+      op.state = RecoveryOp::WRITING;
+      ObjectRecoveryProgress after_progress = op.recovery_progress;
+      after_progress.data_recovered_to += get_recovery_chunk_size();
+      after_progress.first = false;
+      if (after_progress.data_recovered_to >= op.obc->obs.oi.size)
+	after_progress.data_complete = true;
+      for (set<pg_shard_t>::iterator mi = op.missing_on.begin();
+	   mi != op.missing_on.end();
+	   ++mi) {
+	assert(op.returned_data.count(mi->shard));
+	m->pushes[*mi].push_back(PushOp());
+	PushOp &pop = m->pushes[*mi].back();
+	pop.soid = op.hoid;
+	pop.version = op.v;
+	pop.data = op.returned_data[mi->shard];
+	pop.data_included.insert(
+	  ECUtil::logical_to_prev_stripe_bound_obj(
+	    stripe_size,
+	    stripe_width,
+	    op.recovery_progress.data_recovered_to),
+	  pop.data.length()
+	  );
+	if (op.recovery_progress.first) {
+	  // TODOSAM: fix PushOp bufferptr nonsense
+	  // pop.attrset = op.xattrs;
+	}
+	pop.recovery_info = op.recovery_info;
+	pop.before_progress = op.recovery_progress;
+	pop.after_progress = after_progress;
+      }
+      op.waiting_on_pushes = op.missing_on;
+    }
+    case RecoveryOp::WRITING: {
+      if (op.waiting_on_pushes.empty()) {
+	if (op.recovery_progress.data_complete) {
+	  op.state = RecoveryOp::COMPLETE;
+	  if (get_parent()->get_local_missing().is_missing(op.hoid)) {
+	    object_stat_sum_t stats;
+	    stats.num_objects_recovered = 1;
+	    stats.num_bytes_recovered = op.obc->obs.oi.size;
+	    get_parent()->on_local_recover(
+	      op.hoid,
+	      stats,
+	      op.recovery_info,
+	      op.obc,
+	      &(m->t));
+	  }
+	  get_parent()->on_global_recover(op.hoid);
+	  recovery_ops.erase(op.hoid);
+	  return;
+	} else {
+	  op.state = RecoveryOp::IDLE;
+	  continue;
+	}
+      }
+    }
+    case RecoveryOp::COMPLETE: {
+      assert(0); // should never be called once complete
+    };
+    default:
+      assert(0);
+    }
+  }
 }
 
 void ECBackend::run_recovery_op(
-  RecoveryHandle *h,
+  RecoveryHandle *_h,
   int priority)
 {
+  ECRecoveryHandle *h = static_cast<ECRecoveryHandle*>(_h);
+  RecoveryMessages m;
+  for (list<RecoveryOp>::iterator i = h->ops.begin();
+       i != h->ops.end();
+       ++i) {
+    assert(!recovery_ops.count(i->hoid));
+    RecoveryOp &op = recovery_ops.insert(make_pair(op.hoid, *i)).first->second;
+    continue_recovery_op(op, &m);
+  }
+  dispatch_recovery_messages(m);
 }
 
 void ECBackend::recover_object(
@@ -45,8 +360,20 @@ void ECBackend::recover_object(
   eversion_t v,
   ObjectContextRef head,
   ObjectContextRef obc,
-  RecoveryHandle *h)
+  RecoveryHandle *_h)
 {
+  ECRecoveryHandle *h = static_cast<ECRecoveryHandle*>(_h);
+  h->ops.push_back(RecoveryOp());
+  h->ops.back().v = v;
+  h->ops.back().hoid = hoid;
+  h->ops.back().obc = obc;
+  h->ops.back().recovery_info.soid = hoid;
+  h->ops.back().recovery_info.version = v;
+  if (obc) {
+    h->ops.back().recovery_info.size = obc->obs.oi.size;
+    h->ops.back().recovery_info.oi = obc->obs.oi;
+  }
+  h->ops.back().recovery_progress.omap_complete = true;
 }
 
 bool ECBackend::handle_message(
@@ -83,6 +410,28 @@ bool ECBackend::handle_message(
       _op->get_req());
     pg_shard_t from(op->get_source().num(), op->pgid.shard);
     handle_sub_read_reply(from, op->op);
+    return true;
+  }
+  case MSG_OSD_PG_PUSH: {
+    MOSDPGPush *op = static_cast<MOSDPGPush *>(_op->get_req());
+    RecoveryMessages rm;
+    for (vector<PushOp>::iterator i = op->pushes.begin();
+	 i != op->pushes.end();
+	 ++i) {
+      handle_recovery_push(*i, &rm);
+    }
+    dispatch_recovery_messages(rm);
+    return true;
+  }
+  case MSG_OSD_PG_PUSH_REPLY: {
+    MOSDPGPushReply *op = static_cast<MOSDPGPushReply *>(_op->get_req());
+    RecoveryMessages rm;
+    for (vector<PushReplyOp>::iterator i = op->replies.begin();
+	 i != op->replies.end();
+	 ++i) {
+      handle_recovery_push_reply(*i, op->from, &rm);
+    }
+    dispatch_recovery_messages(rm);
     return true;
   }
   default:
@@ -215,6 +564,14 @@ void ECBackend::handle_sub_read(
 	)
       );
   }
+  for (set<hobject_t>::iterator i = op.attrs_to_read.begin();
+       i != op.attrs_to_read.end();
+       ++i) {
+    store->getattrs(
+      i->is_temp() ? temp_coll : coll,
+      *i,
+      reply->attrs_read[*i]);
+  }
 }
 
 void ECBackend::handle_sub_write_reply(
@@ -237,10 +594,29 @@ void ECBackend::handle_sub_read_reply(
   ECSubReadReply &op)
 {
   map<tid_t, ReadOp>::iterator iter = tid_to_read_map.find(op.tid);
-  assert(iter != tid_to_read_map.end());
+  if (iter == tid_to_read_map.end()) {
+    //canceled
+    return;
+  }
   assert(iter->second.in_progress.count(from));
   iter->second.complete[from].swap(op.buffers_read);
   iter->second.in_progress.erase(from);
+
+  map<pg_shard_t, set<tid_t> >::iterator siter = shard_to_read_map.find(from);
+  assert(siter != shard_to_read_map.end());
+  assert(siter->second.count(op.tid));
+  siter->second.erase(op.tid);
+
+  for (map<hobject_t, map<string, bufferlist> >::iterator i =
+	 op.attrs_read.begin();
+       i != op.attrs_read.end();
+       ++i) {
+      map<hobject_t, map<string, bufferlist>*>::iterator j =
+	iter->second.attrs_to_read.find(i->first);
+      assert(j != iter->second.attrs_to_read.end());
+      *(j->second) = i->second;
+  }
+
   if (!iter->second.in_progress.empty())
     return;
   // done
@@ -251,7 +627,8 @@ void ECBackend::handle_sub_read_reply(
   list<
     pair<
       hobject_t,
-      boost::tuple<uint64_t, uint64_t, bufferlist*>
+      boost::tuple<
+	uint64_t, uint64_t, bufferlist*, map<shard_id_t, bufferlist*> >
       >
     >::iterator out_iter;
 
@@ -281,23 +658,70 @@ void ECBackend::handle_sub_read_reply(
       chunks[i->first.shard].claim(i->second->second.second);
       ++(i->second);
     }
-    bufferlist decoded;
-    int r = ECUtil::decode(
-      stripe_size, stripe_width, ec_impl, chunks,
-      &decoded);
-    assert(r == 0);
-    out_iter->second.get<2>()->substr_of(
-      decoded,
-      out_iter->second.get<0>() - ECUtil::logical_to_prev_stripe_bound_obj(
-	stripe_size, stripe_width, out_iter->second.get<0>()),
-      out_iter->second.get<1>());
+    if (out_iter->second.get<2>()) {
+      bufferlist decoded;
+      int r = ECUtil::decode(
+	stripe_size, stripe_width, ec_impl, chunks,
+	&decoded);
+      assert(r == 0);
+      out_iter->second.get<2>()->substr_of(
+	decoded,
+	out_iter->second.get<0>() - ECUtil::logical_to_prev_stripe_bound_obj(
+	  stripe_size, stripe_width, out_iter->second.get<0>()),
+	out_iter->second.get<1>());
+    }
+    if (out_iter->second.get<3>().size()) {
+      assert(out_iter->second.get<0>() % stripe_size == 0);
+      assert(out_iter->second.get<1>() % stripe_size == 0);
+      map<int, bufferlist> decoded;
+      set<int> need;
+      for (map<shard_id_t, bufferlist*>::iterator i =
+	     out_iter->second.get<3>().begin();
+	   i != out_iter->second.get<3>().end();
+	   ++i) {
+	need.insert(i->first);
+      }
+      int r = ec_impl->decode(need, chunks, &decoded);
+      assert(r == 0);
+      for (map<shard_id_t, bufferlist*>::iterator i =
+	     out_iter->second.get<3>().begin();
+	   i != out_iter->second.get<3>().end();
+	   ++i) {
+	assert(i->second);
+	i->second->claim(decoded[i->first]);
+      }
+    }
   }
   readop.on_complete->complete(0);
-  tid_to_read_map.erase(iter);
+  readop.on_complete = NULL;
+  assert(readop.in_progress.empty());
+  tid_to_read_map.erase(readop.tid);
 }
 
 void ECBackend::check_recovery_sources(const OSDMapRef osdmap)
 {
+  set<tid_t> tids_to_restart;
+  for (map<pg_shard_t, set<tid_t> >::iterator i = shard_to_read_map.begin();
+       i != shard_to_read_map.end();
+       ++i) {
+    if (osdmap->is_down(i->first.osd)) {
+      tids_to_restart.insert(i->second.begin(), i->second.end());
+    }
+  }
+  for (set<tid_t>::iterator i = tids_to_restart.begin();
+       i != tids_to_restart.end();
+       ++i) {
+    map<tid_t, ReadOp>::iterator j = tid_to_read_map.find(*i);
+    assert(j != tid_to_read_map.end());
+    restart_read_op(j->second);
+  }
+  for (map<pg_shard_t, set<tid_t> >::iterator i = shard_to_read_map.begin();
+       i != shard_to_read_map.end();
+       ++i) {
+    if (osdmap->is_down(i->first.osd)) {
+      assert(0); // should have been handled already
+    }
+  }
 }
 
 void ECBackend::_on_change(ObjectStore::Transaction *t)
@@ -312,6 +736,7 @@ void ECBackend::clear_state()
   writing.clear();
   tid_to_op_map.clear();
   tid_to_read_map.clear();
+  shard_to_read_map.clear();
 }
 
 void ECBackend::on_flushed()
@@ -364,28 +789,78 @@ void ECBackend::submit_transaction(
   check_pending_ops();
 }
 
+int ECBackend::get_min_avail_to_read(
+  const hobject_t &hoid,
+  set<pg_shard_t> *to_read)
+{
+  set<int> want;
+  for (int i = 0; i < 0/*ec_impl->get_data_chunk_count()*/; ++i)
+    want.insert(i);
+  return get_min_avail_to_read_shards(hoid, want, to_read);
+}
+
+int ECBackend::get_min_avail_to_read_shards(
+  const hobject_t &hoid,
+  const set<int> &want,
+  set<pg_shard_t> *to_read)
+{
+  map<hobject_t, set<pg_shard_t> >::const_iterator miter =
+    get_parent()->get_missing_loc_shards().find(hoid);
+  if (miter != get_parent()->get_missing_loc_shards().end()) {
+    set<int> have;
+    set<int> need;
+    for (set<pg_shard_t>::iterator i = miter->second.begin();
+	 i != miter->second.end();
+	 ++i) {
+      have.insert(i->shard);
+    }
+    int r = ec_impl->minimum_to_decode(want, have, &need);
+    if (r < 0)
+      return r;
+    if (!to_read)
+      return 0;
+    for (set<pg_shard_t>::iterator i = miter->second.begin();
+	 i != miter->second.end() && !need.empty();
+	 ++i) {
+      if (need.count(i->shard)) {
+	to_read->insert(*i);
+	need.erase(i->shard);
+      }
+    }
+    return 0;
+  } else {
+    if (to_read)
+      *to_read = min_to_read;
+    return 0;
+  }
+}
+
 void ECBackend::start_read_op(
-  tid_t tid,
   const list<
     pair<
       hobject_t,
-      boost::tuple<uint64_t, uint64_t, bufferlist*>
+      boost::tuple<
+	uint64_t, uint64_t, bufferlist*, map<shard_id_t, bufferlist*> >
       >
     > &to_read,
-  Context *onfinish)
+  const map<hobject_t, map<string, bufferlist> *> &attrs_to_read,
+  Context *onfinish,
+  OpRequestRef _op)
 {
+  tid_t tid = get_parent()->get_tid();
   assert(!tid_to_read_map.count(tid));
   ReadOp &op(tid_to_read_map[tid]);
   op.to_read = to_read;
-  op.in_progress = min_to_read;
   op.on_complete = onfinish;
+  op.attrs_to_read = attrs_to_read;
+  op.op = _op;
 
-  ECSubRead readmsg;
-  readmsg.tid = tid;
+  map<pg_shard_t, ECSubRead> messages;
   for (list<
 	 pair<
 	   hobject_t,
-	   boost::tuple<uint64_t, uint64_t, bufferlist*>
+	   boost::tuple<
+	     uint64_t, uint64_t, bufferlist*, map<shard_id_t, bufferlist*> >
 	   >
 	 >::const_iterator i = to_read.begin();
        i != to_read.end();
@@ -399,23 +874,93 @@ void ECBackend::start_read_op(
 	stripe_size, stripe_width,
 	i->second.get<0>());
     uint64_t obj_len = obj_end - obj_offset;
-    readmsg.to_read.push_back(
-      make_pair(
+    set<pg_shard_t> min;
+    if (i->second.get<2>()) {
+      int r = get_min_avail_to_read(
 	i->first,
-	make_pair(obj_offset, obj_len)));
+	&min);
+      if (r != 0) {
+	assert(0);
+	// TODOSAM: correctly handle case where we don't have enough copies
+      }
+    } else if (i->second.get<3>().size()) {
+      set<int> needed;
+      for (map<shard_id_t, bufferlist*>::const_iterator j =
+	     i->second.get<3>().begin();
+	   j != i->second.get<3>().end();
+	   ++j) {
+	needed.insert(j->first);
+      }
+      int r = get_min_avail_to_read_shards(
+	i->first,
+	needed,
+	&min);
+      if (r != 0) {
+	assert(0);
+	// TODOSAM: correctly handle case where we don't have enough copies
+      }
+    } else {
+      assert(0); // if a caller only needs xattrs, fix this
+    }
+    bool must_request_attrs = attrs_to_read.count(i->first);
+    for (set<pg_shard_t>::iterator j = min.begin();
+	 j != min.end();
+	 ++j) {
+      messages[*j].to_read.push_back(
+	make_pair(
+	  i->first,
+	  make_pair(obj_offset, obj_len)));
+      if (must_request_attrs) {
+	messages[*j].attrs_to_read.insert(i->first);
+	must_request_attrs = false;
+      }
+    }
   }
-  for (set<pg_shard_t>::iterator i = op.in_progress.begin();
-       i != op.in_progress.end();
+  for (map<pg_shard_t, ECSubRead>::iterator i = messages.begin();
+       i != messages.end();
        ++i) {
+    op.in_progress.insert(i->first);
+    shard_to_read_map[i->first].insert(op.tid);
+    i->second.tid = tid;
     MOSDECSubOpRead *msg = new MOSDECSubOpRead;
     msg->pgid = get_parent()->whoami_spg_t();
     msg->map_epoch = get_parent()->get_epoch();
-    msg->op = readmsg;
+    msg->op = i->second;
     get_parent()->send_message_osd_cluster(
-      i->osd,
+      i->first.osd,
       msg,
       get_parent()->get_epoch());
   }
+}
+
+void ECBackend::cancel_read_op(
+  tid_t tid)
+{
+  assert(tid_to_read_map.count(tid));
+  ReadOp &op = tid_to_read_map[tid];
+  for (set<pg_shard_t>::iterator i = op.in_progress.begin();
+       i != op.in_progress.end();
+       ++i) {
+    map<pg_shard_t, set<tid_t> >::iterator siter = shard_to_read_map.find(*i);
+    assert(siter != shard_to_read_map.end());
+    assert(siter->second.count(tid));
+    siter->second.erase(tid);
+    if (siter->second.empty())
+      shard_to_read_map.erase(siter);
+  }
+  tid_to_read_map.erase(tid);
+}
+
+void ECBackend::restart_read_op(
+  ReadOp &op)
+{
+  start_read_op(
+    op.to_read,
+    op.attrs_to_read,
+    op.on_complete,
+    op.op);
+  cancel_read_op(
+    op.tid);
 }
 
 void ECBackend::call_commit_apply_cbs()
@@ -473,7 +1018,8 @@ void ECBackend::start_read(Op *op) {
   list<
     pair<
       hobject_t,
-      boost::tuple<uint64_t, uint64_t, bufferlist*>
+      boost::tuple<
+	uint64_t, uint64_t, bufferlist*, map<shard_id_t, bufferlist*> >
       >
     > to_read;
   for (map<hobject_t, uint64_t>::iterator i = op->must_read.begin();
@@ -492,13 +1038,15 @@ void ECBackend::start_read(Op *op) {
 	boost::make_tuple(
 	  i->second,
 	  stripe_width,
-	  &(iter->second.second))));
+	  &(iter->second.second),
+	  map<shard_id_t, bufferlist*>())));
   }
 
   start_read_op(
-    op->tid,
     to_read,
-    new ReadCB(this, op));
+    map<hobject_t, map<string, bufferlist>*>(),
+    new ReadCB(this, op),
+    op->client_op);
 }
 
 void ECBackend::start_write(Op *op) {
@@ -653,7 +1201,8 @@ void ECBackend::objects_read_async(
   list<
     pair<
       hobject_t,
-      boost::tuple<uint64_t, uint64_t, bufferlist*>
+      boost::tuple<
+	uint64_t, uint64_t, bufferlist*, map<shard_id_t, bufferlist* > >
       >
     > for_read_op;
   for (list<pair<pair<uint64_t, uint64_t>,
@@ -664,11 +1213,13 @@ void ECBackend::objects_read_async(
     for_read_op.push_back(
       make_pair(
 	hoid,
-	boost::make_tuple(i->first.first, i->first.second, i->second.first)));
+	boost::make_tuple(
+	  i->first.first, i->first.second, i->second.first,
+	  map<shard_id_t, bufferlist*>())));
   }
   start_read_op(
-    get_parent()->get_tid(),
     for_read_op,
+    map<hobject_t, map<string, bufferlist>*>(),
     new CallClientContexts(to_read, on_complete));
   return;
 }

@@ -27,6 +27,7 @@
 #include "messages/MOSDECSubOpRead.h"
 #include "messages/MOSDECSubOpReadReply.h"
 
+struct RecoveryMessages;
 class ECBackend : public PGBackend {
 public:
   RecoveryHandle *open_recovery_op();
@@ -110,12 +111,46 @@ public:
     Context *on_complete);
 
 private:
+  friend struct ECRecoveryHandle;
+  uint64_t get_recovery_chunk_size() const {
+    uint64_t max = cct->_conf->osd_recovery_max_chunk;
+    max -= max % stripe_size;
+    max += stripe_size;
+    return max;
+  }
+  struct RecoveryOp {
+    hobject_t hoid;
+    eversion_t v;
+    set<pg_shard_t> missing_on;
+    set<shard_id_t> missing_on_shards;
+
+    ObjectRecoveryInfo recovery_info;
+    ObjectRecoveryProgress recovery_progress;
+
+    bool pending_read;
+    set<pg_shard_t> pending_pushes;
+    enum { IDLE, READING, WRITING, COMPLETE } state;
+
+    // must be filled if state == WRITING
+    map<shard_id_t, bufferlist> returned_data;
+    map<string, bufferlist> xattrs;
+    ObjectContextRef obc;
+    set<pg_shard_t> waiting_on_pushes;
+
+    // valid in state READING
+    pair<uint64_t, uint64_t> extent_requested;
+
+    RecoveryOp() : pending_read(false), state(IDLE) {}
+  };
+  map<hobject_t, RecoveryOp> recovery_ops;
   struct ReadOp {
+    OpRequestRef op; // may be null if not on behalf of a client
     tid_t tid;
     list<
       pair<
 	hobject_t,
-	boost::tuple<uint64_t, uint64_t, bufferlist*>
+	boost::tuple<
+	  uint64_t, uint64_t, bufferlist*, map<shard_id_t, bufferlist*> >
 	>
       > to_read;
     map<
@@ -127,19 +162,30 @@ private:
 	  >
 	>
       > complete;
+    map<hobject_t, map<string, bufferlist> *> attrs_to_read;
     set<pg_shard_t> in_progress;
     Context *on_complete;
+
+    ReadOp() : on_complete(NULL) {}
+    ~ReadOp() { delete on_complete; }
   };
   map<tid_t, ReadOp> tid_to_read_map;
+  map<pg_shard_t, set<tid_t> > shard_to_read_map;
   void start_read_op(
-    tid_t tid,
     const list<
       pair<
 	hobject_t,
-	boost::tuple<uint64_t, uint64_t, bufferlist*>
+	boost::tuple<
+	  uint64_t, uint64_t, bufferlist*, map<shard_id_t, bufferlist*> >
 	>
       > &to_read,
-    Context *c);
+    const map<hobject_t, map<string, bufferlist> *> &attrs_to_read,
+    Context *c,
+    OpRequestRef op = OpRequestRef());
+  void cancel_read_op(
+    tid_t tid);
+  void restart_read_op(
+    ReadOp &op);
 
   struct Op {
     hobject_t hoid;
@@ -172,6 +218,27 @@ private:
       delete on_all_commit;
     }
   };
+
+  void continue_recovery_op(
+    RecoveryOp &op,
+    RecoveryMessages *m);
+
+  void dispatch_recovery_messages(RecoveryMessages &m);
+  friend struct OnRecoveryReadComplete;
+  void handle_recovery_read_complete(
+    const hobject_t &hoid,
+    list<
+      boost::tuple<uint64_t, uint64_t, map<shard_id_t, bufferlist> > > &to_read,
+    map<string, bufferlist> *attrs,
+    RecoveryMessages *m);
+  void handle_recovery_push(
+    PushOp &op,
+    RecoveryMessages *m);
+  void handle_recovery_push_reply(
+    PushReplyOp &op,
+    pg_shard_t from,
+    RecoveryMessages *m);
+
   ObjectStore *store;
   set<hobject_t> unstable;
 
@@ -180,6 +247,7 @@ private:
   list<Op*> reading;
   list<Op*> writing;
 
+  CephContext *cct;
   ErasureCodeInterfaceRef ec_impl;
   const uint64_t stripe_width;
   const uint64_t stripe_size;
@@ -200,6 +268,7 @@ private:
   void start_write(Op *op);
 public:
   ECBackend(
+    CephContext *cct,
     ObjectStore *store,
     coll_t coll,
     coll_t temp_coll,
@@ -208,6 +277,7 @@ public:
     uint64_t stripe_width,
     uint64_t stripe_size)
     : PGBackend(pg, store, coll, temp_coll),
+      cct(cct),
       ec_impl(ec_impl), stripe_width(stripe_width),
       stripe_size(stripe_size) {}
   void go_active(
@@ -234,6 +304,16 @@ public:
 	min_to_read.insert(*i);
     }
   }
+
+  int get_min_avail_to_read(
+    const hobject_t &hoid,
+    set<pg_shard_t> *to_read);
+
+  int get_min_avail_to_read_shards(
+    const hobject_t &hoid,
+    const set<int> &want,
+    set<pg_shard_t> *to_read);
+
   void clear() {
     actingbackfill.clear();
     min_to_read.clear();
