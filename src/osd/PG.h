@@ -301,8 +301,8 @@ public:
   }
   hobject_t    log_oid;
   hobject_t    biginfo_oid;
-  map<hobject_t, set<int> > missing_loc;
-  set<int> missing_loc_sources;           // superset of missing_loc locations
+  map<hobject_t, set<pg_shard_t> > missing_loc;
+  set<pg_shard_t> missing_loc_sources;           // superset of missing_loc locations
   
   interval_set<snapid_t> snap_collections; // obsolete
   map<epoch_t,pg_interval_t> past_intervals;
@@ -313,7 +313,7 @@ public:
    * (if they have one) */
   xlist<PG*>::item recovery_item, scrub_item, scrub_finalize_item, snap_trim_item, stat_queue_item;
   int recovery_ops_active;
-  set<int> waiting_on_backfill;
+  set<pg_shard_t> waiting_on_backfill;
 #ifdef DEBUG_RECOVERY_OIDS
   set<hobject_t> recovering_oids;
 #endif
@@ -333,17 +333,20 @@ public:
 
   // primary state
  public:
-  vector<int> up, acting, want_acting, actingbackfill;
-  map<int,eversion_t> peer_last_complete_ondisk;
+  pg_shard_t primary;
+  pg_shard_t whoami;
+  vector<pg_shard_t> up, acting, want_acting;
+  set<pg_shard_t> actingbackfill;
+  map<pg_shard_t,eversion_t> peer_last_complete_ondisk;
   eversion_t  min_last_complete_ondisk;  // up: min over last_complete_ondisk, peer_last_complete_ondisk
   eversion_t  pg_trim_to;
 
   // [primary only] content recovery state
  protected:
   struct PriorSet {
-    set<int> probe; /// current+prior OSDs we need to probe.
-    set<int> down;  /// down osds that would normally be in @a probe and might be interesting.
-    map<int,epoch_t> blocked_by;  /// current lost_at values for any OSDs in cur set for which (re)marking them lost would affect cur set
+    set<pg_shard_t> probe; /// current+prior OSDs we need to probe.
+    set<pg_shard_t> down;  /// down osds that would normally be in @a probe and might be interesting.
+    map<pg_shard_t,epoch_t> blocked_by;  /// current lost_at values for any OSDs in cur set for which (re)marking them lost would affect cur set
 
     bool pg_down;   /// some down osds are included in @a cur; the DOWN pg state bit should be set.
     PriorSet(const OSDMap &osdmap,
@@ -365,15 +368,17 @@ public:
 public:    
   struct RecoveryCtx {
     utime_t start_time;
-    map< int, map<pg_t, pg_query_t> > *query_map;
-    map< int, vector<pair<pg_notify_t, pg_interval_map_t> > > *info_map;
-    map< int, vector<pair<pg_notify_t, pg_interval_map_t> > > *notify_list;
+    map< pg_shard_t, map<pg_t, pg_query_t> > *query_map;
+    map< pg_shard_t , vector<pair<pg_notify_t, pg_interval_map_t> > > *info_map;
+    map< pg_shard_t , vector<pair<pg_notify_t, pg_interval_map_t> > > *notify_list;
     C_Contexts *on_applied;
     C_Contexts *on_safe;
     ObjectStore::Transaction *transaction;
-    RecoveryCtx(map< int, map<pg_t, pg_query_t> > *query_map,
-		map< int, vector<pair<pg_notify_t, pg_interval_map_t> > > *info_map,
-		map< int, vector<pair<pg_notify_t, pg_interval_map_t> > > *notify_list,
+    RecoveryCtx(map< pg_shard_t, map<pg_t, pg_query_t> > *query_map,
+		map< pg_shard_t,
+		     vector<pair<pg_notify_t, pg_interval_map_t> > > *info_map,
+		map< pg_shard_t,
+		     vector<pair<pg_notify_t, pg_interval_map_t> > > *notify_list,
 		C_Contexts *on_applied,
 		C_Contexts *on_safe,
 		ObjectStore::Transaction *transaction)
@@ -404,19 +409,21 @@ protected:
    */
   
   bool        need_up_thru;
-  set<int>    stray_set;   // non-acting osds that have PG data.
+  set<pg_shard_t>    stray_set;   // non-acting osds that have PG data.
   eversion_t  oldest_update; // acting: lowest (valid) last_update in active set
-  map<int,pg_info_t>    peer_info;   // info from peers (stray or prior)
+  map<pg_shard_t, pg_info_t>    peer_info;   // info from peers (stray or prior)
   set<int> peer_purged; // peers purged
-  map<int,pg_missing_t> peer_missing;
-  set<int>             peer_log_requested;  // logs i've requested (and start stamps)
-  set<int>             peer_missing_requested;
-  set<int>             stray_purged;  // i deleted these strays; ignore racing PGInfo from them
-  set<int>             peer_activated;
+  map<pg_shard_t, pg_missing_t> peer_missing;
+  set<pg_shard_t> peer_log_requested;  // logs i've requested (and start stamps)
+  set<pg_shard_t> peer_missing_requested;
+
+  // i deleted these strays; ignore racing PGInfo from them
+  set<pg_shard_t> stray_purged;
+  set<pg_shard_t> peer_activated;
 
   // primary-only, recovery-only state
-  set<int>             might_have_unfound;  // These osds might have objects on them
-					    // which are unfound on the primary
+  set<pg_shard_t> might_have_unfound;  // These osds might have objects on them
+                                       // which are unfound on the primary
   epoch_t last_peering_reset;
 
 
@@ -506,21 +513,17 @@ protected:
   };
   
   BackfillInterval backfill_info;
-  map<int, BackfillInterval> peer_backfill_info;
+  map<pg_shard_t, BackfillInterval> peer_backfill_info;
   bool backfill_reserved;
   bool backfill_reserving;
 
   friend class OSD;
 
 public:
-  vector<int> backfill_targets;
+  set<pg_shard_t> backfill_targets;
 
-  bool is_backfill_targets(int osd) {
-    if (std::find(backfill_targets.begin(), backfill_targets.end(), osd)
-        != backfill_targets.end())
-      return true;
-    else
-      return false;
+  bool is_backfill_targets(pg_shard_t osd) {
+    return backfill_targets.count(osd);
   }
 
 protected:
@@ -564,20 +567,18 @@ public:
   void clear_primary_state();
 
  public:
-  bool is_acting(int osd) const { 
+  bool is_acting(pg_shard_t osd) const { 
     for (unsigned i=0; i<acting.size(); i++)
       if (acting[i] == osd) return true;
     return false;
   }
-  bool is_up(int osd) const { 
+  bool is_up(pg_shard_t osd) const { 
     for (unsigned i=0; i<up.size(); i++)
       if (up[i] == osd) return true;
     return false;
   }
-  bool is_actingbackfill(int osd) const {
-    for (unsigned i=0; i<actingbackfill.size(); i++)
-      if (actingbackfill[i] == osd) return true;
-    return false;
+  bool is_actingbackfill(pg_shard_t osd) const {
+    return actingbackfill.count(osd);
   }
   
   bool needs_recovery() const;
@@ -601,10 +602,12 @@ public:
   bool calc_min_last_complete_ondisk() {
     eversion_t min = last_complete_ondisk;
     assert(actingbackfill.size() > 0);
-    for (unsigned i=1; i<actingbackfill.size(); i++) {
-      if (peer_last_complete_ondisk.count(actingbackfill[i]) == 0)
+    for (set<pg_shard_t>::iterator i = 1;
+	 i != actingbackfill.end();
+	 ++i) {
+      if (peer_last_complete_ondisk.count(*i) == 0)
 	return false;   // we don't have complete info
-      eversion_t a = peer_last_complete_ondisk[actingbackfill[i]];
+      eversion_t a = peer_last_complete_ondisk[*i];
       if (a < min)
 	min = a;
     }
@@ -617,9 +620,9 @@ public:
   virtual void calc_trim_to() = 0;
 
   void proc_replica_log(ObjectStore::Transaction& t, pg_info_t &oinfo, pg_log_t &olog,
-			pg_missing_t& omissing, int from);
+			pg_missing_t& omissing, pg_shard_t from);
   void proc_master_log(ObjectStore::Transaction& t, pg_info_t &oinfo, pg_log_t &olog,
-		       pg_missing_t& omissing, int from);
+		       pg_missing_t& omissing, pg_shard_t from);
   bool proc_replica_info(int from, const pg_info_t &info);
 
 
@@ -714,28 +717,33 @@ public:
     ObjectStore::Transaction *t, const hobject_t &soid);
   void remove_snap_mapped_object(
     ObjectStore::Transaction& t, const hobject_t& soid);
-  void merge_log(ObjectStore::Transaction& t, pg_info_t &oinfo, pg_log_t &olog, int from);
+  void merge_log(ObjectStore::Transaction& t, pg_info_t &oinfo,
+		 pg_log_t &olog, pg_shard_t from);
   void rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead);
   bool search_for_missing(const pg_info_t &oinfo, const pg_missing_t *omissing,
-			  int fromosd);
+			  pg_shard_t fromosd);
 
   void check_for_lost_objects();
   void forget_lost_objects();
 
-  void discover_all_missing(std::map< int, map<pg_t,pg_query_t> > &query_map);
+  void discover_all_missing(std::map< pg_shard_t, map<pg_t,pg_query_t> > &query_map);
   
   void trim_write_ahead();
 
-  map<int, pg_info_t>::const_iterator find_best_info(const map<int, pg_info_t> &infos) const;
-  bool calc_acting(int& newest_update_osd, vector<int>& want, vector<int>& backfill) const;
-  bool choose_acting(int& newest_update_osd);
+  map<int, pg_info_t>::const_iterator find_best_info(
+    const map<pg_shard_t, pg_info_t> &infos) const;
+  bool calc_acting(pg_shard_t &newest_update_osd,
+		   vector<int>& want, vector<int>& backfill) const;
+  bool choose_acting(pg_shard_t &newest_update_osd);
   void build_might_have_unfound();
   void replay_queued_ops();
-  void activate(ObjectStore::Transaction& t,
-		epoch_t query_epoch,
-		list<Context*>& tfin,
-		map< int, map<pg_t,pg_query_t> >& query_map,
-		map<int, vector<pair<pg_notify_t, pg_interval_map_t> > > *activator_map=0);
+  void activate(
+    ObjectStore::Transaction& t,
+    epoch_t query_epoch,
+    list<Context*>& tfin,
+    map<pg_shard_t, map<pg_t,pg_query_t> >& query_map,
+    map<pg_shard_t,
+        vector<pair<pg_notify_t, pg_interval_map_t> > > *activator_map=0);
   void _activate_committed(epoch_t e);
   void all_activated_and_committed();
 
@@ -800,7 +808,7 @@ public:
     }
 
     // metadata
-    set<int> reserved_peers;
+    set<pg_shard_t> reserved_peers;
     bool reserved, reserve_failed;
     epoch_t epoch_start;
 
@@ -809,12 +817,12 @@ public:
     bool active;
     bool queue_snap_trim;
     int waiting_on;
-    set<int> waiting_on_whom;
+    set<pg_shard_t> waiting_on_whom;
     int shallow_errors;
     int deep_errors;
     int fixed;
     ScrubMap primary_scrubmap;
-    map<int,ScrubMap> received_maps;
+    map<pg_shard_t, ScrubMap> received_maps;
     MOSDRepScrub *active_rep_scrub;
     utime_t scrub_reg_stamp;  // stamp we registered for
 
@@ -822,12 +830,12 @@ public:
     bool must_scrub, must_deep_scrub, must_repair;
 
     // Maps from objects with errors to missing/inconsistent peers
-    map<hobject_t, set<int> > missing;
-    map<hobject_t, set<int> > inconsistent;
-    map<hobject_t, set<int> > inconsistent_snapcolls;
+    map<hobject_t, set<pg_shard_t> > missing;
+    map<hobject_t, set<pg_shard_t> > inconsistent;
+    map<hobject_t, set<pg_shard_t> > inconsistent_snapcolls;
 
     // Map from object with errors to good peer
-    map<hobject_t, pair<ScrubMap::object, int> > authoritative;
+    map<hobject_t, pair<ScrubMap::object, pg_shard_t> > authoritative;
 
     // classic scrub
     bool classic;
@@ -939,10 +947,13 @@ public:
 
   int active_pushes;
 
-  void repair_object(const hobject_t& soid, ScrubMap::object *po, int bad_peer, int ok_peer);
-  map<int, ScrubMap *>::const_iterator _select_auth_object(
+  void repair_object(
+    const hobject_t& soid, ScrubMap::object *po,
+    pg_shard_t bad_peer,
+    pg_shard_t ok_peer);
+  map<pg_shard_t, ScrubMap *>::const_iterator _select_auth_object(
     const hobject_t &obj,
-    const map<int,ScrubMap*> &maps);
+    const map<pg_shard_t, ScrubMap*> &maps);
 
   enum error_type {
     CLEAN,
@@ -953,10 +964,10 @@ public:
 			      ScrubMap::object &candidate,
 			      ostream &errorstream);
   void _compare_scrubmaps(const map<int,ScrubMap*> &maps,  
-			  map<hobject_t, set<int> > &missing,
-			  map<hobject_t, set<int> > &inconsistent,
-			  map<hobject_t, int> &authoritative,
-			  map<hobject_t, set<int> > &inconsistent_snapcolls,
+			  map<hobject_t, set<pg_shard_t> > &missing,
+			  map<hobject_t, set<pg_shard_t> > &inconsistent,
+			  map<hobject_t, pg_shard_t> &authoritative,
+			  map<hobject_t, set<pg_shard_t> > &inconsistent_snapcolls,
 			  ostream &errorstream);
   void scrub(ThreadPool::TPHandle &handle);
   void classic_scrub(ThreadPool::TPHandle &handle);
@@ -971,8 +982,8 @@ public:
     ScrubMap &map, vector<hobject_t> &ls, bool deep,
     ThreadPool::TPHandle &handle);
   void _scan_snaps(ScrubMap &map);
-  void _request_scrub_map_classic(int replica, eversion_t version);
-  void _request_scrub_map(int replica, eversion_t version,
+  void _request_scrub_map_classic(pg_shard_t replica, eversion_t version);
+  void _request_scrub_map(pg_shard_t replica, eversion_t version,
                           hobject_t start, hobject_t end, bool deep);
   int build_scrub_map_chunk(
     ScrubMap &map,
@@ -993,7 +1004,7 @@ public:
   virtual bool _report_snap_collection_errors(
     const hobject_t &hoid,
     const map<string, bufferptr> &attrs,
-    int osd,
+    pg_shard_t osd,
     ostream &out) { return false; };
   void clear_scrub_reserved();
   void scrub_reserve_replicas();
@@ -1071,10 +1082,10 @@ public:
   };
 
   struct MInfoRec : boost::statechart::event< MInfoRec > {
-    int from;
+    pg_shard_t from;
     pg_info_t info;
     epoch_t msg_epoch;
-    MInfoRec(int from, pg_info_t &info, epoch_t msg_epoch) :
+    MInfoRec(pg_shard_t from, pg_info_t &info, epoch_t msg_epoch) :
       from(from), info(info), msg_epoch(msg_epoch) {}
     void print(std::ostream *out) const {
       *out << "MInfoRec from " << from << " info: " << info;
@@ -1082,9 +1093,9 @@ public:
   };
 
   struct MLogRec : boost::statechart::event< MLogRec > {
-    int from;
+    pg_shard_t from;
     boost::intrusive_ptr<MOSDPGLog> msg;
-    MLogRec(int from, MOSDPGLog *msg) :
+    MLogRec(pg_shard_t from, MOSDPGLog *msg) :
       from(from), msg(msg) {}
     void print(std::ostream *out) const {
       *out << "MLogRec from " << from;
@@ -1092,9 +1103,9 @@ public:
   };
 
   struct MNotifyRec : boost::statechart::event< MNotifyRec > {
-    int from;
+    pg_shard_t from;
     pg_notify_t notify;
-    MNotifyRec(int from, pg_notify_t &notify) :
+    MNotifyRec(pg_shard_t from, pg_notify_t &notify) :
       from(from), notify(notify) {}
     void print(std::ostream *out) const {
       *out << "MNotifyRec from " << from << " notify: " << notify;
@@ -1102,10 +1113,10 @@ public:
   };
 
   struct MQuery : boost::statechart::event< MQuery > {
-    int from;
+    pg_shard_t from;
     pg_query_t query;
     epoch_t query_epoch;
-    MQuery(int from, const pg_query_t &query, epoch_t query_epoch):
+    MQuery(pg_shard_t from, const pg_query_t &query, epoch_t query_epoch):
       from(from), query(query), query_epoch(query_epoch) {}
     void print(std::ostream *out) const {
       *out << "MQuery from " << from
@@ -1212,7 +1223,7 @@ public:
 	return state->rctx->transaction;
       }
 
-      void send_query(int to, const pg_query_t &query) {
+      void send_query(pg_shard_t to, const pg_query_t &query) {
 	assert(state->rctx->query_map);
 	(*state->rctx->query_map)[to][pg->info.pgid] = query;
       }
@@ -1237,7 +1248,8 @@ public:
 	return &(state->rctx->on_applied->contexts);
       }
 
-      void send_notify(int to, const pg_notify_t &info, const pg_interval_map_t &pi) {
+      void send_notify(pg_shard_t to,
+		       const pg_notify_t &info, const pg_interval_map_t &pi) {
 	assert(state->rctx->notify_list);
 	(*state->rctx->notify_list)[to].push_back(make_pair(info, pi));
       }
@@ -1636,7 +1648,7 @@ public:
     };
 
     struct GetLog : boost::statechart::state< GetLog, Peering >, NamedState {
-      int newest_update_osd;
+      pg_shard_t newest_update_osd;
       boost::intrusive_ptr<MOSDPGLog> msg;
 
       GetLog(my_context ctx);
@@ -1753,7 +1765,7 @@ public:
   pg_t       get_pgid() const { return info.pgid; }
   int        get_nrep() const { return acting.size(); }
 
-  int        get_primary() { return acting.empty() ? -1:acting[0]; }
+  pg_shard_t get_primary() { return primary; }
   
   int        get_role() const { return role; }
   void       set_role(int r) { role = r; }
@@ -1785,6 +1797,7 @@ public:
 
   void init(
     int role,
+    pg_shard_t whoami,
     vector<int>& up,
     vector<int>& acting,
     pg_history_t& history,
@@ -1861,9 +1874,9 @@ public:
   }
 
   void update_history_from_master(pg_history_t new_history);
-  void fulfill_info(int from, const pg_query_t &query, 
+  void fulfill_info(pg_shard_t from, const pg_query_t &query, 
 		    pair<int, pg_info_t> &notify_info);
-  void fulfill_log(int from, const pg_query_t &query, epoch_t query_epoch);
+  void fulfill_log(pg_shard_t from, const pg_query_t &query, epoch_t query_epoch);
   bool is_split(OSDMapRef lastmap, OSDMapRef nextmap);
   bool acting_up_affected(const vector<int>& newup, const vector<int>& newacting);
 
@@ -1899,13 +1912,13 @@ public:
   void queue_peering_event(CephPeeringEvtRef evt);
   void handle_peering_event(CephPeeringEvtRef evt, RecoveryCtx *rctx);
   void queue_notify(epoch_t msg_epoch, epoch_t query_epoch,
-		    int from, pg_notify_t& i);
+		    pg_shard_t from, pg_notify_t& i);
   void queue_info(epoch_t msg_epoch, epoch_t query_epoch,
-		  int from, pg_info_t& i);
-  void queue_log(epoch_t msg_epoch, epoch_t query_epoch, int from,
+		  pg_shard_t from, pg_info_t& i);
+  void queue_log(epoch_t msg_epoch, epoch_t query_epoch, pg_shard_t from,
 		 MOSDPGLog *msg);
   void queue_query(epoch_t msg_epoch, epoch_t query_epoch,
-		   int from, const pg_query_t& q);
+		   pg_shard_t from, const pg_query_t& q);
   void queue_null(epoch_t msg_epoch, epoch_t query_epoch);
   void queue_flushed(epoch_t started_at);
   void handle_advance_map(OSDMapRef osdmap, OSDMapRef lastmap,

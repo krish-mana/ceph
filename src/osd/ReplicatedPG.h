@@ -225,17 +225,17 @@ public:
     ObjectStore::Transaction *t
     );
   void on_peer_recover(
-    int peer,
+    pg_shard_t peer,
     const hobject_t &oid,
     const ObjectRecoveryInfo &recovery_info,
     const object_stat_sum_t &stat
     );
   void begin_peer_recover(
-    int peer,
+    pg_shard_t peer,
     const hobject_t oid);
   void on_global_recover(
     const hobject_t &oid);
-  void failed_push(int from, const hobject_t &soid);
+  void failed_push(pg_shard_t from, const hobject_t &soid);
   void cancel_pull(const hobject_t &soid);
 
   template <typename T>
@@ -337,7 +337,7 @@ public:
     const eversion_t &applied_version);
 
   bool should_send_op(
-    int peer,
+    pg_shard_t peer,
     const hobject_t &hoid) {
     assert(peer_info.count(peer));
     return hoid.pool != (int64_t)info.pgid.pool() ||
@@ -345,7 +345,7 @@ public:
   }
   
   void update_peer_last_complete_ondisk(
-    int fromosd,
+    pg_shard_t fromosd,
     eversion_t lcod) {
     peer_last_complete_ondisk[fromosd] = lcod;
   }
@@ -358,7 +358,7 @@ public:
   void schedule_work(
     GenContext<ThreadPool::TPHandle&> *c);
 
-  int whoami() const {
+  pg_shard_t whoami() const {
     return osd->whoami;
   }
 
@@ -955,7 +955,7 @@ protected:
     hobject_t oid, eversion_t v, ObjectContextRef obc,
     vector<int> peer,
     PGBackend::RecoveryHandle *h);
-  void send_remove_op(const hobject_t& oid, eversion_t v, int peer);
+  void send_remove_op(const hobject_t& oid, eversion_t v, pg_shard_t peer);
 
 
   struct C_OSD_OndiskWriteUnlock : public Context {
