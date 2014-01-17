@@ -125,27 +125,17 @@
        ) = 0;
      virtual epoch_t get_epoch() = 0;
 
-     virtual const vector<int> &get_actingbackfill() = 0;
-     const set<pg_shard_t> &get_actingbackfill_shards() {
-       return *(new set<pg_shard_t>);
-     }
+     virtual const set<int> &get_actingbackfill_shards() = 0;
 
      virtual std::string gen_dbg_prefix() const = 0;
 
-     virtual const map<hobject_t, set<int> > &get_missing_loc() = 0;
-     const map<hobject_t, set<pg_shard_t> > &get_missing_loc_shards() {
-       return *(new map<hobject_t, set<pg_shard_t> >);
-     }
+     virtual const map<hobject_t, set<pg_shard_t> > &get_missing_loc_shards()
+       const = 0;
 
-     virtual const map<int, pg_missing_t> &get_peer_missing() = 0;
-     virtual const map<pg_shard_t, pg_missing_t> &get_shard_missing() {
-       return *(new map<pg_shard_t, pg_missing_t>);
-     }
+     virtual const map<pg_shard_t, pg_missing_t> &get_shard_missing()
+       const = 0;
 
-     virtual const map<int, pg_info_t> &get_peer_info() = 0;
-     const map<pg_shard_t, pg_info_t> &get_shard_info() {
-       return *(new map<pg_shard_t, pg_info_t>);
-     }
+     virtual const map<pg_shard_t, pg_info_t> &get_shard_info() = 0;
 
      virtual const pg_missing_t &get_local_missing() = 0;
      virtual const PGLog &get_log() = 0;
@@ -191,6 +181,9 @@
      virtual pg_shard_t whoami_shard() const = 0;
      int whoami() const {
        return whoami_shard().osd;
+     }
+     spg_t whoami_spg_t() const {
+       return spg_t(get_info().pgid, whoami_shard().shard);
      }
 
      virtual spg_t primary_spg_t() const {

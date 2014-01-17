@@ -291,18 +291,18 @@ public:
   epoch_t get_epoch() {
     return get_osdmap()->get_epoch();
   }
-  const vector<int> &get_actingbackfill() {
+  const set<pg_shard_t> &get_actingbackfill() {
     return actingbackfill;
   }
   std::string gen_dbg_prefix() const { return gen_prefix(); }
   
-  const map<hobject_t, set<int> > &get_missing_loc() {
+  const map<hobject_t, set<pg_shard_t> > &get_missing_loc_shards() const {
     return missing_loc;
   }
-  const map<int, pg_missing_t> &get_peer_missing() {
+  const map<pg_shard_t, pg_missing_t> &get_shard_missing() const {
     return peer_missing;
   }
-  const map<int, pg_info_t> &get_peer_info() {
+  const map<int, pg_info_t> &get_shard_info() const {
     return peer_info;
   }
   const pg_missing_t &get_local_missing() {

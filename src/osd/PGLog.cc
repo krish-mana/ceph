@@ -145,8 +145,10 @@ void PGLog::trim(
   }
 }
 
-void PGLog::proc_replica_log(ObjectStore::Transaction& t,
-			  pg_info_t &oinfo, const pg_log_t &olog, pg_missing_t& omissing, int from) const
+void PGLog::proc_replica_log(
+  ObjectStore::Transaction& t,
+  pg_info_t &oinfo, const pg_log_t &olog, pg_missing_t& omissing,
+  pg_shard_t from) const
 {
   dout(10) << "proc_replica_log for osd." << from << ": "
 	   << oinfo << " " << olog << " " << omissing << dendl;
@@ -423,7 +425,7 @@ void PGLog::rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead
 }
 
 void PGLog::merge_log(ObjectStore::Transaction& t,
-                      pg_info_t &oinfo, pg_log_t &olog, int fromosd,
+                      pg_info_t &oinfo, pg_log_t &olog, pg_shard_t fromosd,
                       pg_info_t &info, LogEntryHandler *rollbacker,
                       bool &dirty_info, bool &dirty_big_info)
 {

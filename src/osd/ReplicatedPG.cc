@@ -6279,15 +6279,18 @@ void ReplicatedBackend::issue_op(
 
   if (parent->get_actingbackfill().size() > 1) {
     ostringstream ss;
-    ss << "waiting for subops from " << 
-      vector<int>(
-	parent->get_actingbackfill().begin() + 1,
-	parent->get_actingbackfill().end());
+    set<pg_shard_t> replicas = parent->get_actingbackfill_shards();
+    replicas.erase(parent->whoami_shard);
+    ss << "waiting for subops from " << replicas;
     if (op->op)
       op->op->mark_sub_op_sent(ss.str());
   }
-  for (unsigned i=1; i<parent->get_actingbackfill().size(); i++) {
-    int peer = parent->get_actingbackfill()[i];
+  for (set<pg_shard_t>::const_iterator i =
+	 parent->get_actingbackfill_shards().begin();
+       i != parent->get_actingbackfill_shards().end(); 
+       ++i) {
+    if (*i == parent->whoami_shard()) continue;
+    int peer = *i;
     const pg_info_t &pinfo = parent->get_peer_info().find(peer)->second;
 
     op->waiting_for_applied.insert(peer);

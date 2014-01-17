@@ -247,8 +247,10 @@ void PG::proc_master_log(
   peer_missing[from].swap(omissing);
 }
     
-void PG::proc_replica_log(ObjectStore::Transaction& t,
-			  pg_info_t &oinfo, pg_log_t &olog, pg_missing_t& omissing, int from)
+void PG::proc_replica_log(
+  ObjectStore::Transaction& t,
+  pg_info_t &oinfo, pg_log_t &olog, pg_missing_t& omissing,
+  pg_shard_t from)
 {
   dout(10) << "proc_replica_log for osd." << from << ": "
 	   << oinfo << " " << olog << " " << omissing << dendl;
@@ -269,7 +271,7 @@ void PG::proc_replica_log(ObjectStore::Transaction& t,
   peer_missing[from].swap(omissing);
 }
 
-bool PG::proc_replica_info(int from, const pg_info_t &oinfo)
+bool PG::proc_replica_info(pg_shard_t from, const pg_info_t &oinfo)
 {
   map<int,pg_info_t>::iterator p = peer_info.find(from);
   if (p != peer_info.end() && p->second.last_update == oinfo.last_update) {
