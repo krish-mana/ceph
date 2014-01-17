@@ -725,9 +725,11 @@ public:
 
   map<pg_shard_t, pg_info_t>::const_iterator find_best_info(
     const map<pg_shard_t, pg_info_t> &infos) const;
-  bool calc_acting(pg_shard_t &newest_update_osd,
-		   vector<int>& want, vector<int>& backfill) const;
-  bool choose_acting(pg_shard_t &newest_update_osd);
+  bool calc_acting(
+    pg_shard_t &auth_log_shard,
+    vector<int> &want,
+    vector<int> &backfill) const;
+  bool choose_acting(pg_shard_t &auth_log_shard);
   void build_might_have_unfound();
   void replay_queued_ops();
   void activate(
@@ -1641,7 +1643,7 @@ public:
     };
 
     struct GetLog : boost::statechart::state< GetLog, Peering >, NamedState {
-      pg_shard_t newest_update_osd;
+      pg_shard_t auth_log_shard;
       boost::intrusive_ptr<MOSDPGLog> msg;
 
       GetLog(my_context ctx);

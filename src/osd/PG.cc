@@ -892,9 +892,12 @@ map<pg_shard_t, pg_info_t>::const_iterator PG::find_best_info(
  * bring other up nodes up to date.
  */
 bool PG::calc_acting(
-  pg_shard_t& newest_update_osd_id, vector<int>& want,
-  vector<int>& backfill) const
+  pg_shard_t &auth_log_shard_id,
+  vector<int> &want,
+  vector<int> &backfill) const
 {
+// TODOSAM: fix
+#if 0
   map<pg_shard_t, pg_info_t> all_info(peer_info.begin(), peer_info.end());
   all_info[pg_whoami] = info;
 
@@ -1037,6 +1040,7 @@ bool PG::calc_acting(
     }
   }
 
+#endif
   return true;
 }
 
@@ -1046,11 +1050,11 @@ bool PG::calc_acting(
  * calculate the desired acting, and request a change with the monitor
  * if it differs from the current acting.
  */
-bool PG::choose_acting(int& newest_update_osd)
+bool PG::choose_acting(int& auth_log_shard)
 {
   vector<int> want, backfill;
 
-  if (!calc_acting(newest_update_osd, want, backfill)) {
+  if (!calc_acting(auth_log_shard, want, backfill)) {
     dout(10) << "choose_acting failed" << dendl;
     assert(want_acting.empty());
     return false;
@@ -5948,7 +5952,7 @@ PG::RecoveryState::Recovered::Recovered(my_context ctx)
   : my_base(ctx),
     NamedState(context< RecoveryMachine >().pg->cct, "Started/Primary/Active/Recovered")
 {
-  int newest_update_osd;
+  int auth_log_shard;
 
   context< RecoveryMachine >().log_enter(state_name);
 
@@ -5962,7 +5966,7 @@ PG::RecoveryState::Recovered::Recovered(my_context ctx)
     pg->state_clear(PG_STATE_DEGRADED);
 
   // adjust acting set?  (e.g. because backfill completed...)
-  if (pg->acting != pg->up && !pg->choose_acting(newest_update_osd))
+  if (pg->acting != pg->up && !pg->choose_acting(auth_log_shard))
     assert(pg->want_acting.size());
 
   assert(!pg->needs_recovery());
@@ -6637,14 +6641,14 @@ void PG::RecoveryState::GetInfo::exit()
 PG::RecoveryState::GetLog::GetLog(my_context ctx)
   : my_base(ctx),
     NamedState(context< RecoveryMachine >().pg->cct, "Started/Primary/Peering/GetLog"),
-    newest_update_osd(-1), msg(0)
+    auth_log_shard(-1), msg(0)
 {
   context< RecoveryMachine >().log_enter(state_name);
 
   PG *pg = context< RecoveryMachine >().pg;
 
   // adjust acting?
-  if (!pg->choose_acting(newest_update_osd)) {
+  if (!pg->choose_acting(auth_log_shard)) {
     if (!pg->want_acting.empty()) {
       post_event(NeedActingChange());
     } else {
@@ -6654,16 +6658,16 @@ PG::RecoveryState::GetLog::GetLog(my_context ctx)
   }
 
   // am i the best?
-  if (newest_update_osd == pg->osd->whoami) {
+  if (auth_log_shard == pg->osd->whoami) {
     post_event(GotLog());
     return;
   }
 
-  const pg_info_t& best = pg->peer_info[newest_update_osd];
+  const pg_info_t& best = pg->peer_info[auth_log_shard];
 
   // am i broken?
   if (pg->info.last_update < best.log_tail) {
-    dout(10) << " not contiguous with osd." << newest_update_osd << ", down" << dendl;
+    dout(10) << " not contiguous with osd." << auth_log_shard << ", down" << dendl;
     post_event(IsIncomplete());
     return;
   }
@@ -6679,9 +6683,9 @@ PG::RecoveryState::GetLog::GetLog(my_context ctx)
   }
 
   // how much?
-  dout(10) << " requesting log from osd." << newest_update_osd << dendl;
+  dout(10) << " requesting log from osd." << auth_log_shard << dendl;
   context<RecoveryMachine>().send_query(
-    newest_update_osd,
+    auth_log_shard,
     pg_query_t(pg_query_t::LOG, request_log_from, pg->info.history,
 	       pg->get_osdmap()->get_epoch()));
 }
@@ -6691,8 +6695,8 @@ boost::statechart::result PG::RecoveryState::GetLog::react(const AdvMap& advmap)
   // make sure our log source didn't go down.  we need to check
   // explicitly because it may not be part of the prior set, which
   // means the Peering state check won't catch it going down.
-  if (!advmap.osdmap->is_up(newest_update_osd)) {
-    dout(10) << "GetLog: newest_update_osd osd." << newest_update_osd << " went down" << dendl;
+  if (!advmap.osdmap->is_up(auth_log_shard)) {
+    dout(10) << "GetLog: auth_log_shard osd." << auth_log_shard << " went down" << dendl;
     post_event(advmap);
     return transit< Reset >();
   }
@@ -6704,9 +6708,9 @@ boost::statechart::result PG::RecoveryState::GetLog::react(const AdvMap& advmap)
 boost::statechart::result PG::RecoveryState::GetLog::react(const MLogRec& logevt)
 {
   assert(!msg);
-  if (logevt.from != newest_update_osd) {
+  if (logevt.from != auth_log_shard) {
     dout(10) << "GetLog: discarding log from "
-	     << "non-newest_update_osd osd." << logevt.from << dendl;
+	     << "non-auth_log_shard osd." << logevt.from << dendl;
     return discard_event();
   }
   dout(10) << "GetLog: recieved master log from osd" 
@@ -6724,7 +6728,7 @@ boost::statechart::result PG::RecoveryState::GetLog::react(const GotLog&)
     dout(10) << "processing master log" << dendl;
     pg->proc_master_log(*context<RecoveryMachine>().get_cur_transaction(),
 			msg->info, msg->log, msg->missing, 
-			newest_update_osd);
+			auth_log_shard);
   }
   pg->start_flush(
     context< RecoveryMachine >().get_cur_transaction(),
@@ -6738,7 +6742,7 @@ boost::statechart::result PG::RecoveryState::GetLog::react(const QueryState& q)
   q.f->open_object_section("state");
   q.f->dump_string("name", state_name);
   q.f->dump_stream("enter_time") << enter_time;
-  q.f->dump_int("newest_update_osd", newest_update_osd);
+  q.f->dump_int("auth_log_shard", auth_log_shard);
   q.f->close_section();
   return forward_event();
 }
