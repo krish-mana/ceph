@@ -188,13 +188,11 @@
      virtual void schedule_work(
        GenContext<ThreadPool::TPHandle&> *c) = 0;
 
-     virtual int whoami() const = 0;
-     virtual pg_shard_t whoami_shard() const {
-       return pg_shard_t::undefined_shard();
+     virtual pg_shard_t whoami_shard() const = 0;
+     int whoami() const {
+       return whoami_shard().osd;
      }
-     virtual spg_t whoami_spg_t() const {
-       return spg_t(pg_t(), ghobject_t::NO_SHARD);
-     }
+
      virtual spg_t primary_spg_t() const {
        return spg_t(pg_t(), ghobject_t::NO_SHARD);
      }

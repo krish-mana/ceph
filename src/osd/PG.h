@@ -334,7 +334,7 @@ public:
   // primary state
  public:
   pg_shard_t primary;
-  pg_shard_t whoami;
+  pg_shard_t pg_whoami;
   vector<pg_shard_t> up, acting, want_acting;
   set<pg_shard_t> actingbackfill;
   map<pg_shard_t,eversion_t> peer_last_complete_ondisk;
@@ -602,7 +602,7 @@ public:
   bool calc_min_last_complete_ondisk() {
     eversion_t min = last_complete_ondisk;
     assert(actingbackfill.size() > 0);
-    for (set<pg_shard_t>::iterator i = 1;
+    for (set<pg_shard_t>::iterator i = actingbackfill.begin();
 	 i != actingbackfill.end();
 	 ++i) {
       if (peer_last_complete_ondisk.count(*i) == 0)
@@ -1228,12 +1228,12 @@ public:
 	(*state->rctx->query_map)[to][pg->info.pgid] = query;
       }
 
-      map<int, map<pg_t, pg_query_t> > *get_query_map() {
+      map<pg_shard_t, map<pg_t, pg_query_t> > *get_query_map() {
 	assert(state->rctx->query_map);
 	return state->rctx->query_map;
       }
 
-      map<int, vector<pair<pg_notify_t, pg_interval_map_t> > > *get_info_map() {
+      map<pg_shard_t, vector<pair<pg_notify_t, pg_interval_map_t> > > *get_info_map() {
 	assert(state->rctx->info_map);
 	return state->rctx->info_map;
       }

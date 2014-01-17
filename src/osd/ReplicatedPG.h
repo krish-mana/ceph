@@ -358,8 +358,8 @@ public:
   void schedule_work(
     GenContext<ThreadPool::TPHandle&> *c);
 
-  pg_shard_t whoami() const {
-    return osd->whoami;
+  pg_shard_t whoami_shard() const {
+    return pg_whoami;
   }
 
   void send_message_osd_cluster(

@@ -226,9 +226,12 @@ std::string PG::gen_prefix() const
   
 /********* PG **********/
 
-void PG::proc_master_log(ObjectStore::Transaction& t, pg_info_t &oinfo, pg_log_t &olog, pg_missing_t& omissing, int from)
+void PG::proc_master_log(
+  ObjectStore::Transaction& t, pg_info_t &oinfo,
+  pg_log_t &olog, pg_missing_t& omissing, pg_shard_t from)
 {
-  dout(10) << "proc_master_log for osd." << from << ": " << olog << " " << omissing << dendl;
+  dout(10) << "proc_master_log for osd." << from << ": "
+	   << olog << " " << omissing << dendl;
   assert(!is_active() && is_primary());
 
   // merge log into our own log to build master log.  no need to
