@@ -302,7 +302,7 @@ public:
   const map<pg_shard_t, pg_missing_t> &get_shard_missing() const {
     return peer_missing;
   }
-  const map<int, pg_info_t> &get_shard_info() const {
+  const map<pg_shard_t, pg_info_t> &get_shard_info() const {
     return peer_info;
   }
   const pg_missing_t &get_local_missing() {
@@ -796,14 +796,14 @@ protected:
 
   void dump_recovery_info(Formatter *f) const {
     f->open_array_section("backfill_targets");
-    for (vector<int>::const_iterator p = backfill_targets.begin();
+    for (set<pg_shard_t>::const_iterator p = backfill_targets.begin();
         p != backfill_targets.end(); ++p)
-      f->dump_int("osd", *p);
+      f->dump_stream("replica") << *p;
     f->close_section();
     f->open_array_section("waiting_on_backfill");
-    for (set<int>::const_iterator p = waiting_on_backfill.begin();
+    for (set<pg_shard_t>::const_iterator p = waiting_on_backfill.begin();
         p != waiting_on_backfill.end(); ++p)
-      f->dump_int("osd", *p);
+      f->dump_stream("osd") << *p;
     f->close_section();
     f->dump_stream("last_backfill_started") << last_backfill_started;
     {
@@ -813,9 +813,10 @@ protected:
     }
     {
       f->open_array_section("peer_backfill_info");
-      for (map<int, BackfillInterval>::const_iterator pbi = peer_backfill_info.begin();
+      for (map<pg_shard_t, BackfillInterval>::const_iterator pbi =
+	     peer_backfill_info.begin();
           pbi != peer_backfill_info.end(); ++pbi) {
-        f->dump_int("osd", pbi->first);
+        f->dump_stream("osd") << pbi->first;
         f->open_object_section("BackfillInterval");
           pbi->second.dump(f);
         f->close_section();

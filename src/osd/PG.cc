@@ -273,7 +273,7 @@ void PG::proc_replica_log(
 
 bool PG::proc_replica_info(pg_shard_t from, const pg_info_t &oinfo)
 {
-  map<int,pg_info_t>::iterator p = peer_info.find(from);
+  map<pg_shard_t, pg_info_t>::iterator p = peer_info.find(from);
   if (p != peer_info.end() && p->second.last_update == oinfo.last_update) {
     dout(10) << " got dup osd." << from << " info " << oinfo << ", identical to ours" << dendl;
     return false;
@@ -290,7 +290,7 @@ bool PG::proc_replica_info(pg_shard_t from, const pg_info_t &oinfo)
   reg_next_scrub();
   
   // stray?
-  if (!is_acting(from)) {
+  if (!is_actingbackfill(from)) {
     dout(10) << " osd." << from << " has stray content: " << oinfo << dendl;
     stray_set.insert(from);
     if (is_clean()) {
@@ -346,7 +346,7 @@ void PG::update_object_snap_mapping(
 }
 
 void PG::merge_log(
-  ObjectStore::Transaction& t, pg_info_t &oinfo, pg_log_t &olog, int from)
+  ObjectStore::Transaction& t, pg_info_t &oinfo, pg_log_t &olog, pg_shard_t from)
 {
   PGLogEntryHandler rollbacker;
   pg_log.merge_log(
@@ -369,8 +369,9 @@ void PG::rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead)
  * TODO: if the missing set becomes very large, this could get expensive.
  * Instead, we probably want to just iterate over our unfound set.
  */
-bool PG::search_for_missing(const pg_info_t &oinfo, const pg_missing_t *omissing,
-			    int fromosd)
+bool PG::search_for_missing(
+  const pg_info_t &oinfo, const pg_missing_t *omissing,
+  pg_shard_t fromosd)
 {
   bool stats_updated = false;
   bool found_missing = false;
@@ -420,7 +421,7 @@ bool PG::search_for_missing(const pg_info_t &oinfo, const pg_missing_t *omissing
     dout(10) << "search_for_missing " << soid << " " << need
 	     << " is on osd." << fromosd << dendl;
 
-    map<hobject_t, set<int> >::iterator ml = missing_loc.find(soid);
+    map<hobject_t, set<pg_shard_t> >::iterator ml = missing_loc.find(soid);
     if (ml == missing_loc.end()) {
       map<hobject_t, list<OpRequestRef> >::iterator wmo =
 	waiting_for_missing_object.find(soid);
@@ -445,7 +446,7 @@ bool PG::search_for_missing(const pg_info_t &oinfo, const pg_missing_t *omissing
   return found_missing;
 }
 
-void PG::discover_all_missing(map< int, map<pg_t,pg_query_t> > &query_map)
+void PG::discover_all_missing(map<pg_shard_t, map<pg_t,pg_query_t> > &query_map)
 {
   const pg_missing_t &missing = pg_log.get_missing();
   assert(missing.have_missing());
@@ -455,17 +456,17 @@ void PG::discover_all_missing(map< int, map<pg_t,pg_query_t> > &query_map)
 	   << get_num_unfound() << " unfound"
 	   << dendl;
 
-  std::set<int>::const_iterator m = might_have_unfound.begin();
-  std::set<int>::const_iterator mend = might_have_unfound.end();
+  std::set<pg_shard_t>::const_iterator m = might_have_unfound.begin();
+  std::set<pg_shard_t>::const_iterator mend = might_have_unfound.end();
   for (; m != mend; ++m) {
-    int peer(*m);
+    pg_shard_t peer(*m);
     
-    if (!get_osdmap()->is_up(peer)) {
+    if (!get_osdmap()->is_up(peer.osd)) {
       dout(20) << __func__ << " skipping down osd." << peer << dendl;
       continue;
     }
 
-    map<int, pg_info_t>::const_iterator iter = peer_info.find(peer);
+    map<pg_shard_t, pg_info_t>::const_iterator iter = peer_info.find(peer);
     if (iter != peer_info.end() &&
         (iter->second.is_empty() || iter->second.dne())) {
       // ignore empty peers
@@ -515,13 +516,13 @@ bool PG::needs_recovery() const
   }
 
   assert(actingbackfill.size() > 0);
-  vector<int>::const_iterator end = actingbackfill.end();
-  vector<int>::const_iterator a = actingbackfill.begin();
+  set<pg_shard_t>::const_iterator end = actingbackfill.end();
+  set<pg_shard_t>::const_iterator a = actingbackfill.begin();
   assert(a != end);
   ++a;
   for (; a != end; ++a) {
-    int peer = *a;
-    map<int, pg_missing_t>::const_iterator pm = peer_missing.find(peer);
+    pg_shard_t peer = *a;
+    map<pg_shard_t, pg_missing_t>::const_iterator pm = peer_missing.find(peer);
     if (pm == peer_missing.end()) {
       dout(10) << __func__ << " osd." << peer << " don't have missing set" << dendl;
       ret = true;
@@ -546,11 +547,11 @@ bool PG::needs_backfill() const
 
   // We can assume that only possible osds that need backfill
   // are on the backfill_targets vector nodes.
-  vector<int>::const_iterator end = backfill_targets.end();
-  vector<int>::const_iterator a = backfill_targets.begin();
+  set<pg_shard_t>::const_iterator end = backfill_targets.end();
+  set<pg_shard_t>::const_iterator a = backfill_targets.begin();
   for (; a != end; ++a) {
-    int peer = *a;
-    map<int,pg_info_t>::const_iterator pi = peer_info.find(peer);
+    pg_shard_t peer = *a;
+    map<pg_shard_t, pg_info_t>::const_iterator pi = peer_info.find(peer);
     if (!pi->second.last_backfill.is_max()) {
       dout(10) << __func__ << " osd." << peer << " has last_backfill " << pi->second.last_backfill << dendl;
       ret = true;
@@ -674,9 +675,9 @@ void PG::remove_down_peer_info(const OSDMapRef osdmap)
 {
   // Remove any downed osds from peer_info
   bool removed = false;
-  map<int,pg_info_t>::iterator p = peer_info.begin();
+  map<pg_shard_t, pg_info_t>::iterator p = peer_info.begin();
   while (p != peer_info.end()) {
-    if (!osdmap->is_up(p->first)) {
+    if (!osdmap->is_up(p->first.osd)) {
       dout(10) << " dropping down osd." << p->first << " info " << p->second << dendl;
       peer_missing.erase(p->first);
       peer_log_requested.erase(p->first);
@@ -700,16 +701,16 @@ bool PG::all_unfound_are_queried_or_lost(const OSDMapRef osdmap) const
 {
   assert(is_primary());
 
-  set<int>::const_iterator peer = might_have_unfound.begin();
-  set<int>::const_iterator mend = might_have_unfound.end();
+  set<pg_shard_t>::const_iterator peer = might_have_unfound.begin();
+  set<pg_shard_t>::const_iterator mend = might_have_unfound.end();
   for (; peer != mend; ++peer) {
     if (peer_missing.count(*peer))
       continue;
-    map<int, pg_info_t>::const_iterator iter = peer_info.find(*peer);
+    map<pg_shard_t, pg_info_t>::const_iterator iter = peer_info.find(*peer);
     if (iter != peer_info.end() &&
         (iter->second.is_empty() || iter->second.dne()))
       continue;
-    const osd_info_t &osd_info(osdmap->get_info(*peer));
+    const osd_info_t &osd_info(osdmap->get_info(peer->osd));
     if (osd_info.lost_at <= osd_info.up_from) {
       // If there is even one OSD in might_have_unfound that isn't lost, we
       // still might retrieve our unfound.
@@ -725,7 +726,7 @@ void PG::build_prior(std::auto_ptr<PriorSet> &prior_set)
 {
   if (1) {
     // sanity check
-    for (map<int,pg_info_t>::iterator it = peer_info.begin();
+    for (map<pg_shard_t,pg_info_t>::iterator it = peer_info.begin();
 	 it != peer_info.end();
 	 ++it) {
       assert(info.history.last_epoch_started >= it->second.history.last_epoch_started);
@@ -801,11 +802,12 @@ void PG::clear_primary_state()
  *  2) Prefer longer tail if it brings another info into contiguity
  *  3) Prefer current primary
  */
-map<int, pg_info_t>::const_iterator PG::find_best_info(const map<int, pg_info_t> &infos) const
+map<pg_shard_t, pg_info_t>::const_iterator PG::find_best_info(
+  const map<pg_shard_t, pg_info_t> &infos) const
 {
   eversion_t min_last_update_acceptable = eversion_t::max();
   epoch_t max_last_epoch_started_found = 0;
-  for (map<int, pg_info_t>::const_iterator i = infos.begin();
+  for (map<pg_shard_t, pg_info_t>::const_iterator i = infos.begin();
        i != infos.end();
        ++i) {
     if (max_last_epoch_started_found < i->second.last_epoch_started) {
@@ -819,12 +821,12 @@ map<int, pg_info_t>::const_iterator PG::find_best_info(const map<int, pg_info_t>
   }
   assert(min_last_update_acceptable != eversion_t::max());
 
-  map<int, pg_info_t>::const_iterator best = infos.end();
+  map<pg_shard_t, pg_info_t>::const_iterator best = infos.end();
   // find osd with newest last_update (oldest for ec_pool).
   // if there are multiples, prefer
   //  - a longer tail, if it brings another peer into log contiguity
   //  - the current primary
-  for (map<int, pg_info_t>::const_iterator p = infos.begin();
+  for (map<pg_shard_t, pg_info_t>::const_iterator p = infos.begin();
        p != infos.end();
        ++p) {
     // Only consider peers with last_update >= min_last_update_acceptable
@@ -854,7 +856,7 @@ map<int, pg_info_t>::const_iterator PG::find_best_info(const map<int, pg_info_t>
       }
     }
     // Prefer longer tail if it brings another peer into contiguity
-    for (map<int, pg_info_t>::const_iterator q = infos.begin();
+    for (map<pg_shard_t, pg_info_t>::const_iterator q = infos.begin();
 	 q != infos.end();
 	 ++q) {
       if (q->second.is_incomplete())
@@ -872,7 +874,7 @@ map<int, pg_info_t>::const_iterator PG::find_best_info(const map<int, pg_info_t>
       }
     }
     // prefer current primary (usually the caller), all things being equal
-    if (p->first == acting[0]) {
+    if (p->first == pg_whoami) {
       dout(10) << "calc_acting prefer osd." << p->first
 	       << " because it is current primary" << dendl;
       best = p;
@@ -889,20 +891,26 @@ map<int, pg_info_t>::const_iterator PG::find_best_info(const map<int, pg_info_t>
  * incomplete, or another osd has a longer tail that allows us to
  * bring other up nodes up to date.
  */
-bool PG::calc_acting(int& newest_update_osd_id, vector<int>& want, vector<int>& backfill) const
+bool PG::calc_acting(
+  pg_shard_t& newest_update_osd_id, vector<int>& want,
+  vector<int>& backfill) const
 {
-  map<int, pg_info_t> all_info(peer_info.begin(), peer_info.end());
-  all_info[osd->whoami] = info;
+  map<pg_shard_t, pg_info_t> all_info(peer_info.begin(), peer_info.end());
+  all_info[pg_whoami] = info;
 
-  for (map<int,pg_info_t>::iterator p = all_info.begin(); p != all_info.end(); ++p) {
+  for (map<pg_shard_t, pg_info_t>::iterator p = all_info.begin();
+       p != all_info.end();
+       ++p) {
     dout(10) << "calc_acting osd." << p->first << " " << p->second << dendl;
   }
 
-  map<int, pg_info_t>::const_iterator newest_update_osd = find_best_info(all_info);
+  map<pg_shard_t, pg_info_t>::const_iterator newest_update_osd =
+    find_best_info(all_info);
 
   if (newest_update_osd == all_info.end()) {
     if (up != acting) {
-      dout(10) << "calc_acting no suitable info found (incomplete backfills?), reverting to up" << dendl;
+      dout(10) << "calc_acting no suitable info found (incomplete backfills?),"
+	       << " reverting to up" << dendl;
       want = up;
       return true;
     } else {
@@ -917,19 +925,19 @@ bool PG::calc_acting(int& newest_update_osd_id, vector<int>& want, vector<int>& 
   newest_update_osd_id = newest_update_osd->first;
   
   // select primary
-  map<int,pg_info_t>::const_iterator primary;
+  map<pg_shard_t,pg_info_t>::const_iterator primary;
   if (up.size() &&
-      !all_info[up[0]].is_incomplete() &&
-      all_info[up[0]].last_update >= newest_update_osd->second.log_tail) {
-    dout(10) << "up[0](osd." << up[0] << ") selected as primary" << dendl;
-    primary = all_info.find(up[0]);         // prefer up[0], all thing being equal
+      !all_info[up_primary].is_incomplete() &&
+      all_info[up_primary].last_update >= newest_update_osd->second.log_tail) {
+    dout(10) << "up_primary: " << up_primary << ") selected as primary" << dendl;
+    primary = all_info.find(up_primary); // prefer up[0], all thing being equal
   } else if (!newest_update_osd->second.is_incomplete()) {
     dout(10) << "up[0] needs backfill, osd." << newest_update_osd_id
 	     << " selected as primary instead" << dendl;
     primary = newest_update_osd;
   } else {
-    map<int, pg_info_t> complete_infos;
-    for (map<int, pg_info_t>::iterator i = all_info.begin();
+    map<pg_shard_t, pg_info_t> complete_infos;
+    for (map<pg_shard_t, pg_info_t>::iterator i = all_info.begin();
 	 i != all_info.end();
 	 ++i) {
       if (!i->second.is_incomplete())
@@ -1004,7 +1012,7 @@ bool PG::calc_acting(int& newest_update_osd_id, vector<int>& want, vector<int>& 
     }
   }
 
-  for (map<int,pg_info_t>::const_iterator i = all_info.begin();
+  for (map<pg_shard_t,pg_info_t>::const_iterator i = all_info.begin();
        i != all_info.end();
        ++i) {
     if (usable >= get_osdmap()->get_pg_size(info.pgid))
@@ -1171,7 +1179,7 @@ void PG::build_might_have_unfound()
   }
 
   // include any (stray) peers
-  for (map<int,pg_info_t>::iterator p = peer_info.begin();
+  for (map<pg_shard_t, pg_info_t>::iterator p = peer_info.begin();
        p != peer_info.end();
        ++p)
     might_have_unfound.insert(p->first);
@@ -1192,8 +1200,11 @@ struct C_PG_ActivateCommitted : public Context {
 void PG::activate(ObjectStore::Transaction& t,
 		  epoch_t query_epoch,
 		  list<Context*>& tfin,
-		  map< int, map<pg_t,pg_query_t> >& query_map,
-		  map<int, vector<pair<pg_notify_t, pg_interval_map_t> > > *activator_map)
+		  map<pg_shard_t, map<pg_t,pg_query_t> >& query_map,
+		  map<pg_shard_t,
+		      vector<
+			pair<pg_notify_t,
+			     pg_interval_map_t> > > *activator_map)
 {
   assert(!is_active());
   assert(scrubber.callbacks.empty());
@@ -1847,7 +1858,7 @@ void PG::purge_strays()
   dout(10) << "purge_strays " << stray_set << dendl;
   
   bool removed = false;
-  for (set<int>::iterator p = stray_set.begin();
+  for (set<pg_shard_t>::iterator p = stray_set.begin();
        p != stray_set.end();
        ++p) {
     if (get_osdmap()->is_up(*p)) {
@@ -1879,7 +1890,7 @@ void PG::purge_strays()
   peer_missing_requested.clear();
 }
 
-void PG::set_probe_targets(const set<int> &probe_set)
+void PG::set_probe_targets(const set<pg_shard_t> &probe_set)
 {
   Mutex::Locker l(heartbeat_peer_lock);
   probe_targets = probe_set;
@@ -1901,8 +1912,10 @@ void PG::update_heartbeat_peers()
       new_peers.insert(acting[i]);
     for (unsigned i=0; i<up.size(); i++)
       new_peers.insert(up[i]);
-    for (map<int,pg_info_t>::iterator p = peer_info.begin(); p != peer_info.end(); ++p)
-      new_peers.insert(p->first);
+    for (map<pg_shard_t,pg_info_t>::iterator p = peer_info.begin();
+	 p != peer_info.end();
+	 ++p)
+      new_peers.insert(p->first.osd);
   }
 
   bool need_update = false;
@@ -2898,9 +2911,10 @@ void PG::_request_scrub_map_classic(int replica, eversion_t version)
 }
 
 // send scrub v3 messages (chunky scrub)
-void PG::_request_scrub_map(int replica, eversion_t version,
-                            hobject_t start, hobject_t end,
-                            bool deep)
+void PG::_request_scrub_map(
+  pg_shard_t replica, eversion_t version,
+  hobject_t start, hobject_t end,
+  bool deep)
 {
   assert(replica != osd->whoami);
   dout(10) << "scrub  requesting scrubmap from osd." << replica << dendl;
@@ -3840,7 +3854,7 @@ bool PG::scrub_gather_replica_maps()
   assert(scrubber.waiting_on == 0);
   assert(_lock.is_locked());
 
-  for (map<int,ScrubMap>::iterator p = scrubber.received_maps.begin();
+  for (map<pg_shard_t, ScrubMap>::iterator p = scrubber.received_maps.begin();
        p != scrubber.received_maps.end();
        ++p) {
     
@@ -3929,12 +3943,12 @@ enum PG::error_type PG::_compare_scrub_objects(ScrubMap::object &auth,
 
 
 
-map<int, ScrubMap *>::const_iterator PG::_select_auth_object(
+map<pg_shard_t, ScrubMap *>::const_iterator PG::_select_auth_object(
   const hobject_t &obj,
-  const map<int,ScrubMap*> &maps)
+  const map<pg_shard_t,ScrubMap*> &maps)
 {
-  map<int, ScrubMap *>::const_iterator auth = maps.end();
-  for (map<int, ScrubMap *>::const_iterator j = maps.begin();
+  map<pg_shard_t, ScrubMap *>::const_iterator auth = maps.end();
+  for (map<pg_shard_t, ScrubMap *>::const_iterator j = maps.begin();
        j != maps.end();
        ++j) {
     map<hobject_t, ScrubMap::object>::iterator i =
@@ -4001,15 +4015,15 @@ map<int, ScrubMap *>::const_iterator PG::_select_auth_object(
   return auth;
 }
 
-void PG::_compare_scrubmaps(const map<int,ScrubMap*> &maps,  
-			    map<hobject_t, set<int> > &missing,
-			    map<hobject_t, set<int> > &inconsistent,
-			    map<hobject_t, int> &authoritative,
-			    map<hobject_t, set<int> > &invalid_snapcolls,
+void PG::_compare_scrubmaps(const map<pg_shard_t,ScrubMap*> &maps,  
+			    map<hobject_t, set<pg_shard_t> > &missing,
+			    map<hobject_t, set<pg_shard_t> > &inconsistent,
+			    map<hobject_t, pg_shard_t> &authoritative,
+			    map<hobject_t, set<pg_shard_t> > &invalid_snapcolls,
 			    ostream &errorstream)
 {
   map<hobject_t,ScrubMap::object>::const_iterator i;
-  map<int, ScrubMap *>::const_iterator j;
+  map<pg_shard_t, ScrubMap *>::const_iterator j;
   set<hobject_t> master_set;
 
   // Construct master set
@@ -4023,10 +4037,11 @@ void PG::_compare_scrubmaps(const map<int,ScrubMap*> &maps,
   for (set<hobject_t>::const_iterator k = master_set.begin();
        k != master_set.end();
        ++k) {
-    map<int, ScrubMap *>::const_iterator auth = _select_auth_object(*k, maps);
+    map<pg_shard_t, ScrubMap *>::const_iterator auth =
+      _select_auth_object(*k, maps);
     assert(auth != maps.end());
-    set<int> cur_missing;
-    set<int> cur_inconsistent;
+    set<pg_shard_t> cur_missing;
+    set<pg_shard_t> cur_inconsistent;
     for (j = maps.begin(); j != maps.end(); ++j) {
       if (j == auth)
 	continue;
@@ -4079,8 +4094,8 @@ void PG::scrub_compare_maps()
     stringstream ss;
 
     // Map from object with errors to good peer
-    map<hobject_t, int> authoritative;
-    map<int,ScrubMap *> maps;
+    map<hobject_t, pg_shard_t> authoritative;
+    map<pg_shard_t, ScrubMap *> maps;
 
     dout(2) << "scrub   osd." << acting[0] << " has " 
 	    << scrubber.primary_scrubmap.objects.size() << " items" << dendl;
@@ -4104,7 +4119,7 @@ void PG::scrub_compare_maps()
       osd->clog.error(ss);
     }
 
-    for (map<hobject_t, int>::iterator i = authoritative.begin();
+    for (map<hobject_t, pg_shard_t>::iterator i = authoritative.begin();
 	 i != authoritative.end();
 	 ++i) {
       scrubber.authoritative.insert(
@@ -4113,7 +4128,7 @@ void PG::scrub_compare_maps()
 	  make_pair(maps[i->second]->objects[i->first], i->second)));
     }
 
-    for (map<hobject_t, int>::iterator i = authoritative.begin();
+    for (map<hobject_t, pg_shard_t>::iterator i = authoritative.begin();
 	 i != authoritative.end();
 	 ++i) {
       authmap.objects.erase(i->first);
@@ -4134,11 +4149,11 @@ void PG::scrub_process_inconsistent()
 
   if (!scrubber.authoritative.empty() || !scrubber.inconsistent.empty()) {
     stringstream ss;
-    for (map<hobject_t, set<int> >::iterator obj =
+    for (map<hobject_t, set<pg_shard_t> >::iterator obj =
 	   scrubber.inconsistent_snapcolls.begin();
 	 obj != scrubber.inconsistent_snapcolls.end();
 	 ++obj) {
-      for (set<int>::iterator j = obj->second.begin();
+      for (set<pg_shard_t>::iterator j = obj->second.begin();
 	   j != obj->second.end();
 	   ++j) {
 	++scrubber.shallow_errors;
@@ -4153,11 +4168,11 @@ void PG::scrub_process_inconsistent()
     osd->clog.error(ss);
     if (repair) {
       state_clear(PG_STATE_CLEAN);
-      for (map<hobject_t, pair<ScrubMap::object, int> >::iterator i =
+      for (map<hobject_t, pair<ScrubMap::object, pg_shard_t> >::iterator i =
 	     scrubber.authoritative.begin();
 	   i != scrubber.authoritative.end();
 	   ++i) {
-	set<int>::iterator j;
+	set<pg_shard_t>::iterator j;
 	
 	if (scrubber.missing.count(i->first)) {
 	  for (j = scrubber.missing[i->first].begin();
@@ -4713,7 +4728,7 @@ void PG::start_peering_interval(const OSDMapRef lastmap,
   osd->remove_want_pg_temp(info.pgid);
   cancel_recovery();
 
-  if (acting.empty() && !up.empty() && up[0] == osd->whoami) {
+  if (acting.empty() && !up.empty() && up_primary == osd->whoami) {
     dout(10) << " acting empty, but i am up[0], clearing pg_temp" << dendl;
     osd->queue_want_pg_temp(info.pgid, acting);
   }
@@ -5456,16 +5471,20 @@ boost::statechart::result PG::RecoveryState::Peering::react(const QueryState& q)
   q.f->close_section();
 
   q.f->open_array_section("probing_osds");
-  for (set<int>::iterator p = prior_set->probe.begin(); p != prior_set->probe.end(); ++p)
-    q.f->dump_int("osd", *p);
+  for (set<pg_shard_t>::iterator p = prior_set->probe.begin();
+       p != prior_set->probe.end();
+       ++p)
+    q.f->dump_stream("osd") << *p;
   q.f->close_section();
 
   if (prior_set->pg_down)
     q.f->dump_string("blocked", "peering is blocked due to down osds");
 
   q.f->open_array_section("down_osds_we_would_probe");
-  for (set<int>::iterator p = prior_set->down.begin(); p != prior_set->down.end(); ++p)
-    q.f->dump_int("osd", *p);
+  for (set<pg_shard_t>::iterator p = prior_set->down.begin();
+       p != prior_set->down.end();
+       ++p)
+    q.f->dump_int("osd") << *p;
   q.f->close_section();
 
   q.f->open_array_section("peering_blocked_by");
@@ -5473,7 +5492,7 @@ boost::statechart::result PG::RecoveryState::Peering::react(const QueryState& q)
        p != prior_set->blocked_by.end();
        ++p) {
     q.f->open_object_section("osd");
-    q.f->dump_int("osd", p->first);
+    q.f->dump_stream("osd") << p->first;
     q.f->dump_int("current_lost_at", p->second);
     q.f->dump_string("comment", "starting or marking this osd lost may let us proceed");
     q.f->close_section();
@@ -5880,7 +5899,8 @@ void PG::RecoveryState::Recovering::release_reservations()
   assert(!pg->pg_log.get_missing().have_missing());
 
   // release remote reservations
-  for (set<int>::const_iterator i = context< Active >().sorted_acting_set.begin();
+  for (set<pg_shard_t>::const_iterator i =
+	 context< Active >().sorted_acting_set.begin();
         i != context< Active >().sorted_acting_set.end();
         ++i) {
     if (*i == pg->osd->whoami) // skip myself
@@ -6172,11 +6192,11 @@ boost::statechart::result PG::RecoveryState::Active::react(const QueryState& q)
 
   {
     q.f->open_array_section("might_have_unfound");
-    for (set<int>::iterator p = pg->might_have_unfound.begin();
+    for (set<pg_shard_t>::iterator p = pg->might_have_unfound.begin();
 	 p != pg->might_have_unfound.end();
 	 ++p) {
       q.f->open_object_section("osd");
-      q.f->dump_int("osd", *p);
+      q.f->dump_stream("osd") << *p;
       if (pg->peer_missing.count(*p)) {
 	q.f->dump_string("status", "already probed");
       } else if (pg->peer_missing_requested.count(*p)) {
@@ -6208,7 +6228,7 @@ boost::statechart::result PG::RecoveryState::Active::react(const QueryState& q)
       for (set<int>::iterator p = pg->scrubber.waiting_on_whom.begin();
 	   p != pg->scrubber.waiting_on_whom.end();
 	   ++p) {
-	q.f->dump_int("osd", *p);
+	q.f->dump_int("osd") << *p;
       }
       q.f->close_section();
     }
@@ -6261,7 +6281,7 @@ boost::statechart::result PG::RecoveryState::ReplicaActive::react(
   const Activate& actevt) {
   dout(10) << "In ReplicaActive, about to call activate" << dendl;
   PG *pg = context< RecoveryMachine >().pg;
-  map< int, map< pg_t, pg_query_t> > query_map;
+  map<pg_shard_t, map< pg_t, pg_query_t> > query_map;
   pg->activate(*context< RecoveryMachine >().get_cur_transaction(),
 	       actevt.query_epoch,
 	       *context< RecoveryMachine >().get_on_safe_context_list(),
@@ -6463,7 +6483,7 @@ void PG::RecoveryState::GetInfo::get_infos()
   PG *pg = context< RecoveryMachine >().pg;
   auto_ptr<PriorSet> &prior_set = context< Peering >().prior_set;
 
-  for (set<int>::const_iterator it = prior_set->probe.begin();
+  for (set<pg_shard_t>::const_iterator it = prior_set->probe.begin();
        it != prior_set->probe.end();
        ++it) {
     int peer = *it;
@@ -6491,7 +6511,7 @@ void PG::RecoveryState::GetInfo::get_infos()
 
 boost::statechart::result PG::RecoveryState::GetInfo::react(const MNotifyRec& infoevt) 
 {
-  set<int>::iterator p = peer_info_requested.find(infoevt.from);
+  set<pg_shard_t>::iterator p = peer_info_requested.find(infoevt.from);
   if (p != peer_info_requested.end())
     peer_info_requested.erase(p);
 
@@ -6507,7 +6527,7 @@ boost::statechart::result PG::RecoveryState::GetInfo::react(const MNotifyRec& in
       // filter out any osds that got dropped from the probe set from
       // peer_info_requested.  this is less expensive than restarting
       // peering (which would re-probe everyone).
-      set<int>::iterator p = peer_info_requested.begin();
+      set<pg_shard_t>::iterator p = peer_info_requested.begin();
       while (p != peer_info_requested.end()) {
 	if (prior_set->probe.count(*p) == 0) {
 	  dout(20) << " dropping osd." << *p << " from info_requested, no longer in probe set" << dendl;
@@ -6587,9 +6607,11 @@ boost::statechart::result PG::RecoveryState::GetInfo::react(const QueryState& q)
   q.f->dump_stream("enter_time") << enter_time;
 
   q.f->open_array_section("requested_info_from");
-  for (set<int>::iterator p = peer_info_requested.begin(); p != peer_info_requested.end(); ++p) {
+  for (set<pg_shard_t>::iterator p = peer_info_requested.begin();
+       p != peer_info_requested.end();
+       ++p) {
     q.f->open_object_section("osd");
-    q.f->dump_int("osd", *p);
+    q.f->dump_stream("osd") << *p;
     if (pg->peer_info.count(*p)) {
       q.f->open_object_section("got_info");
       pg->peer_info[*p].dump(q.f);
@@ -6943,9 +6965,11 @@ boost::statechart::result PG::RecoveryState::GetMissing::react(const QueryState&
   q.f->dump_stream("enter_time") << enter_time;
 
   q.f->open_array_section("peer_missing_requested");
-  for (set<int>::iterator p = peer_missing_requested.begin(); p != peer_missing_requested.end(); ++p) {
+  for (set<pg_shard_t>::iterator p = peer_missing_requested.begin();
+       p != peer_missing_requested.end();
+       ++p) {
     q.f->open_object_section("osd");
-    q.f->dump_int("osd", *p);
+    q.f->dump_stream("osd") << *p;
     if (pg->peer_missing.count(*p)) {
       q.f->open_object_section("got_missing");
       pg->peer_missing[*p].dump(q.f);
@@ -7212,7 +7236,7 @@ PG::PriorSet::PriorSet(const OSDMap &osdmap,
 // true if the given map affects the prior set
 bool PG::PriorSet::affected_by_map(const OSDMapRef osdmap, const PG *debug_pg) const
 {
-  for (set<int>::iterator p = probe.begin();
+  for (set<pg_shard_t>::iterator p = probe.begin();
        p != probe.end();
        ++p) {
     int o = *p;
@@ -7224,7 +7248,7 @@ bool PG::PriorSet::affected_by_map(const OSDMapRef osdmap, const PG *debug_pg) c
     }
 
     // did a down osd in cur get (re)marked as lost?
-    map<int,epoch_t>::const_iterator r = blocked_by.find(o);
+    map<int, epoch_t>::const_iterator r = blocked_by.find(o);
     if (r != blocked_by.end()) {
       if (!osdmap->exists(o)) {
 	dout(10) << "affected_by_map osd." << o << " no longer exists" << dendl;

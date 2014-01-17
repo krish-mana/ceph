@@ -297,7 +297,7 @@ void ReplicatedPG::on_global_recover(
 }
 
 void ReplicatedPG::on_peer_recover(
-  int peer,
+  pg_shard_t peer,
   const hobject_t &soid,
   const ObjectRecoveryInfo &recovery_info,
   const object_stat_sum_t &stat)
@@ -6289,7 +6289,6 @@ void ReplicatedBackend::issue_op(
 	 parent->get_actingbackfill_shards().begin();
        i != parent->get_actingbackfill_shards().end(); 
        ++i) {
-    if (*i == parent->whoami_shard()) continue;
     int peer = *i;
     const pg_info_t &pinfo = parent->get_peer_info().find(peer)->second;
 

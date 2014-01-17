@@ -335,7 +335,8 @@ public:
  public:
   pg_shard_t primary;
   pg_shard_t pg_whoami;
-  vector<pg_shard_t> up, acting, want_acting;
+  pg_shard_t up_primary;
+  vector<int> up, acting, want_acting;
   set<pg_shard_t> actingbackfill;
   map<pg_shard_t,eversion_t> peer_last_complete_ondisk;
   eversion_t  min_last_complete_ondisk;  // up: min over last_complete_ondisk, peer_last_complete_ondisk
@@ -428,7 +429,7 @@ protected:
 
 
   /* heartbeat peers */
-  void set_probe_targets(const set<int> &probe_set);
+  void set_probe_targets(const set<pg_shard_t> &probe_set);
   void clear_probe_targets();
 public:
   Mutex heartbeat_peer_lock;
@@ -567,16 +568,6 @@ public:
   void clear_primary_state();
 
  public:
-  bool is_acting(pg_shard_t osd) const { 
-    for (unsigned i=0; i<acting.size(); i++)
-      if (acting[i] == osd) return true;
-    return false;
-  }
-  bool is_up(pg_shard_t osd) const { 
-    for (unsigned i=0; i<up.size(); i++)
-      if (up[i] == osd) return true;
-    return false;
-  }
   bool is_actingbackfill(pg_shard_t osd) const {
     return actingbackfill.count(osd);
   }
@@ -717,11 +708,13 @@ public:
     ObjectStore::Transaction *t, const hobject_t &soid);
   void remove_snap_mapped_object(
     ObjectStore::Transaction& t, const hobject_t& soid);
-  void merge_log(ObjectStore::Transaction& t, pg_info_t &oinfo,
-		 pg_log_t &olog, pg_shard_t from);
+  void merge_log(
+    ObjectStore::Transaction& t, pg_info_t &oinfo,
+    pg_log_t &olog, pg_shard_t from);
   void rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead);
-  bool search_for_missing(const pg_info_t &oinfo, const pg_missing_t *omissing,
-			  pg_shard_t fromosd);
+  bool search_for_missing(
+    const pg_info_t &oinfo, const pg_missing_t *omissing,
+    pg_shard_t fromosd);
 
   void check_for_lost_objects();
   void forget_lost_objects();
@@ -730,7 +723,7 @@ public:
   
   void trim_write_ahead();
 
-  map<int, pg_info_t>::const_iterator find_best_info(
+  map<pg_shard_t, pg_info_t>::const_iterator find_best_info(
     const map<pg_shard_t, pg_info_t> &infos) const;
   bool calc_acting(pg_shard_t &newest_update_osd,
 		   vector<int>& want, vector<int>& backfill) const;
