@@ -317,7 +317,7 @@ void ReplicatedPG::on_peer_recover(
 }
 
 void ReplicatedPG::begin_peer_recover(
-  int peer,
+  pg_shard_t peer,
   const hobject_t soid)
 {
   peer_missing[peer].revise_have(soid, eversion_t());
@@ -420,11 +420,14 @@ void ReplicatedPG::wait_for_all_missing(OpRequestRef op)
 
 bool ReplicatedPG::is_degraded_object(const hobject_t& soid)
 {
+  // TODOSAM: this requires rethinking for ec
   if (pg_log.get_missing().missing.count(soid))
     return true;
   assert(actingbackfill.size() > 0);
-  for (unsigned i = 1; i < actingbackfill.size(); i++) {
-    int peer = actingbackfill[i];
+  for (set<pg_shard_t>::iterator i = actingbackfill.begin();
+       i != actingbackfill.end();
+       ++i) {
+    pg_shard_t peer = *i;
     if (peer_missing.count(peer) &&
 	peer_missing[peer].missing.count(soid))
       return true;
@@ -457,8 +460,10 @@ void ReplicatedPG::wait_for_degraded_object(const hobject_t& soid, OpRequestRef 
 	    << dendl;
     eversion_t v;
     assert(actingbackfill.size() > 0);
-    for (unsigned i = 1; i < actingbackfill.size(); i++) {
-      int peer = actingbackfill[i];
+    for (set<pg_shard_t>::iterator i = actingbackfill.begin();
+	 i != actingbackfill.end();
+	 ++i) {
+      pg_shard_t peer = *i;
       if (peer_missing.count(peer) &&
 	  peer_missing[peer].missing.count(soid)) {
 	v = peer_missing[peer].missing[soid].need;
@@ -583,14 +588,18 @@ int ReplicatedPG::do_command(cmdmap_t cmdmap, ostream& ss,
     f->close_section();
     if (backfill_targets.size() > 0) {
       f->open_array_section("backfill_targets");
-      for (vector<int>::iterator p = backfill_targets.begin(); p != backfill_targets.end(); ++p)
-        f->dump_unsigned("osd", *p);
+      for (set<pg_shard_t>::iterator p = backfill_targets.begin();
+	   p != backfill_targets.end();
+	   ++p)
+        f->dump_stream("shard") << *p;
       f->close_section();
     }
     if (actingbackfill.size() > 0) {
       f->open_array_section("actingbackfill");
-      for (vector<int>::iterator p = actingbackfill.begin(); p != actingbackfill.end(); ++p)
-        f->dump_unsigned("osd", *p);
+      for (set<pg_shard_t>::iterator p = actingbackfill.begin();
+	   p != actingbackfill.end();
+	   ++p)
+        f->dump_stream("shard") << *p;
       f->close_section();
     }
     f->open_object_section("info");
@@ -599,11 +608,11 @@ int ReplicatedPG::do_command(cmdmap_t cmdmap, ostream& ss,
     f->close_section();
 
     f->open_array_section("peer_info");
-    for (map<int,pg_info_t>::iterator p = peer_info.begin();
+    for (map<pg_shard_t, pg_info_t>::iterator p = peer_info.begin();
 	 p != peer_info.end();
 	 ++p) {
       f->open_object_section("info");
-      f->dump_unsigned("peer", p->first);
+      f->dump_stream("peer") << p->first;
       p->second.dump(f.get());
       f->close_section();
     }
@@ -684,10 +693,13 @@ int ReplicatedPG::do_command(cmdmap_t cmdmap, ostream& ss,
 	p->second.dump(f.get());  // have, need keys
 	{
 	  f->open_array_section("locations");
-	  map<hobject_t,set<int> >::iterator q = missing_loc.find(p->first);
+	  map<hobject_t,set<pg_shard_t> >::iterator q =
+	    missing_loc.find(p->first);
 	  if (q != missing_loc.end())
-	    for (set<int>::iterator r = q->second.begin(); r != q->second.end(); ++r)
-	      f->dump_int("osd", *r);
+	    for (set<pg_shard_t>::iterator r = q->second.begin();
+		 r != q->second.end();
+		 ++r)
+	      f->dump_stream("shard") << *r;
 	  f->close_section();
 	}
 	f->close_section();
@@ -1086,9 +1098,11 @@ void ReplicatedPG::do_request(
 hobject_t ReplicatedPG::earliest_backfill() const
 {
   hobject_t e = hobject_t::get_max();
-  for (unsigned i = 0; i < backfill_targets.size(); ++i) {
-    int bt = backfill_targets[i];
-    map<int, pg_info_t>::const_iterator iter = peer_info.find(bt);
+  for (set<pg_shard_t>::iterator i = backfill_targets.begin();
+       i != backfill_targets.end();
+       ++i) {
+    pg_shard_t bt = *i;
+    map<pg_shard_t, pg_info_t>::const_iterator iter = peer_info.find(bt);
     assert(iter != peer_info.end());
     if (iter->second.last_backfill < e)
       e = iter->second.last_backfill;
@@ -1106,9 +1120,11 @@ hobject_t ReplicatedPG::earliest_backfill() const
 // take the larger of last_backfill_started and the replicas last_backfill.
 bool ReplicatedPG::check_src_targ(const hobject_t& soid, const hobject_t& toid) const
 {
-  for (unsigned i = 0; i < backfill_targets.size(); ++i) {
-    int bt = backfill_targets[i];
-    map<int, pg_info_t>::const_iterator iter = peer_info.find(bt);
+  for (set<pg_shard_t>::iterator i = actingbackfill.begin();
+       i != actingbackfill.end();
+       ++i) {
+    pg_shard_t bt = *i;
+    map<pg_shard_t, pg_info_t>::const_iterator iter = peer_info.find(bt);
     assert(iter != peer_info.end());
 
     if (toid <= MAX(last_backfill_started, iter->second.last_backfill) &&
@@ -6289,7 +6305,7 @@ void ReplicatedBackend::issue_op(
 	 parent->get_actingbackfill_shards().begin();
        i != parent->get_actingbackfill_shards().end(); 
        ++i) {
-    int peer = *i;
+    pg_shard_t peer = *i;
     const pg_info_t &pinfo = parent->get_peer_info().find(peer)->second;
 
     op->waiting_for_applied.insert(peer);

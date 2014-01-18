@@ -174,6 +174,7 @@ public:
   virtual void encode_payload(uint64_t features) {
     ::encode(map_epoch, payload);
     ::encode(reqid, payload);
+    ::encode(from, payload);
     ::encode(pgid.pgid, payload);
     ::encode(poid, payload);
 
