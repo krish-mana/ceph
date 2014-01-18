@@ -345,12 +345,14 @@ public:
   // [primary only] content recovery state
  protected:
   struct PriorSet {
+    const bool ec_pool;
     set<pg_shard_t> probe; /// current+prior OSDs we need to probe.
-    set<pg_shard_t> down;  /// down osds that would normally be in @a probe and might be interesting.
-    map<pg_shard_t,epoch_t> blocked_by;  /// current lost_at values for any OSDs in cur set for which (re)marking them lost would affect cur set
+    set<int> down;  /// down osds that would normally be in @a probe and might be interesting.
+    map<int, epoch_t> blocked_by;  /// current lost_at values for any OSDs in cur set for which (re)marking them lost would affect cur set
 
     bool pg_down;   /// some down osds are included in @a cur; the DOWN pg state bit should be set.
-    PriorSet(const OSDMap &osdmap,
+    PriorSet(bool ec_pool,
+	     const OSDMap &osdmap,
 	     const map<epoch_t, pg_interval_t> &past_intervals,
 	     const vector<int> &up,
 	     const vector<int> &acting,
@@ -413,7 +415,7 @@ protected:
   set<pg_shard_t>    stray_set;   // non-acting osds that have PG data.
   eversion_t  oldest_update; // acting: lowest (valid) last_update in active set
   map<pg_shard_t, pg_info_t>    peer_info;   // info from peers (stray or prior)
-  set<int> peer_purged; // peers purged
+  set<pg_shard_t> peer_purged; // peers purged
   map<pg_shard_t, pg_missing_t> peer_missing;
   set<pg_shard_t> peer_log_requested;  // logs i've requested (and start stamps)
   set<pg_shard_t> peer_missing_requested;
@@ -728,7 +730,7 @@ public:
   bool calc_acting(
     pg_shard_t &auth_log_shard,
     vector<int> &want,
-    vector<int> &backfill) const;
+    set<pg_shard_t> &backfill) const;
   bool choose_acting(pg_shard_t &auth_log_shard);
   void build_might_have_unfound();
   void replay_queued_ops();
@@ -958,7 +960,7 @@ public:
   enum error_type _compare_scrub_objects(ScrubMap::object &auth,
 			      ScrubMap::object &candidate,
 			      ostream &errorstream);
-  void _compare_scrubmaps(const map<int,ScrubMap*> &maps,  
+  void _compare_scrubmaps(const map<pg_shard_t,ScrubMap*> &maps,  
 			  map<hobject_t, set<pg_shard_t> > &missing,
 			  map<hobject_t, set<pg_shard_t> > &inconsistent,
 			  map<hobject_t, pg_shard_t> &authoritative,
@@ -1408,8 +1410,8 @@ public:
       Active(my_context ctx);
       void exit();
 
-      const set<int> sorted_acting_set;
-      const set<int> sorted_backfill_set;
+      const set<pg_shard_t> sorted_actingbackfill_set;
+      const set<pg_shard_t> sorted_backfill_set;
       bool all_replicas_activated;
 
       typedef boost::mpl::list <
@@ -1471,7 +1473,7 @@ public:
 	boost::statechart::custom_reaction< RemoteReservationRejected >,
 	boost::statechart::transition< AllBackfillsReserved, Backfilling >
 	> reactions;
-      set<int>::const_iterator backfill_osd_it;
+      set<pg_shard_t>::const_iterator backfill_osd_it;
       WaitRemoteBackfillReserved(my_context ctx);
       void exit();
       boost::statechart::result react(const RemoteBackfillReserved& evt);
@@ -1573,7 +1575,7 @@ public:
 	boost::statechart::custom_reaction< RemoteRecoveryReserved >,
 	boost::statechart::transition< AllRemotesReserved, Recovering >
 	> reactions;
-      set<int>::const_iterator acting_osd_it;
+      set<pg_shard_t>::const_iterator acting_osd_it;
       WaitRemoteRecoveryReserved(my_context ctx);
       boost::statechart::result react(const RemoteRecoveryReserved &evt);
       void exit();
@@ -1622,7 +1624,7 @@ public:
     struct GetLog;
 
     struct GetInfo : boost::statechart::state< GetInfo, Peering >, NamedState {
-      set<int> peer_info_requested;
+      set<pg_shard_t> peer_info_requested;
 
       GetInfo(my_context ctx);
       void exit();
@@ -1666,7 +1668,7 @@ public:
     struct WaitFlushedPeering;
 
     struct GetMissing : boost::statechart::state< GetMissing, Peering >, NamedState {
-      set<int> peer_missing_requested;
+      set<pg_shard_t> peer_missing_requested;
 
       GetMissing(my_context ctx);
       void exit();
@@ -1870,7 +1872,7 @@ public:
 
   void update_history_from_master(pg_history_t new_history);
   void fulfill_info(pg_shard_t from, const pg_query_t &query, 
-		    pair<int, pg_info_t> &notify_info);
+		    pair<pg_shard_t, pg_info_t> &notify_info);
   void fulfill_log(pg_shard_t from, const pg_query_t &query, epoch_t query_epoch);
   bool is_split(OSDMapRef lastmap, OSDMapRef nextmap);
   bool acting_up_affected(const vector<int>& newup, const vector<int>& newacting);
