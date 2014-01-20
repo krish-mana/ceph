@@ -54,14 +54,13 @@ public:
     ::decode(map_epoch, p);
     ::decode(pushes, p);
     ::decode(cost, p);
-    if (header.version >= 2)
+    if (header.version >= 2) {
       ::decode(pgid.shard, p);
-    else
-      pgid.shard = ghobject_t::NO_SHARD;
-    if (header.version >= 2)
       ::decode(from, payload);
-    else
+    } else {
+      pgid.shard = ghobject_t::NO_SHARD;
       from = pg_shard_t(get_source().num(), ghobject_t::NO_SHARD);
+    }
   }
 
   virtual void encode_payload(uint64_t features) {

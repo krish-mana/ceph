@@ -291,7 +291,7 @@ public:
   epoch_t get_epoch() {
     return get_osdmap()->get_epoch();
   }
-  const set<pg_shard_t> &get_actingbackfill() {
+  const set<pg_shard_t> &get_actingbackfill_shards() {
     return actingbackfill;
   }
   std::string gen_dbg_prefix() const { return gen_prefix(); }
@@ -954,7 +954,7 @@ protected:
 
   void prep_backfill_object_push(
     hobject_t oid, eversion_t v, ObjectContextRef obc,
-    vector<int> peer,
+    vector<pg_shard_t> peers,
     PGBackend::RecoveryHandle *h);
   void send_remove_op(const hobject_t& oid, eversion_t v, pg_shard_t peer);
 

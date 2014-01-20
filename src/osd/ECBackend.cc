@@ -1054,7 +1054,7 @@ void ECBackend::start_write(Op *op) {
   for (set<pg_shard_t>::iterator i = actingbackfill.begin();
        i != actingbackfill.end();
        ++i) {
-    if (get_parent()->should_send_op(i->shard, op->hoid))
+    if (get_parent()->should_send_op(*i, op->hoid))
       trans[i->shard];
   }
   op->t->generate_transactions(

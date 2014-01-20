@@ -108,7 +108,7 @@
        ) = 0;
      virtual epoch_t get_epoch() = 0;
 
-     virtual const set<int> &get_actingbackfill_shards() = 0;
+     virtual const set<pg_shard_t> &get_actingbackfill_shards() = 0;
 
      virtual std::string gen_dbg_prefix() const = 0;
 
@@ -134,11 +134,8 @@
        const eversion_t &applied_version) = 0;
 
      virtual bool should_send_op(
-       int peer,
-       const hobject_t &hoid) = 0;
-     bool should_send_op(
        pg_shard_t peer,
-       const hobject_t &hoid) { return should_send_op(peer.osd, hoid); }
+       const hobject_t &hoid) = 0;
 
      virtual void log_operation(
        vector<pg_log_entry_t> &logv,
