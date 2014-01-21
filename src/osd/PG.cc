@@ -497,7 +497,10 @@ void PG::discover_all_missing(map<pg_shard_t, map<pg_t,pg_query_t> > &query_map)
 	     << dendl;
     peer_missing_requested.insert(peer);
     query_map[peer][info.pgid] =
-      pg_query_t(pg_query_t::MISSING, info.history, get_osdmap()->get_epoch());
+      pg_query_t(
+	pg_query_t::MISSING,
+	peer.shard, pg_whoami.shard,
+	info.history, get_osdmap()->get_epoch());
   }
 }
 
@@ -1350,6 +1353,7 @@ void PG::activate(ObjectStore::Transaction& t,
 	  (*activator_map)[peer].push_back(
 	    make_pair(
 	      pg_notify_t(
+		peer.shard, pg_whoami.shard,
 		get_osdmap()->get_epoch(),
 		get_osdmap()->get_epoch(),
 		info),
@@ -1575,12 +1579,14 @@ void PG::_activate_committed(epoch_t e)
   } else {
     dout(10) << "_activate_committed " << e << " telling primary" << dendl;
     MOSDPGInfo *m = new MOSDPGInfo(e);
-    pg_notify_t i = pg_notify_t(get_osdmap()->get_epoch(),
-				get_osdmap()->get_epoch(),
-				info);
+    pg_notify_t i = pg_notify_t(
+      get_primary().shard, pg_whoami.shard,
+      get_osdmap()->get_epoch(),
+      get_osdmap()->get_epoch(),
+      info);
     i.info.history.last_epoch_started = e;
     m->pg_list.push_back(make_pair(i, pg_interval_map_t()));
-    osd->send_message_osd_cluster(acting[0], m, get_osdmap()->get_epoch());
+    osd->send_message_osd_cluster(get_primary().osd, m, get_osdmap()->get_epoch());
   }
 
   if (dirty_info) {
@@ -4416,6 +4422,7 @@ void PG::share_pg_info()
     m->pg_list.push_back(
       make_pair(
 	pg_notify_t(
+	  peer.shard, pg_whoami.shard,
 	  get_osdmap()->get_epoch(),
 	  get_osdmap()->get_epoch(),
 	  info),
@@ -5394,11 +5401,14 @@ boost::statechart::result PG::RecoveryState::Reset::react(const ActMap&)
 {
   PG *pg = context< RecoveryMachine >().pg;
   if (pg->should_send_notify() && pg->get_primary().osd >= 0) {
-    context< RecoveryMachine >().send_notify(pg->get_primary(),
-					     pg_notify_t(pg->get_osdmap()->get_epoch(),
-							 pg->get_osdmap()->get_epoch(),
-							 pg->info),
-					     pg->past_intervals);
+    context< RecoveryMachine >().send_notify(
+      pg->get_primary(),
+      pg_notify_t(
+	pg->get_primary().shard, pg->pg_whoami.shard,
+	pg->get_osdmap()->get_epoch(),
+	pg->get_osdmap()->get_epoch(),
+	pg->info),
+      pg->past_intervals);
   }
 
   pg->update_heartbeat_peers();
@@ -6395,9 +6405,11 @@ boost::statechart::result PG::RecoveryState::ReplicaActive::react(const ActMap&)
   if (pg->should_send_notify() && pg->get_primary().osd >= 0) {
     context< RecoveryMachine >().send_notify(
       pg->get_primary(),
-      pg_notify_t(pg->get_osdmap()->get_epoch(),
-		  pg->get_osdmap()->get_epoch(),
-		  pg->info),
+      pg_notify_t(
+	pg->get_primary().shard, pg->pg_whoami.shard,
+	pg->get_osdmap()->get_epoch(),
+	pg->get_osdmap()->get_epoch(),
+	pg->info),
       pg->past_intervals);
   }
   pg->take_waiters();
@@ -6506,9 +6518,11 @@ boost::statechart::result PG::RecoveryState::Stray::react(const MQuery& query)
     pg->fulfill_info(query.from, query.query, notify_info);
     context< RecoveryMachine >().send_notify(
       notify_info.first,
-      pg_notify_t(query.query_epoch,
-		  pg->get_osdmap()->get_epoch(),
-		  notify_info.second),
+      pg_notify_t(
+	notify_info.first.shard, pg->pg_whoami.shard,
+	query.query_epoch,
+	pg->get_osdmap()->get_epoch(),
+	notify_info.second),
       pg->past_intervals);
   } else {
     pg->fulfill_log(query.from, query.query, query.query_epoch);
@@ -6522,9 +6536,11 @@ boost::statechart::result PG::RecoveryState::Stray::react(const ActMap&)
   if (pg->should_send_notify() && pg->get_primary().osd >= 0) {
     context< RecoveryMachine >().send_notify(
       pg->get_primary(),
-      pg_notify_t(pg->get_osdmap()->get_epoch(),
-		  pg->get_osdmap()->get_epoch(),
-		  pg->info),
+      pg_notify_t(
+	pg->get_primary().shard, pg->pg_whoami.shard,
+	pg->get_osdmap()->get_epoch(),
+	pg->get_osdmap()->get_epoch(),
+	pg->info),
       pg->past_intervals);
   }
   pg->take_waiters();
@@ -6585,6 +6601,7 @@ void PG::RecoveryState::GetInfo::get_infos()
       dout(10) << " querying info from osd." << peer << dendl;
       context< RecoveryMachine >().send_query(
 	peer, pg_query_t(pg_query_t::INFO,
+			 it->shard, pg->pg_whoami.shard,
 			 pg->info.history,
 			 pg->get_osdmap()->get_epoch()));
       peer_info_requested.insert(peer);
@@ -6769,8 +6786,11 @@ PG::RecoveryState::GetLog::GetLog(my_context ctx)
   dout(10) << " requesting log from osd." << auth_log_shard << dendl;
   context<RecoveryMachine>().send_query(
     auth_log_shard,
-    pg_query_t(pg_query_t::LOG, request_log_from, pg->info.history,
-	       pg->get_osdmap()->get_epoch()));
+    pg_query_t(
+      pg_query_t::LOG,
+      auth_log_shard.shard, pg->pg_whoami.shard,
+      request_log_from, pg->info.history,
+      pg->get_osdmap()->get_epoch()));
 }
 
 boost::statechart::result PG::RecoveryState::GetLog::react(const AdvMap& advmap)
@@ -7000,15 +7020,19 @@ PG::RecoveryState::GetMissing::GetMissing(my_context ctx)
       dout(10) << " requesting log+missing since " << since << " from osd." << *i << dendl;
       context< RecoveryMachine >().send_query(
 	*i,
-	pg_query_t(pg_query_t::LOG, since, pg->info.history,
-		   pg->get_osdmap()->get_epoch()));
+	pg_query_t(
+	  i->shard, pg->pg_whoami.shard,
+	  pg_query_t::LOG, since, pg->info.history,
+	  pg->get_osdmap()->get_epoch()));
     } else {
       dout(10) << " requesting fulllog+missing from osd." << *i
 	       << " (want since " << since << " < log.tail " << pi.log_tail << ")"
 	       << dendl;
       context< RecoveryMachine >().send_query(
-	*i, pg_query_t(pg_query_t::FULLLOG,
-		       pg->info.history, pg->get_osdmap()->get_epoch()));
+	*i, pg_query_t(
+	  i->shard, pg->pg_whoami.shard,
+	  pg_query_t::FULLLOG,
+	  pg->info.history, pg->get_osdmap()->get_epoch()));
     }
     peer_missing_requested.insert(*i);
   }

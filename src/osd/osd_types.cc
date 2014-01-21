@@ -1942,19 +1942,28 @@ void pg_info_t::generate_test_instances(list<pg_info_t*>& o)
 // -- pg_notify_t --
 void pg_notify_t::encode(bufferlist &bl) const
 {
-  ENCODE_START(1, 1, bl);
+  ENCODE_START(2, 1, bl);
   ::encode(query_epoch, bl);
   ::encode(epoch_sent, bl);
   ::encode(info, bl);
+  ::encode(to, bl);
+  ::encode(from, bl);
   ENCODE_FINISH(bl);
 }
 
 void pg_notify_t::decode(bufferlist::iterator &bl)
 {
-  DECODE_START(1, bl);
+  DECODE_START(2, bl);
   ::decode(query_epoch, bl);
   ::decode(epoch_sent, bl);
   ::decode(info, bl);
+  if (version >= 2) {
+    ::decode(to, bl);
+    ::decode(from, bl);
+  } else {
+    to = ghobject_t::NO_SHARD;
+    from = ghobject_t::NO_SHARD;
+  }
   DECODE_FINISH(bl);
 }
 
@@ -2129,11 +2138,13 @@ ostream& operator<<(ostream& out, const pg_interval_t& i)
 
 void pg_query_t::encode(bufferlist &bl, uint64_t features) const {
   if (features & CEPH_FEATURE_QUERY_T) {
-    ENCODE_START(2, 2, bl);
+    ENCODE_START(3, 2, bl);
     ::encode(type, bl);
     ::encode(since, bl);
     history.encode(bl);
     ::encode(epoch_sent, bl);
+    ::encode(to, bl);
+    ::encode(from, bl);
     ENCODE_FINISH(bl);
   } else {
     ::encode(type, bl);
@@ -2150,6 +2161,13 @@ void pg_query_t::decode(bufferlist::iterator &bl) {
     ::decode(since, bl);
     history.decode(bl);
     ::decode(epoch_sent, bl);
+    if (version >= 3) {
+      ::decode(to, bl);
+      ::decode(from, bl);
+    } else {
+      to = ghobject_t::NO_SHARD;
+      from = ghobject_t::NO_SHARD;
+    }
     DECODE_FINISH(bl);
   } catch (...) {
     bl = bl2;

@@ -1565,13 +1565,18 @@ struct pg_notify_t {
   epoch_t query_epoch;
   epoch_t epoch_sent;
   pg_info_t info;
+  shard_id_t to;
+  shard_id_t from;
   pg_notify_t() : query_epoch(0), epoch_sent(0) {}
-  pg_notify_t(epoch_t query_epoch,
-	      epoch_t epoch_sent,
-	      const pg_info_t &info)
+  pg_notify_t(
+    shard_id_t to,
+    shard_id_t from,
+    epoch_t query_epoch,
+    epoch_t epoch_sent,
+    const pg_info_t &info)
     : query_epoch(query_epoch),
       epoch_sent(epoch_sent),
-      info(info) {}
+      info(info), to(to), from(from) {}
   void encode(bufferlist &bl) const;
   void decode(bufferlist::iterator &p);
   void dump(Formatter *f) const;
@@ -1649,18 +1654,31 @@ struct pg_query_t {
   eversion_t since;
   pg_history_t history;
   epoch_t epoch_sent;
+  shard_id_t to;
+  shard_id_t from;
 
   pg_query_t() : type(-1), epoch_sent(0) {}
-  pg_query_t(int t, const pg_history_t& h,
-	     epoch_t epoch_sent)
-    : type(t), history(h),
-      epoch_sent(epoch_sent) {
+  pg_query_t(
+    int t,
+    shard_id_t to,
+    shard_id_t from,
+    const pg_history_t& h,
+    epoch_t epoch_sent)
+    : type(t),
+      history(h),
+      epoch_sent(epoch_sent),
+      to(to), from(from) {
     assert(t != LOG);
   }
-  pg_query_t(int t, eversion_t s, const pg_history_t& h,
-	     epoch_t epoch_sent)
+  pg_query_t(
+    int t,
+      shard_id_t to,
+      shard_id_t from,
+    eversion_t s,
+    const pg_history_t& h,
+    epoch_t epoch_sent)
     : type(t), since(s), history(h),
-      epoch_sent(epoch_sent) {
+      epoch_sent(epoch_sent), to(to), from(from) {
     assert(t == LOG);
   }
   
