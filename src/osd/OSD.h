@@ -1184,14 +1184,16 @@ protected:
   void handle_pg_peering_evt(
     const pg_info_t& info,
     pg_interval_map_t& pi,
-    epoch_t epoch, int from,
+    epoch_t epoch,
+    pg_shard_t from,
     bool primary,
     PG::CephPeeringEvtRef evt);
   
   void load_pgs();
   void build_past_intervals_parallel();
 
-  void calc_priors_during(spg_t pgid, epoch_t start, epoch_t end, set<int>& pset);
+  void calc_priors_during(
+    spg_t pgid, epoch_t start, epoch_t end, set<pg_shard_t>& pset);
 
   /// project pg history from from to now
   bool project_pg_history(
@@ -1218,7 +1220,7 @@ protected:
   struct create_pg_info {
     pg_history_t history;
     vector<int> acting;
-    set<int> prior;
+    set<pg_shard_t> prior;
     spg_t parent;
   };
   hash_map<spg_t, create_pg_info> creating_pgs;
@@ -1324,11 +1326,14 @@ protected:
                         ThreadPool::TPHandle *handle = NULL);
   void dispatch_context_transaction(PG::RecoveryCtx &ctx, PG *pg,
                                     ThreadPool::TPHandle *handle = NULL);
-  void do_notifies(map< int,vector<pair<pg_notify_t, pg_interval_map_t> > >& notify_list,
+  void do_notifies(map<pg_shard_t,
+		       vector<pair<pg_notify_t, pg_interval_map_t> > >&
+		       notify_list,
 		   OSDMapRef map);
-  void do_queries(map< int, map<pg_t,pg_query_t> >& query_map,
+  void do_queries(map<pg_shard_t, map<pg_t,pg_query_t> >& query_map,
 		  OSDMapRef map);
-  void do_infos(map<int, vector<pair<pg_notify_t, pg_interval_map_t> > >& info_map,
+  void do_infos(map<pg_shard_t,
+		    vector<pair<pg_notify_t, pg_interval_map_t> > >& info_map,
 		OSDMapRef map);
   void repeer(PG *pg, map< int, map<spg_t,pg_query_t> >& query_map);
 

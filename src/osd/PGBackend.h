@@ -106,9 +106,9 @@
        ObjectStore::Transaction *t,
        OpRequestRef op = OpRequestRef()
        ) = 0;
-     virtual epoch_t get_epoch() = 0;
+     virtual epoch_t get_epoch() const = 0;
 
-     virtual const set<pg_shard_t> &get_actingbackfill_shards() = 0;
+     virtual const set<pg_shard_t> &get_actingbackfill_shards() const = 0;
 
      virtual std::string gen_dbg_prefix() const = 0;
 
@@ -118,10 +118,10 @@
      virtual const map<pg_shard_t, pg_missing_t> &get_shard_missing()
        const = 0;
 
-     virtual const map<pg_shard_t, pg_info_t> &get_shard_info() = 0;
+     virtual const map<pg_shard_t, pg_info_t> &get_shard_info() const = 0;
 
-     virtual const pg_missing_t &get_local_missing() = 0;
-     virtual const PGLog &get_log() = 0;
+     virtual const pg_missing_t &get_local_missing() const = 0;
+     virtual const PGLog &get_log() const = 0;
      virtual bool pgb_is_primary() const = 0;
      virtual OSDMapRef pgb_get_osdmap() const = 0;
      virtual const pg_info_t &get_info() const = 0;
@@ -144,13 +144,8 @@
        ObjectStore::Transaction *t) = 0;
 
      virtual void update_peer_last_complete_ondisk(
-       int fromosd,
-       eversion_t lcod) = 0;
-     void update_peer_last_complete_ondisk(
        pg_shard_t fromosd,
-       eversion_t lcod) {
-       return update_peer_last_complete_ondisk(fromosd.osd, lcod);
-     }
+       eversion_t lcod) = 0;
 
      virtual void update_stats(
        const pg_stat_t &stat) = 0;

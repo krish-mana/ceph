@@ -1811,7 +1811,15 @@ PG *OSD::_create_lock_pg(
 
   service.init_splits_between(pgid, pg->get_osdmap(), service.get_osdmap());
 
-  pg->init(role, up, acting, history, pi, backfill, &t);
+  pg->init(
+    role,
+    pg_shard_t(whoami, pgid.shard),
+    up,
+    acting,
+    history,
+    pi,
+    backfill,
+    &t);
 
   dout(7) << "_create_lock_pg " << *pg << dendl;
   return pg;
@@ -2114,7 +2122,7 @@ void OSD::handle_pg_peering_evt(
   const pg_info_t& info,
   pg_interval_map_t& pi,
   epoch_t epoch,
-  int from,
+  pg_shard_t from,
   bool primary,
   PG::CephPeeringEvtRef evt)
 {
@@ -2287,9 +2295,11 @@ void OSD::handle_pg_peering_evt(
  *  - from each epoch, include all osds up then AND now
  *  - if no osds from then are up now, include them all, even tho they're not reachable now
  */
-void OSD::calc_priors_during(spg_t pgid, epoch_t start, epoch_t end, set<int>& pset)
+void OSD::calc_priors_during(
+  spg_t pgid, epoch_t start, epoch_t end, set<pg_shard_t>& pset)
 {
-  dout(15) << "calc_priors_during " << pgid << " [" << start << "," << end << ")" << dendl;
+  dout(15) << "calc_priors_during " << pgid << " [" << start
+	   << "," << end << ")" << dendl;
   
   for (epoch_t e = start; e < end; e++) {
     OSDMapRef oldmap = get_map(e);
@@ -2299,15 +2309,22 @@ void OSD::calc_priors_during(spg_t pgid, epoch_t start, epoch_t end, set<int>& p
     int up = 0;
     for (unsigned i=0; i<acting.size(); i++)
       if (osdmap->is_up(acting[i])) {
-	if (acting[i] != whoami)
-	  pset.insert(acting[i]);
+	if (acting[i] != whoami) {
+	  pset.insert(
+	    pg_shard_t(
+	      acting[i],
+	      osdmap->pg_is_ec(pgid.pgid) ? i : ghobject_t::NO_SHARD));
+	}
 	up++;
       }
     if (!up && !acting.empty()) {
       // sucky.  add down osds, even tho we can't reach them right now.
       for (unsigned i=0; i<acting.size(); i++)
 	if (acting[i] != whoami)
-	  pset.insert(acting[i]);
+	  pset.insert(
+	    pg_shard_t(
+	      acting[i],
+	      osdmap->pg_is_ec(pgid.pgid) ? i : ghobject_t::NO_SHARD));
     }
   }
   dout(10) << "calc_priors_during " << pgid
@@ -4193,11 +4210,11 @@ void OSD::do_command(Connection *con, tid_t tid, vector<string>& cmd, bufferlist
 	pg->pg_log.get_missing().missing.begin();
       for (; mi != mend; ++mi) {
 	fout << mi->first << " -> " << mi->second << std::endl;
-	map<hobject_t, set<int> >::const_iterator mli =
+	map<hobject_t, set<pg_shard_t> >::const_iterator mli =
 	  pg->missing_loc.find(mi->first);
 	if (mli == pg->missing_loc.end())
 	  continue;
-	const set<int> &mls(mli->second);
+	const set<pg_shard_t> &mls(mli->second);
 	if (mls.empty())
 	  continue;
 	fout << "missing_loc: " << mls << std::endl;
@@ -5998,12 +6015,12 @@ void OSD::handle_pg_create(OpRequestRef op)
 
     PG::RecoveryCtx rctx = create_context();
     // poll priors
-    set<int>& pset = creating_pgs[pgid].prior;
+    set<pg_shard_t>& pset = creating_pgs[pgid].prior;
     dout(10) << "mkpg " << pgid << " e" << created
 	     << " h " << history
 	     << " : querying priors " << pset << dendl;
-    for (set<int>::iterator p = pset.begin(); p != pset.end(); ++p) 
-      if (osdmap->is_up(*p))
+    for (set<pg_shard_t>::iterator p = pset.begin(); p != pset.end(); ++p) 
+      if (osdmap->is_up(p->osd))
 	(*rctx.query_map)[*p][pgid] = pg_query_t(pg_query_t::INFO, history,
 						 osdmap->get_epoch());
 
@@ -6040,12 +6057,12 @@ PG::RecoveryCtx OSD::create_context()
   ObjectStore::Transaction *t = new ObjectStore::Transaction;
   C_Contexts *on_applied = new C_Contexts(cct);
   C_Contexts *on_safe = new C_Contexts(cct);
-  map< int, map<pg_t,pg_query_t> > *query_map =
-    new map<int, map<pg_t, pg_query_t> >;
-  map<int,vector<pair<pg_notify_t, pg_interval_map_t> > > *notify_list =
-    new map<int,vector<pair<pg_notify_t, pg_interval_map_t> > >;
-  map<int,vector<pair<pg_notify_t, pg_interval_map_t> > > *info_map =
-    new map<int,vector<pair<pg_notify_t, pg_interval_map_t> > >;
+  map<pg_shard_t, map<pg_t,pg_query_t> > *query_map =
+    new map<pg_shard_t, map<pg_t, pg_query_t> >;
+  map<pg_shard_t,vector<pair<pg_notify_t, pg_interval_map_t> > > *notify_list =
+    new map<pg_shard_t, vector<pair<pg_notify_t, pg_interval_map_t> > >;
+  map<pg_shard_t,vector<pair<pg_notify_t, pg_interval_map_t> > > *info_map =
+    new map<pg_shard_t,vector<pair<pg_notify_t, pg_interval_map_t> > >;
   PG::RecoveryCtx rctx(query_map, info_map, notify_list,
 		       on_applied, on_safe, t);
   return rctx;
@@ -6070,16 +6087,25 @@ void OSD::dispatch_context_transaction(PG::RecoveryCtx &ctx, PG *pg,
 bool OSD::compat_must_dispatch_immediately(PG *pg)
 {
   assert(pg->is_locked());
-  vector<int> *tmpacting = &pg->acting;
-  if (pg->actingbackfill.size() > 0)
-    tmpacting = &pg->actingbackfill;
-  for (vector<int>::iterator i = tmpacting->begin();
-       i != tmpacting->end();
+  set<pg_shard_t> tmpacting;
+  if (pg->actingbackfill.size() > 0) {
+    tmpacting = pg->actingbackfill;
+  } else {
+    for (unsigned i = 0; i < pg->acting.size(); ++i) {
+      tmpacting.insert(
+	pg_shard_t(
+	  pg->acting[i],
+	  pg->pool.info.ec_pool() ? i : ghobject_t::NO_SHARD));
+    }
+  }
+  
+  for (set<pg_shard_t>::iterator i = tmpacting.begin();
+       i != tmpacting.end();
        ++i) {
-    if (*i == whoami)
+    if (i->osd == whoami)
       continue;
     ConnectionRef conn =
-      service.get_con_osd_cluster(*i, pg->get_osdmap()->get_epoch());
+      service.get_con_osd_cluster(i->osd, pg->get_osdmap()->get_epoch());
     if (conn && !conn->has_feature(CEPH_FEATURE_INDEP_PG_MAP)) {
       return true;
     }
@@ -6121,30 +6147,29 @@ void OSD::dispatch_context(PG::RecoveryCtx &ctx, PG *pg, OSDMapRef curmap,
  */
 
 void OSD::do_notifies(
-  map< int,vector<pair<pg_notify_t,pg_interval_map_t> > >& notify_list,
+  map<pg_shard_t,vector<pair<pg_notify_t,pg_interval_map_t> > >& notify_list,
   OSDMapRef curmap)
 {
-  for (map< int, vector<pair<pg_notify_t,pg_interval_map_t> > >::iterator it = notify_list.begin();
+  for (map<pg_shard_t,
+	   vector<pair<pg_notify_t,pg_interval_map_t> > >::iterator it =
+	 notify_list.begin();
        it != notify_list.end();
        ++it) {
-    if (it->first == whoami) {
-      dout(7) << "do_notify osd." << it->first << " is self, skipping" << dendl;
+    if (!curmap->is_up(it->first.osd))
       continue;
-    }
-    if (!curmap->is_up(it->first))
-      continue;
-    ConnectionRef con = service.get_con_osd_cluster(it->first, curmap->get_epoch());
+    ConnectionRef con = service.get_con_osd_cluster(
+      it->first.osd, curmap->get_epoch());
     if (!con)
       continue;
-    _share_map_outgoing(it->first, con.get(), curmap);
+    _share_map_outgoing(it->first.osd, con.get(), curmap);
     if (con->has_feature(CEPH_FEATURE_INDEP_PG_MAP)) {
-      dout(7) << "do_notify osd." << it->first
+      dout(7) << "do_notify shard " << it->first
 	      << " on " << it->second.size() << " PGs" << dendl;
       MOSDPGNotify *m = new MOSDPGNotify(curmap->get_epoch(),
 					 it->second);
       cluster_messenger->send_message(m, con.get());
     } else {
-      dout(7) << "do_notify osd." << it->first
+      dout(7) << "do_notify shard " << it->first
 	      << " sending seperate messages" << dendl;
       for (vector<pair<pg_notify_t, pg_interval_map_t> >::iterator i =
 	     it->second.begin();
@@ -6164,15 +6189,15 @@ void OSD::do_notifies(
 /** do_queries
  * send out pending queries for info | summaries
  */
-void OSD::do_queries(map< int, map<pg_t,pg_query_t> >& query_map,
+void OSD::do_queries(map<pg_shard_t, map<pg_t,pg_query_t> >& query_map,
 		     OSDMapRef curmap)
 {
-  for (map< int, map<pg_t,pg_query_t> >::iterator pit = query_map.begin();
+  for (map<pg_shard_t, map<pg_t,pg_query_t> >::iterator pit = query_map.begin();
        pit != query_map.end();
        ++pit) {
-    if (!curmap->is_up(pit->first))
+    if (!curmap->is_up(pit->first.osd))
       continue;
-    int who = pit->first;
+    int who = pit->first.osd;
     ConnectionRef con = service.get_con_osd_cluster(who, curmap->get_epoch());
     if (!con)
       continue;
@@ -6199,23 +6224,28 @@ void OSD::do_queries(map< int, map<pg_t,pg_query_t> >& query_map,
 }
 
 
-void OSD::do_infos(map<int,vector<pair<pg_notify_t, pg_interval_map_t> > >& info_map,
+void OSD::do_infos(map<pg_shard_t,
+		       vector<pair<pg_notify_t, pg_interval_map_t> > >& info_map,
 		   OSDMapRef curmap)
 {
-  for (map<int,vector<pair<pg_notify_t, pg_interval_map_t> > >::iterator p = info_map.begin();
+  for (map<pg_shard_t,
+	   vector<pair<pg_notify_t, pg_interval_map_t> > >::iterator p =
+	 info_map.begin();
        p != info_map.end();
        ++p) { 
-    if (!curmap->is_up(p->first))
+    if (!curmap->is_up(p->first.osd))
       continue;
     for (vector<pair<pg_notify_t,pg_interval_map_t> >::iterator i = p->second.begin();
 	 i != p->second.end();
 	 ++i) {
-      dout(20) << "Sending info " << i->first.info << " to osd." << p->first << dendl;
+      dout(20) << "Sending info " << i->first.info
+	       << " to shard " << p->first << dendl;
     }
-    ConnectionRef con = service.get_con_osd_cluster(p->first, curmap->get_epoch());
+    ConnectionRef con = service.get_con_osd_cluster(
+      p->first.osd, curmap->get_epoch());
     if (!con)
       continue;
-    _share_map_outgoing(p->first, con.get(), curmap);
+    _share_map_outgoing(p->first.osd, con.get(), curmap);
     if (con->has_feature(CEPH_FEATURE_INDEP_PG_MAP)) {
       MOSDPGInfo *m = new MOSDPGInfo(curmap->get_epoch());
       m->pg_list = p->second;

@@ -288,10 +288,10 @@ public:
     tls.push_back(t);
     osd->store->queue_transaction(osr.get(), t, 0, 0, 0, op);
   }
-  epoch_t get_epoch() {
+  epoch_t get_epoch() const {
     return get_osdmap()->get_epoch();
   }
-  const set<pg_shard_t> &get_actingbackfill_shards() {
+  const set<pg_shard_t> &get_actingbackfill_shards() const {
     return actingbackfill;
   }
   std::string gen_dbg_prefix() const { return gen_prefix(); }
@@ -305,10 +305,10 @@ public:
   const map<pg_shard_t, pg_info_t> &get_shard_info() const {
     return peer_info;
   }
-  const pg_missing_t &get_local_missing() {
+  const pg_missing_t &get_local_missing() const {
     return pg_log.get_missing();
   }
-  const PGLog &get_log() {
+  const PGLog &get_log() const {
     return pg_log;
   }
   bool pgb_is_primary() const {

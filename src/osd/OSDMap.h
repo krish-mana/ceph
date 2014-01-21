@@ -507,6 +507,11 @@ private:
   bool _raw_to_temp_osds(const pg_pool_t& pool, pg_t pg, vector<int>& raw, vector<int>& temp) const;
 
 public:
+  bool pg_is_ec(pg_t pg) const {
+    map<int64_t, pg_pool_t>::const_iterator i = pools.find(pg.pool());
+    assert(i != pools.end());
+    return i->second.ec_pool();
+  }
   int pg_to_osds(pg_t pg, vector<int>& raw) const;
   int pg_to_acting_osds(pg_t pg, vector<int>& acting) const;
   void pg_to_raw_up(pg_t pg, vector<int>& up) const;
