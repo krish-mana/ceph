@@ -64,7 +64,7 @@ public:
     vector<pg_t> _pg_list;
     ::decode(_pg_list, p);
 
-    vector<shard_id_t> _shard_list(_pg_list.size(), ghobject_t::NO_SHARD);
+    vector<shard_id_t> _shard_list(_pg_list.size(), ghobject_t::no_shard());
     if (header.version >= 2) {
       _shard_list.clear();
       ::decode(_shard_list, p);
