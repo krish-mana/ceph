@@ -774,7 +774,7 @@ void ReplicatedPG::do_pg_op(OpRequestRef op)
       // fall through
 
     case CEPH_OSD_OP_PGLS:
-      if (m->get_pg() != info.pgid) {
+      if (m->get_pg() != info.pgid.pgid) {
         dout(10) << " pgls pg=" << m->get_pg() << " != " << info.pgid << dendl;
 	result = 0; // hmm?
       } else {
@@ -1010,7 +1010,7 @@ void ReplicatedPG::calc_trim_to()
 }
 
 ReplicatedPG::ReplicatedPG(OSDService *o, OSDMapRef curmap,
-			   const PGPool &_pool, pg_t p, const hobject_t& oid,
+			   const PGPool &_pool, spg_t p, const hobject_t& oid,
 			   const hobject_t& ioid) :
   PG(o, curmap, _pool, p, oid, ioid),
   pgbackend(new ReplicatedBackend(this, coll_t(p), o->store, cct)),
@@ -6319,7 +6319,7 @@ void ReplicatedBackend::issue_op(
     // forward the write/update/whatever
     MOSDSubOp *wr = new MOSDSubOp(
       reqid, parent->whoami_shard(),
-      spg_t(get_info().pgid, i->shard),
+      spg_t(get_info().pgid.pgid, i->shard),
       soid,
       false, acks_wanted,
       get_osdmap()->get_epoch(),
@@ -7461,7 +7461,7 @@ void ReplicatedPG::send_remove_op(
 	   << " tid " << tid << dendl;
 
   MOSDSubOp *subop = new MOSDSubOp(
-    rid, pg_whoami, spg_t(info.pgid, peer.shard),
+    rid, pg_whoami, spg_t(info.pgid.pgid, peer.shard),
     oid, false, CEPH_OSD_FLAG_ACK,
     get_osdmap()->get_epoch(), tid, v);
   subop->ops = vector<OSDOp>(1);
@@ -8043,7 +8043,7 @@ int ReplicatedBackend::send_push_op_legacy(int prio, pg_shard_t peer, PushOp &po
   osd_reqid_t rid(get_parent()->get_cluster_msgr_name(), 0, tid);
   MOSDSubOp *subop = new MOSDSubOp(
     rid, parent->whoami_shard(),
-    spg_t(get_info().pgid, peer.shard), pop.soid,
+    spg_t(get_info().pgid.pgid, peer.shard), pop.soid,
     false, 0, get_osdmap()->get_epoch(),
     tid, pop.recovery_info.version);
   subop->ops = vector<OSDOp>(1);
@@ -8755,7 +8755,7 @@ void ReplicatedPG::on_shutdown()
   osd->local_reserver.cancel_reservation(info.pgid);
 
   clear_primary_state();
-  osd->remove_want_pg_temp(info.pgid);
+  osd->remove_want_pg_temp(info.pgid.pgid);
   cancel_recovery();
 }
 
@@ -9550,7 +9550,7 @@ int ReplicatedPG::recover_backfill(
 	epoch_t e = get_osdmap()->get_epoch();
 	MOSDPGScan *m = new MOSDPGScan(
 	  MOSDPGScan::OP_SCAN_GET_DIGEST, pg_whoami, e, e,
-	  spg_t(info.pgid, bt.shard),
+	  spg_t(info.pgid.pgid, bt.shard),
 	  pbi.end, hobject_t());
 	osd->send_message_osd_cluster(bt.osd, m, get_osdmap()->get_epoch());
 	assert(waiting_on_backfill.find(bt) == waiting_on_backfill.end());

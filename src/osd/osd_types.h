@@ -1488,7 +1488,7 @@ inline ostream& operator<<(ostream& out, const pg_history_t& h) {
  *    otherwise, we have no idea what the pg is supposed to contain.
  */
 struct pg_info_t {
-  pg_t pgid;
+  spg_t pgid;
   eversion_t last_update;    // last object version applied to store.
   eversion_t last_complete;  // last version pg was complete through.
   epoch_t last_epoch_started;// last epoch at which this pg started on this osd
@@ -1510,7 +1510,7 @@ struct pg_info_t {
     : last_epoch_started(0), last_user_version(0),
       last_backfill(hobject_t::get_max())
   { }
-  pg_info_t(pg_t p)
+  pg_info_t(spg_t p)
     : pgid(p),
       last_epoch_started(0), last_user_version(0),
       last_backfill(hobject_t::get_max())

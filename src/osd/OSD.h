@@ -1221,7 +1221,7 @@ protected:
     pg_history_t history;
     vector<int> acting;
     set<pg_shard_t> prior;
-    spg_t parent;
+    pg_t parent;
   };
   hash_map<spg_t, create_pg_info> creating_pgs;
   double debug_drop_pg_create_probability;

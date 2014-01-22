@@ -30,7 +30,7 @@ public:
   epoch_t get_epoch() { return epoch; }
 
   MOSDPGTrim() : Message(MSG_OSD_PG_TRIM) {}
-  MOSDPGTrim(version_t mv, pg_t p, eversion_t tt) :
+  MOSDPGTrim(version_t mv, spg_t p, eversion_t tt) :
     Message(MSG_OSD_PG_TRIM),
     epoch(mv), pgid(p), trim_to(tt) { }
 private:

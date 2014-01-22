@@ -139,14 +139,14 @@ void PGPool::update(OSDMapRef map)
 }
 
 PG::PG(OSDService *o, OSDMapRef curmap,
-       const PGPool &_pool, pg_t p, const hobject_t& loid,
+       const PGPool &_pool, spg_t p, const hobject_t& loid,
        const hobject_t& ioid) :
   osd(o),
   cct(o->cct),
   osdriver(osd->store, coll_t(), OSD::make_snapmapper_oid()),
   snap_mapper(
     &osdriver,
-    p.m_seed,
+    p.ps(),
     p.get_split_bits(curmap->get_pg_num(_pool.id)),
     _pool.id),
   map_lock("PG::map_lock"),
@@ -496,7 +496,7 @@ void PG::discover_all_missing(map<int, map<spg_t,pg_query_t> > &query_map)
     dout(10) << __func__ << ": osd." << peer << ": requesting pg_missing_t"
 	     << dendl;
     peer_missing_requested.insert(peer);
-    query_map[peer.osd][spg_t(info.pgid, peer.shard)] =
+    query_map[peer.osd][spg_t(info.pgid.pgid, peer.shard)] =
       pg_query_t(
 	pg_query_t::MISSING,
 	peer.shard, pg_whoami.shard,
@@ -605,7 +605,7 @@ void PG::generate_past_intervals()
   vector<int> acting, up, old_acting, old_up;
 
   cur_map = osd->get_map(cur_epoch);
-  cur_map->pg_to_up_acting_osds(get_pgid(), up, acting);
+  cur_map->pg_to_up_acting_osds(get_pgid().pgid, up, acting);
   epoch_t same_interval_since = cur_epoch;
   dout(10) << __func__ << " over epochs " << cur_epoch << "-"
 	   << end_epoch << dendl;
@@ -616,7 +616,7 @@ void PG::generate_past_intervals()
     old_acting.swap(acting);
 
     cur_map = osd->get_map(cur_epoch);
-    cur_map->pg_to_up_acting_osds(get_pgid(), up, acting);
+    cur_map->pg_to_up_acting_osds(get_pgid().pgid, up, acting);
 
     std::stringstream debug;
     bool new_interval = pg_interval_t::check_new_interval(
@@ -629,7 +629,7 @@ void PG::generate_past_intervals()
       cur_map,
       last_map,
       info.pgid.pool(),
-      info.pgid,
+      info.pgid.pgid,
       &past_intervals,
       &debug);
     if (new_interval) {
@@ -1123,9 +1123,9 @@ bool PG::choose_acting(pg_shard_t &auth_log_shard)
       // want is the same as crush map up OSDs.
       assert(compat_mode || backfill.empty());
       vector<int> empty;
-      osd->queue_want_pg_temp(info.pgid, empty);
+      osd->queue_want_pg_temp(info.pgid.pgid, empty);
     } else
-      osd->queue_want_pg_temp(info.pgid, want);
+      osd->queue_want_pg_temp(info.pgid.pgid, want);
     return false;
   }
   want_acting.clear();
@@ -1254,7 +1254,8 @@ void PG::activate(ObjectStore::Transaction& t,
 
     // TODOSAM: osd->osd-> is no good
     osd->osd->replay_queue_lock.Lock();
-    osd->osd->replay_queue.push_back(pair<pg_t,utime_t>(info.pgid, replay_until));
+    osd->osd->replay_queue.push_back(pair<spg_t,utime_t>(
+	info.pgid, replay_until));
     osd->osd->replay_queue_lock.Unlock();
   }
 
@@ -1430,7 +1431,7 @@ void PG::activate(ObjectStore::Transaction& t,
     }
 
     // degraded?
-    if (get_osdmap()->get_pg_size(info.pgid) > acting.size())
+    if (get_osdmap()->get_pg_size(info.pgid.pgid) > acting.size())
       state_set(PG_STATE_DEGRADED);
 
     // all clean?
@@ -1671,7 +1672,7 @@ void PG::mark_clean()
 {
   // only mark CLEAN if we have the desired number of replicas AND we
   // are not remapped.
-  if (acting.size() == get_osdmap()->get_pg_size(info.pgid) &&
+  if (acting.size() == get_osdmap()->get_pg_size(info.pgid.pgid) &&
       up == acting)
     state_set(PG_STATE_CLEAN);
 
@@ -1798,7 +1799,7 @@ static void split_replay_queue(
 }
 
 void PG::split_ops(PG *child, unsigned split_bits) {
-  unsigned match = child->info.pgid.m_seed;
+  unsigned match = child->info.pgid.ps();
   assert(waiting_for_all_missing.empty());
   assert(waiting_for_missing_object.empty());
   assert(waiting_for_degraded_object.empty());
@@ -1851,7 +1852,9 @@ void PG::split_into(pg_t child_pgid, PG *child, unsigned split_bits)
   child->snap_trimq = snap_trimq;
 
   // There can't be recovery/backfill going on now
-  get_osdmap()->pg_to_up_acting_osds(child->info.pgid, child->up, child->acting);
+  get_osdmap()->pg_to_up_acting_osds(
+    child->info.pgid.pgid,
+    child->up, child->acting);
   child->role = get_osdmap()->calc_pg_role(osd->whoami, child->acting);
   if (get_primary() != child->get_primary())
     child->info.history.same_primary_since = get_osdmap()->get_epoch();
@@ -1908,7 +1911,7 @@ void PG::purge_strays()
     if (get_osdmap()->is_up(p->osd)) {
       dout(10) << "sending PGRemove to osd." << *p << dendl;
       vector<spg_t> to_remove;
-      to_remove.push_back(spg_t(info.pgid, p->shard));
+      to_remove.push_back(spg_t(info.pgid.pgid, p->shard));
       MOSDPGRemove *m = new MOSDPGRemove(
 	get_osdmap()->get_epoch(),
 	to_remove);
@@ -2000,7 +2003,8 @@ void PG::_update_calc_stats()
   info.stats.ondisk_log_start = pg_log.get_tail();
 
   // calc copies, degraded
-  unsigned target = MAX(get_osdmap()->get_pg_size(info.pgid), actingbackfill.size());
+  unsigned target = MAX(
+    get_osdmap()->get_pg_size(info.pgid.pgid), actingbackfill.size());
   info.stats.stats.calc_copies(target);
   info.stats.stats.sum.num_objects_degraded = 0;
   if ((is_degraded() || !is_clean()) && is_active()) {
@@ -2467,8 +2471,9 @@ std::string PG::get_corrupt_pg_log_name() const
     dout(0) << "strftime failed" << dendl;
     return "corrupt_log_unknown_time";
   }
-  info.pgid.print(buf + ret, MAX_BUF - ret);
-  return buf;
+  string out(buf);
+  out += stringify(info.pgid);
+  return out;
 }
 
 int PG::read_info(
@@ -3110,7 +3115,7 @@ void PG::scrub_reserve_replicas()
     eversion_t v;
     osd_reqid_t reqid;
     MOSDSubOp *subop = new MOSDSubOp(
-      reqid, pg_whoami, spg_t(info.pgid, i->shard), poid, false, 0,
+      reqid, pg_whoami, spg_t(info.pgid.pgid, i->shard), poid, false, 0,
       get_osdmap()->get_epoch(), osd->get_tid(), v);
     subop->ops = scrub;
     osd->send_message_osd_cluster(
@@ -3131,7 +3136,7 @@ void PG::scrub_unreserve_replicas()
     eversion_t v;
     osd_reqid_t reqid;
     MOSDSubOp *subop = new MOSDSubOp(
-      reqid, pg_whoami, spg_t(info.pgid, i->shard), poid, false, 0,
+      reqid, pg_whoami, spg_t(info.pgid.pgid, i->shard), poid, false, 0,
       get_osdmap()->get_epoch(), osd->get_tid(), v);
     subop->ops = scrub;
     osd->send_message_osd_cluster(i->osd, subop, get_osdmap()->get_epoch());
@@ -3429,8 +3434,16 @@ void PG::replica_scrub(
   hobject_t poid;
   eversion_t v;
   osd_reqid_t reqid;
-  MOSDSubOp *subop = new MOSDSubOp(reqid, pg_whoami, info.pgid, poid, false, 0,
-				   msg->map_epoch, osd->get_tid(), v);
+  MOSDSubOp *subop = new MOSDSubOp(
+    reqid,
+    pg_whoami,
+    spg_t(info.pgid.pgid, get_primary().shard),
+    poid,
+    false,
+    0,
+    msg->map_epoch,
+    osd->get_tid(),
+    v);
   ::encode(map, subop->get_data());
   subop->ops = scrub;
 
@@ -4724,7 +4737,7 @@ void PG::start_peering_interval(const OSDMapRef lastmap,
       osdmap,
       lastmap,
       info.pgid.pool(),
-      info.pgid,
+      info.pgid.pgid,
       &past_intervals,
       &debug);
     dout(10) << __func__ << ": check_new_interval output: "
@@ -4817,12 +4830,12 @@ void PG::start_peering_interval(const OSDMapRef lastmap,
     }
   }
   // make sure we clear out any pg_temp change requests
-  osd->remove_want_pg_temp(info.pgid);
+  osd->remove_want_pg_temp(info.pgid.pgid);
   cancel_recovery();
 
   if (acting.empty() && !up.empty() && up_primary == pg_whoami) {
     dout(10) << " acting empty, but i am up[0], clearing pg_temp" << dendl;
-    osd->queue_want_pg_temp(info.pgid, acting);
+    osd->queue_want_pg_temp(info.pgid.pgid, acting);
   }
 }
 
@@ -6056,7 +6069,8 @@ PG::RecoveryState::Recovered::Recovered(my_context ctx)
   // if we finished backfill, all acting are active; recheck if
   // DEGRADED is appropriate.
   assert(pg->actingbackfill.size() > 0);
-  if (pg->get_osdmap()->get_pg_size(pg->info.pgid) <= pg->actingbackfill.size())
+  if (pg->get_osdmap()->get_pg_size(pg->info.pgid.pgid) <=
+      pg->actingbackfill.size())
     pg->state_clear(PG_STATE_DEGRADED);
 
   // adjust acting set?  (e.g. because backfill completed...)
@@ -6161,9 +6175,9 @@ boost::statechart::result PG::RecoveryState::Active::react(const AdvMap& advmap)
 
   /* Check for changes in pool size (if the acting set changed as a result,
    * this does not matter) */
-  if (advmap.lastmap->get_pg_size(pg->info.pgid) !=
-      pg->get_osdmap()->get_pg_size(pg->info.pgid)) {
-    if (pg->get_osdmap()->get_pg_size(pg->info.pgid) <= pg->acting.size())
+  if (advmap.lastmap->get_pg_size(pg->info.pgid.pgid) !=
+      pg->get_osdmap()->get_pg_size(pg->info.pgid.pgid)) {
+    if (pg->get_osdmap()->get_pg_size(pg->info.pgid.pgid) <= pg->acting.size())
       pg->state_clear(PG_STATE_DEGRADED);
     else
       pg->state_set(PG_STATE_DEGRADED);

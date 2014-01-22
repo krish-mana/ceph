@@ -174,7 +174,7 @@ void ECBackend::dispatch_recovery_messages(RecoveryMessages &m)
        m.pushes.erase(i++)) {
     MOSDPGPush *msg = new MOSDPGPush();
     msg->from = get_parent()->whoami_shard();
-    msg->pgid = spg_t(get_parent()->get_info().pgid, i->first.shard);
+    msg->pgid = spg_t(get_parent()->get_info().pgid.pgid, i->first.shard);
     msg->pushes.swap(i->second);
     msg->compute_cost(cct);
     get_parent()->send_message(
@@ -187,7 +187,7 @@ void ECBackend::dispatch_recovery_messages(RecoveryMessages &m)
        m.push_replies.erase(i++)) {
     MOSDPGPushReply *msg = new MOSDPGPushReply();
     msg->from = get_parent()->whoami_shard();
-    msg->pgid = spg_t(get_parent()->get_info().pgid, i->first.shard);
+    msg->pgid = spg_t(get_parent()->get_info().pgid.pgid, i->first.shard);
     msg->replies.swap(i->second);
     msg->compute_cost(cct);
     get_parent()->send_message(

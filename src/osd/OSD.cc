@@ -1697,7 +1697,7 @@ PG* OSD::_make_pg(
   PG *pg;
   hobject_t logoid = make_pg_log_oid(pgid);
   hobject_t infooid = make_pg_biginfo_oid(pgid);
-  if (createmap->get_pg_type(pgid) == pg_pool_t::TYPE_REPLICATED)
+  if (createmap->get_pg_type(pgid.pgid) == pg_pool_t::TYPE_REPLICATED)
     pg = new ReplicatedPG(&service, createmap, pool, pgid, logoid, infooid);
   else 
     assert(0);
@@ -1713,7 +1713,7 @@ void OSD::add_newly_split_pg(PG *pg, PG::RecoveryCtx *rctx)
   pg_map[pg->info.pgid] = pg;
   dout(10) << "Adding newly split pg " << *pg << dendl;
   vector<int> up, acting;
-  pg->get_osdmap()->pg_to_up_acting_osds(pg->info.pgid, up, acting);
+  pg->get_osdmap()->pg_to_up_acting_osds(pg->info.pgid.pgid, up, acting);
   int role = pg->get_osdmap()->calc_pg_role(service.whoami, acting);
   pg->set_role(role);
   pg->reg_next_scrub();
@@ -1975,7 +1975,7 @@ void OSD::load_pgs()
     pg->reg_next_scrub();
 
     // generate state for PG's current mapping
-    pg->get_osdmap()->pg_to_up_acting_osds(pgid, pg->up, pg->acting);
+    pg->get_osdmap()->pg_to_up_acting_osds(pgid.pgid, pg->up, pg->acting);
     int role = pg->get_osdmap()->calc_pg_role(whoami, pg->acting);
     pg->set_role(role);
 
@@ -2055,7 +2055,7 @@ void OSD::build_past_intervals_parallel()
 	continue;
 
       vector<int> acting, up;
-      cur_map->pg_to_up_acting_osds(pg->info.pgid, up, acting);
+      cur_map->pg_to_up_acting_osds(pg->info.pgid.pgid, up, acting);
 
       if (p.same_interval_since == 0) {
 	dout(10) << __func__ << " epoch " << cur_epoch << " pg " << pg->info.pgid
@@ -2069,15 +2069,16 @@ void OSD::build_past_intervals_parallel()
       assert(last_map);
 
       std::stringstream debug;
-      bool new_interval = pg_interval_t::check_new_interval(p.old_acting, acting,
-							    p.old_up, up,
-							    p.same_interval_since,
-							    pg->info.history.last_epoch_clean,
-							    cur_map, last_map,
-							    pg->info.pgid.pool(),
-	                                                    pg->info.pgid,
-							    &pg->past_intervals,
-							    &debug);
+      bool new_interval = pg_interval_t::check_new_interval(
+	p.old_acting, acting,
+	p.old_up, up,
+	p.same_interval_since,
+	pg->info.history.last_epoch_clean,
+	cur_map, last_map,
+	pg->info.pgid.pool(),
+	pg->info.pgid.pgid,
+	&pg->past_intervals,
+	&debug);
       if (new_interval) {
 	dout(10) << __func__ << " epoch " << cur_epoch << " pg " << pg->info.pgid
 		 << " " << debug.str() << dendl;
@@ -2136,7 +2137,7 @@ void OSD::handle_pg_peering_evt(
     if (!osdmap->have_pg_pool(info.pgid.pool()))
       return;
     vector<int> up, acting;
-    osdmap->pg_to_up_acting_osds(info.pgid, up, acting);
+    osdmap->pg_to_up_acting_osds(info.pgid.pgid, up, acting);
     int role = osdmap->calc_pg_role(whoami, acting, acting.size());
 
     pg_history_t history = info.history;
@@ -2304,7 +2305,7 @@ void OSD::calc_priors_during(
   for (epoch_t e = start; e < end; e++) {
     OSDMapRef oldmap = get_map(e);
     vector<int> acting;
-    oldmap->pg_to_acting_osds(pgid, acting);
+    oldmap->pg_to_acting_osds(pgid.pgid, acting);
     dout(20) << "  " << pgid << " in epoch " << e << " was " << acting << dendl;
     int up = 0;
     for (unsigned i=0; i<acting.size(); i++)
@@ -2359,7 +2360,7 @@ bool OSD::project_pg_history(spg_t pgid, pg_history_t& h, epoch_t from,
     assert(oldmap->have_pg_pool(pgid.pool()));
 
     vector<int> up, acting;
-    oldmap->pg_to_up_acting_osds(pgid, up, acting);
+    oldmap->pg_to_up_acting_osds(pgid.pgid, up, acting);
 
     // acting set change?
     if ((acting != currentacting || up != currentup) && e > h.same_interval_since) {
@@ -3115,7 +3116,7 @@ void TestOpsSocketHook::test_ops(OSDService *service, ObjectStore *store,
       command == "truncobj" || command == "injectmdataerr" ||
       command == "injectdataerr"
     ) {
-    pg_t rawpg, pgid;
+    pg_t rawpg;
     int64_t pool;
     OSDMapRef curmap = service->get_osdmap();
     int r;
@@ -3146,7 +3147,11 @@ void TestOpsSocketHook::test_ops(OSDService *service, ObjectStore *store,
       ss << "Invalid namespace/objname";
       return;
     }
-    pgid = curmap->raw_pg_to_pg(rawpg);
+    if (curmap->pg_is_ec(rawpg)) {
+      ss << "Must not call on ec pool";
+      return;
+    }
+    spg_t pgid = spg_t(curmap->raw_pg_to_pg(rawpg), ghobject_t::no_shard());
 
     hobject_t obj(object_t(objname), string(""), CEPH_NOSNAP, rawpg.ps(), pool, nspace);
     ObjectStore::Transaction t;
@@ -3783,7 +3788,7 @@ void OSD::send_pg_stats(const utime_t &now)
       }
       pg->pg_stats_publish_lock.Lock();
       if (pg->pg_stats_publish_valid) {
-	m->pg_stat[pg->info.pgid] = pg->pg_stats_publish;
+	m->pg_stat[pg->info.pgid.pgid] = pg->pg_stats_publish;
 	dout(25) << " sending " << pg->info.pgid << " " << pg->pg_stats_publish.reported_epoch << ":"
 		 << pg->pg_stats_publish.reported_seq << dendl;
       } else {
@@ -3827,8 +3832,8 @@ void OSD::handle_pg_stats_ack(MPGStatsAck *ack)
     PGRef _pg(pg);
     ++p;
 
-    if (ack->pg_stat.count(pg->info.pgid)) {
-      pair<version_t,epoch_t> acked = ack->pg_stat[pg->info.pgid];
+    if (ack->pg_stat.count(pg->info.pgid.pgid)) {
+      pair<version_t,epoch_t> acked = ack->pg_stat[pg->info.pgid.pgid];
       pg->pg_stats_publish_lock.Lock();
       if (acked.first == pg->pg_stats_publish.reported_seq &&
 	  acked.second == pg->pg_stats_publish.reported_epoch) {
@@ -4788,9 +4793,10 @@ void OSD::handle_scrub(MOSDScrub *m)
   } else {
     for (vector<pg_t>::iterator p = m->scrub_pgs.begin();
 	 p != m->scrub_pgs.end();
-	 ++p)
-      if (pg_map.count(*p)) {
-	PG *pg = pg_map[*p];
+	 ++p) {
+      spg_t pcand = osdmap->get_primary_shard(*p);
+      if (pg_map.count(pcand)) {
+	PG *pg = pg_map[pcand];
 	pg->lock();
 	if (pg->is_primary()) {
 	  pg->unreg_next_scrub();
@@ -4802,6 +4808,7 @@ void OSD::handle_scrub(MOSDScrub *m)
 	}
 	pg->unlock();
       }
+    }
   }
   
   m->put();
@@ -5435,7 +5442,7 @@ void OSD::advance_pg(
       continue;
 
     vector<int> newup, newacting;
-    nextmap->pg_to_up_acting_osds(pg->info.pgid, newup, newacting);
+    nextmap->pg_to_up_acting_osds(pg->info.pgid.pgid, newup, newacting);
     pg->handle_advance_map(nextmap, lastmap, newup, newacting, rctx);
 
     // Check for split!
@@ -5488,7 +5495,7 @@ void OSD::advance_map(ObjectStore::Transaction& t, C_Contexts *tfin)
 
     // am i still primary?
     vector<int> acting;
-    int nrep = osdmap->pg_to_acting_osds(pgid, acting);
+    int nrep = osdmap->pg_to_acting_osds(pgid.pgid, acting);
     int role = osdmap->calc_pg_role(whoami, acting, nrep);
     if (role != 0) {
       dout(10) << " no longer primary for " << pgid << ", stopping creation" << dendl;
@@ -5509,7 +5516,7 @@ void OSD::advance_map(ObjectStore::Transaction& t, C_Contexts *tfin)
 
     // am i still primary?
     vector<int> acting;
-    int nrep = osdmap->pg_to_acting_osds(pgid, acting);
+    int nrep = osdmap->pg_to_acting_osds(pgid.pgid, acting);
     int role = osdmap->calc_pg_role(whoami, acting, nrep);
     if (role >= 0) {
       ++p;  // still me
@@ -5899,7 +5906,7 @@ void OSD::split_pgs(
       i->ps(),
       rctx->transaction);
     parent->split_into(
-      *i,
+      i->pgid,
       child,
       split_bits);
 
@@ -5954,9 +5961,9 @@ void OSD::handle_pg_create(OpRequestRef op)
   for (map<pg_t,pg_create_t>::iterator p = m->mkpg.begin();
        p != m->mkpg.end();
        ++p) {
-    spg_t pgid = p->first;
+    spg_t pgid = osdmap->get_primary_shard(p->first);
     epoch_t created = p->second.created;
-    spg_t parent = p->second.parent;
+    pg_t parent = p->second.parent;
     if (p->second.split_bits) // Skip split pgs
       continue;
     spg_t on = pgid;
@@ -5970,7 +5977,7 @@ void OSD::handle_pg_create(OpRequestRef op)
    
     // is it still ours?
     vector<int> up, acting;
-    osdmap->pg_to_up_acting_osds(on, up, acting);
+    osdmap->pg_to_up_acting_osds(on.pgid, up, acting);
     int role = osdmap->calc_pg_role(whoami, acting, acting.size());
 
     if (role != 0) {
@@ -6021,7 +6028,7 @@ void OSD::handle_pg_create(OpRequestRef op)
 	     << " : querying priors " << pset << dendl;
     for (set<pg_shard_t>::iterator p = pset.begin(); p != pset.end(); ++p) 
       if (osdmap->is_up(p->osd))
-	(*rctx.query_map)[p->osd][spg_t(pgid, p->shard)] =
+	(*rctx.query_map)[p->osd][spg_t(pgid.pgid, p->shard)] =
 	  pg_query_t(
 	    p->shard, pgid.shard,
 	    pg_query_t::INFO, history,
@@ -6643,7 +6650,7 @@ void OSD::handle_pg_query(OpRequestRef op)
 
     // get active crush mapping
     vector<int> up, acting;
-    osdmap->pg_to_up_acting_osds(pgid, up, acting);
+    osdmap->pg_to_up_acting_osds(pgid.pgid, up, acting);
     int role = osdmap->calc_pg_role(whoami, acting, acting.size());
 
     // same primary?
@@ -6721,7 +6728,7 @@ void OSD::handle_pg_remove(OpRequestRef op)
     PG *pg = _lookup_lock_pg(pgid);
     pg_history_t history = pg->info.history;
     vector<int> up, acting;
-    osdmap->pg_to_up_acting_osds(pgid, up, acting);
+    osdmap->pg_to_up_acting_osds(pgid.pgid, up, acting);
     bool valid_history =
       project_pg_history(pg->info.pgid, history, pg->get_osdmap()->get_epoch(),
 	up, acting);
@@ -7075,18 +7082,19 @@ void OSD::handle_op(OpRequestRef op)
     }
   }
   // calc actual pgid
-  spg_t pgid = m->get_pg();
-  int64_t pool = pgid.pool();
+  pg_t _pgid = m->get_pg();
+  int64_t pool = _pgid.pool();
   if ((m->get_flags() & CEPH_OSD_FLAG_PGOP) == 0 &&
       osdmap->have_pg_pool(pool))
-    pgid = osdmap->raw_pg_to_pg(pgid);
+    _pgid = osdmap->raw_pg_to_pg(_pgid);
 
+  spg_t pgid = osdmap->get_primary_shard(_pgid);
   // get and lock *pg.
   PG *pg = _have_pg(pgid) ? _lookup_pg(pgid) : NULL;
   if (!pg) {
     dout(7) << "hit non-existent pg " << pgid << dendl;
 
-    if (osdmap->get_pg_acting_role(pgid, whoami) >= 0) {
+    if (osdmap->get_pg_acting_role(pgid.pgid, whoami) >= 0) {
       dout(7) << "we are valid target for op, waiting" << dendl;
       waiting_for_pg[pgid].push_back(op);
       op->mark_delayed("waiting for pg to exist locally");
@@ -7100,7 +7108,7 @@ void OSD::handle_op(OpRequestRef op)
     }
     OSDMapRef send_map = get_map(m->get_map_epoch());
 
-    if (send_map->get_pg_acting_role(pgid, whoami) >= 0) {
+    if (send_map->get_pg_acting_role(pgid.pgid, whoami) >= 0) {
       dout(7) << "dropping request; client will resend when they get new map" << dendl;
     } else if (!send_map->have_pg_pool(pgid.pool())) {
       dout(7) << "dropping request; pool did not exist" << dendl;
@@ -7113,9 +7121,10 @@ void OSD::handle_op(OpRequestRef op)
 		  << "\n";
     } else {
       dout(7) << "we are invalid target" << dendl;
-      pgid = m->get_pg();
+      _pgid = m->get_pg();
       if ((m->get_flags() & CEPH_OSD_FLAG_PGOP) == 0)
-	pgid = send_map->raw_pg_to_pg(pgid);
+	_pgid = send_map->raw_pg_to_pg(_pgid);
+      pgid = osdmap->get_primary_shard(_pgid);
       clog.warn() << m->get_source_inst() << " misdirected " << m->get_reqid()
 		  << " pg " << m->get_pg()
 		  << " to osd." << whoami

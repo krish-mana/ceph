@@ -512,6 +512,7 @@ public:
     assert(i != pools.end());
     return i->second.ec_pool();
   }
+  spg_t get_primary_shard(pg_t pgid) const { return spg_t(); /* TODOSAM: fix */}
   int pg_to_osds(pg_t pg, vector<int>& raw) const;
   int pg_to_acting_osds(pg_t pg, vector<int>& acting) const;
   void pg_to_raw_up(pg_t pg, vector<int>& up) const;

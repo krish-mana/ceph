@@ -290,13 +290,13 @@ public:
 
   const coll_t coll;
   PGLog  pg_log;
-  static string get_info_key(pg_t pgid) {
+  static string get_info_key(spg_t pgid) {
     return stringify(pgid) + "_info";
   }
-  static string get_biginfo_key(pg_t pgid) {
+  static string get_biginfo_key(spg_t pgid) {
     return stringify(pgid) + "_biginfo";
   }
-  static string get_epoch_key(pg_t pgid) {
+  static string get_epoch_key(spg_t pgid) {
     return stringify(pgid) + "_epoch";
   }
   hobject_t    log_oid;
@@ -994,7 +994,7 @@ public:
   virtual void _scrub_finish() { }
   virtual void get_colls(list<coll_t> *out) = 0;
   virtual void split_colls(
-    pg_t child,
+    spg_t child,
     int split_bits,
     int seed,
     ObjectStore::Transaction *t) = 0;
@@ -1222,7 +1222,7 @@ public:
 
       void send_query(pg_shard_t to, const pg_query_t &query) {
 	assert(state->rctx->query_map);
-	(*state->rctx->query_map)[to.osd][spg_t(pg->info.pgid, to.shard)] =
+	(*state->rctx->query_map)[to.osd][spg_t(pg->info.pgid.pgid, to.shard)] =
 	  query;
       }
 
@@ -1751,7 +1751,7 @@ public:
 
  public:
   PG(OSDService *o, OSDMapRef curmap,
-     const PGPool &pool, pg_t p, const hobject_t& loid, const hobject_t& ioid);
+     const PGPool &pool, spg_t p, const hobject_t& loid, const hobject_t& ioid);
   virtual ~PG();
 
  private:
@@ -1760,7 +1760,7 @@ public:
   PG& operator=(const PG& rhs);
 
  public:
-  pg_t       get_pgid() const { return info.pgid; }
+  spg_t      get_pgid() const { return info.pgid; }
   int        get_nrep() const { return acting.size(); }
 
   pg_shard_t get_primary() { return primary; }

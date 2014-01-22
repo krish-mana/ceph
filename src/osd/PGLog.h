@@ -314,7 +314,7 @@ public:
   void reset_recovery_pointers() { log.reset_recovery_pointers(); }
 
   static void clear_info_log(
-    pg_t pgid,
+    spg_t pgid,
     const hobject_t &infos_oid,
     const hobject_t &log_oid,
     ObjectStore::Transaction *t);

@@ -106,7 +106,7 @@ public:
 
   epoch_t get_map_epoch() { return map_epoch; }
 
-  pg_t get_pg() { return pgid; }
+  spg_t get_pg() { return pgid; }
   hobject_t get_poid() { return poid; }
 
   int get_ack_type() { return ack_type; }

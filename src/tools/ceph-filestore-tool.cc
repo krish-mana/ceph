@@ -162,7 +162,7 @@ int main(int argc, char **argv)
 
   vector<coll_t> colls_to_check;
   if (pgidstr.length()) {
-    pg_t pgid;
+    spg_t pgid;
     if (!pgid.parse(pgidstr.c_str())) {
       cout << "Invalid pgid '" << pgidstr << "' specified" << std::endl;
       exit(1);

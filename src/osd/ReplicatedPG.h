@@ -1083,7 +1083,7 @@ protected:
 
 public:
   ReplicatedPG(OSDService *o, OSDMapRef curmap,
-	       const PGPool &_pool, pg_t p, const hobject_t& oid,
+	       const PGPool &_pool, spg_t p, const hobject_t& oid,
 	       const hobject_t& ioid);
   ~ReplicatedPG() {}
 
@@ -1125,7 +1125,7 @@ public:
     return pgbackend->temp_colls(out);
   }
   void split_colls(
-    pg_t child,
+    spg_t child,
     int split_bits,
     int seed,
     ObjectStore::Transaction *t) {

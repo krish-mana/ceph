@@ -39,7 +39,7 @@ public:
   pg_interval_map_t past_intervals;
 
   epoch_t get_epoch() { return epoch; }
-  pg_t get_pgid() { return info.pgid; }
+  spg_t get_pgid() { return info.pgid; }
   epoch_t get_query_epoch() { return query_epoch; }
 
   MOSDPGLog() : Message(MSG_OSD_PG_LOG, HEAD_VERSION, COMPAT_VERSION) { }

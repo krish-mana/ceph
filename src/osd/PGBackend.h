@@ -158,7 +158,7 @@
        return whoami_shard().osd;
      }
      spg_t whoami_spg_t() const {
-       return spg_t(get_info().pgid, whoami_shard().shard);
+       return get_info().pgid;
      }
 
      virtual spg_t primary_spg_t() const {
@@ -281,7 +281,7 @@
        out->push_back(temp_coll);
    }
    void split_colls(
-     pg_t child,
+     spg_t child,
      int split_bits,
      int seed,
      ObjectStore::Transaction *t) {

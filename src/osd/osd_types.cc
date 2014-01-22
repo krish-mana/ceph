@@ -595,13 +595,13 @@ void coll_t::decode(bufferlist::iterator& bl)
   ::decode(struct_v, bl);
   switch (struct_v) {
   case 1: {
-    pg_t pgid;
+    spg_t pgid;
     snapid_t snap;
 
     ::decode(pgid, bl);
     ::decode(snap, bl);
     // infer the type
-    if (pgid == pg_t() && snap == 0)
+    if (pgid == spg_t() && snap == 0)
       str = "meta";
     else
       str = pg_and_snap_to_str(pgid, snap);
@@ -610,7 +610,7 @@ void coll_t::decode(bufferlist::iterator& bl)
 
   case 2: {
     __u8 type;
-    pg_t pgid;
+    spg_t pgid;
     snapid_t snap;
     
     ::decode(type, bl);
@@ -1830,8 +1830,8 @@ void pg_history_t::generate_test_instances(list<pg_history_t*>& o)
 
 void pg_info_t::encode(bufferlist &bl) const
 {
-  ENCODE_START(29, 26, bl);
-  ::encode(pgid, bl);
+  ENCODE_START(30, 26, bl);
+  ::encode(pgid.pgid, bl);
   ::encode(last_update, bl);
   ::encode(last_complete, bl);
   ::encode(log_tail, bl);
@@ -1842,6 +1842,7 @@ void pg_info_t::encode(bufferlist &bl) const
   ::encode(last_epoch_started, bl);
   ::encode(last_user_version, bl);
   ::encode(hit_set, bl);
+  ::encode(pgid.shard, bl);
   ENCODE_FINISH(bl);
 }
 
@@ -1851,9 +1852,9 @@ void pg_info_t::decode(bufferlist::iterator &bl)
   if (struct_v < 23) {
     old_pg_t opgid;
     ::decode(opgid, bl);
-    pgid = opgid;
+    pgid.pgid = opgid;
   } else {
-    ::decode(pgid, bl);
+    ::decode(pgid.pgid, bl);
   }
   ::decode(last_update, bl);
   ::decode(last_complete, bl);
@@ -1883,6 +1884,10 @@ void pg_info_t::decode(bufferlist::iterator &bl)
     last_user_version = last_update.version;
   if (struct_v >= 29)
     ::decode(hit_set, bl);
+  if (struct_v >= 30)
+    ::decode(pgid.shard, bl);
+  else
+    pgid.shard = ghobject_t::no_shard();
   DECODE_FINISH(bl);
 }
 
@@ -1921,7 +1926,7 @@ void pg_info_t::generate_test_instances(list<pg_info_t*>& o)
   list<pg_history_t*> h;
   pg_history_t::generate_test_instances(h);
   o.back()->history = *h.back();
-  o.back()->pgid = pg_t(1, 2, -1);
+  o.back()->pgid = spg_t(pg_t(1, 2, -1), ghobject_t::no_shard());
   o.back()->last_update = eversion_t(3, 4);
   o.back()->last_complete = eversion_t(5, 6);
   o.back()->last_user_version = 2;
