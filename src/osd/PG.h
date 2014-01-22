@@ -371,17 +371,17 @@ public:
 public:    
   struct RecoveryCtx {
     utime_t start_time;
-    map< pg_shard_t, map<pg_t, pg_query_t> > *query_map;
-    map< pg_shard_t , vector<pair<pg_notify_t, pg_interval_map_t> > > *info_map;
-    map< pg_shard_t , vector<pair<pg_notify_t, pg_interval_map_t> > > *notify_list;
+    map<int, map<spg_t, pg_query_t> > *query_map;
+    map<int, vector<pair<pg_notify_t, pg_interval_map_t> > > *info_map;
+    map<int, vector<pair<pg_notify_t, pg_interval_map_t> > > *notify_list;
     C_Contexts *on_applied;
     C_Contexts *on_safe;
     ObjectStore::Transaction *transaction;
-    RecoveryCtx(map< pg_shard_t, map<pg_t, pg_query_t> > *query_map,
-		map< pg_shard_t,
-		     vector<pair<pg_notify_t, pg_interval_map_t> > > *info_map,
-		map< pg_shard_t,
-		     vector<pair<pg_notify_t, pg_interval_map_t> > > *notify_list,
+    RecoveryCtx(map<int, map<spg_t, pg_query_t> > *query_map,
+		map<int,
+		    vector<pair<pg_notify_t, pg_interval_map_t> > > *info_map,
+		map<int,
+		    vector<pair<pg_notify_t, pg_interval_map_t> > > *notify_list,
 		C_Contexts *on_applied,
 		C_Contexts *on_safe,
 		ObjectStore::Transaction *transaction)
@@ -721,7 +721,7 @@ public:
   void check_for_lost_objects();
   void forget_lost_objects();
 
-  void discover_all_missing(std::map< pg_shard_t, map<pg_t,pg_query_t> > &query_map);
+  void discover_all_missing(std::map<int, map<spg_t,pg_query_t> > &query_map);
   
   void trim_write_ahead();
 
@@ -738,8 +738,8 @@ public:
     ObjectStore::Transaction& t,
     epoch_t query_epoch,
     list<Context*>& tfin,
-    map<pg_shard_t, map<pg_t,pg_query_t> >& query_map,
-    map<pg_shard_t,
+    map<int, map<spg_t,pg_query_t> >& query_map,
+    map<int,
         vector<pair<pg_notify_t, pg_interval_map_t> > > *activator_map=0);
   void _activate_committed(epoch_t e);
   void all_activated_and_committed();
@@ -1222,15 +1222,16 @@ public:
 
       void send_query(pg_shard_t to, const pg_query_t &query) {
 	assert(state->rctx->query_map);
-	(*state->rctx->query_map)[to][pg->info.pgid] = query;
+	(*state->rctx->query_map)[to.osd][spg_t(pg->info.pgid, to.shard)] =
+	  query;
       }
 
-      map<pg_shard_t, map<pg_t, pg_query_t> > *get_query_map() {
+      map<int, map<spg_t, pg_query_t> > *get_query_map() {
 	assert(state->rctx->query_map);
 	return state->rctx->query_map;
       }
 
-      map<pg_shard_t, vector<pair<pg_notify_t, pg_interval_map_t> > > *get_info_map() {
+      map<int, vector<pair<pg_notify_t, pg_interval_map_t> > > *get_info_map() {
 	assert(state->rctx->info_map);
 	return state->rctx->info_map;
       }
@@ -1248,7 +1249,7 @@ public:
       void send_notify(pg_shard_t to,
 		       const pg_notify_t &info, const pg_interval_map_t &pi) {
 	assert(state->rctx->notify_list);
-	(*state->rctx->notify_list)[to].push_back(make_pair(info, pi));
+	(*state->rctx->notify_list)[to.osd].push_back(make_pair(info, pi));
       }
     };
     friend class RecoveryMachine;

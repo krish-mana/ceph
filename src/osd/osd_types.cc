@@ -1957,7 +1957,7 @@ void pg_notify_t::decode(bufferlist::iterator &bl)
   ::decode(query_epoch, bl);
   ::decode(epoch_sent, bl);
   ::decode(info, bl);
-  if (version >= 2) {
+  if (struct_v >= 2) {
     ::decode(to, bl);
     ::decode(from, bl);
   } else {
@@ -1969,6 +1969,8 @@ void pg_notify_t::decode(bufferlist::iterator &bl)
 
 void pg_notify_t::dump(Formatter *f) const
 {
+  f->dump_int("from", from);
+  f->dump_int("to", to);
   f->dump_stream("query_epoch") << query_epoch;
   f->dump_stream("epoch_sent") << epoch_sent;
   {
@@ -1980,8 +1982,8 @@ void pg_notify_t::dump(Formatter *f) const
 
 void pg_notify_t::generate_test_instances(list<pg_notify_t*>& o)
 {
-  o.push_back(new pg_notify_t(1,1,pg_info_t()));
-  o.push_back(new pg_notify_t(3,10,pg_info_t()));
+  o.push_back(new pg_notify_t(3, ghobject_t::NO_SHARD, 1 ,1 , pg_info_t()));
+  o.push_back(new pg_notify_t(0, 0, 3, 10, pg_info_t()));
 }
 
 ostream &operator<<(ostream &lhs, const pg_notify_t &notify)
@@ -2161,7 +2163,7 @@ void pg_query_t::decode(bufferlist::iterator &bl) {
     ::decode(since, bl);
     history.decode(bl);
     ::decode(epoch_sent, bl);
-    if (version >= 3) {
+    if (struct_v >= 3) {
       ::decode(to, bl);
       ::decode(from, bl);
     } else {
@@ -2179,6 +2181,8 @@ void pg_query_t::decode(bufferlist::iterator &bl) {
 
 void pg_query_t::dump(Formatter *f) const
 {
+  f->dump_int("from", from);
+  f->dump_int("to", to);
   f->dump_string("type", get_type_name());
   f->dump_stream("since") << since;
   f->dump_stream("epoch_sent") << epoch_sent;
@@ -2191,10 +2195,12 @@ void pg_query_t::generate_test_instances(list<pg_query_t*>& o)
   o.push_back(new pg_query_t());
   list<pg_history_t*> h;
   pg_history_t::generate_test_instances(h);
-  o.push_back(new pg_query_t(pg_query_t::INFO, *h.back(), 4));
-  o.push_back(new pg_query_t(pg_query_t::MISSING, *h.back(), 4));
-  o.push_back(new pg_query_t(pg_query_t::LOG, eversion_t(4, 5), *h.back(), 4));
-  o.push_back(new pg_query_t(pg_query_t::FULLLOG, *h.back(), 5));
+  o.push_back(new pg_query_t(1, 2, pg_query_t::INFO, *h.back(), 4));
+  o.push_back(new pg_query_t(2, 3, pg_query_t::MISSING, *h.back(), 4));
+  o.push_back(new pg_query_t(0, 0, pg_query_t::LOG,
+			     eversion_t(4, 5), *h.back(), 4));
+  o.push_back(new pg_query_t(0, ghobject_t::NO_SHARD,
+			     pg_query_t::FULLLOG, *h.back(), 5));
 }
 
 // -- ObjectModDesc --

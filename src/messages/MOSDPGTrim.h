@@ -18,9 +18,13 @@
 #include "msg/Message.h"
 
 class MOSDPGTrim : public Message {
+
+  static const int HEAD_VERSION = 2;
+  static const int COMPAT_VERSION = 1;
+
 public:
   epoch_t epoch;
-  pg_t pgid;
+  spg_t pgid;
   eversion_t trim_to;
 
   epoch_t get_epoch() { return epoch; }
@@ -40,14 +44,19 @@ public:
 
   void encode_payload(uint64_t features) {
     ::encode(epoch, payload);
-    ::encode(pgid, payload);
+    ::encode(pgid.pgid, payload);
     ::encode(trim_to, payload);
+    ::encode(pgid.shard, payload);
   }
   void decode_payload() {
     bufferlist::iterator p = payload.begin();
     ::decode(epoch, p);
-    ::decode(pgid, p);
+    ::decode(pgid.pgid, p);
     ::decode(trim_to, p);
+    if (header.version >= 2)
+      ::decode(pgid.shard, payload);
+    else
+      pgid.shard = ghobject_t::NO_SHARD;
   }
 };
 

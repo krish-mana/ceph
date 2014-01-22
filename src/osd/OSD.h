@@ -1326,13 +1326,13 @@ protected:
                         ThreadPool::TPHandle *handle = NULL);
   void dispatch_context_transaction(PG::RecoveryCtx &ctx, PG *pg,
                                     ThreadPool::TPHandle *handle = NULL);
-  void do_notifies(map<pg_shard_t,
+  void do_notifies(map<int,
 		       vector<pair<pg_notify_t, pg_interval_map_t> > >&
 		       notify_list,
 		   OSDMapRef map);
-  void do_queries(map<pg_shard_t, map<pg_t,pg_query_t> >& query_map,
+  void do_queries(map<int, map<spg_t,pg_query_t> >& query_map,
 		  OSDMapRef map);
-  void do_infos(map<pg_shard_t,
+  void do_infos(map<int,
 		    vector<pair<pg_notify_t, pg_interval_map_t> > >& info_map,
 		OSDMapRef map);
   void repeer(PG *pg, map< int, map<spg_t,pg_query_t> >& query_map);

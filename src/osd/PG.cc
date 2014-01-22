@@ -446,7 +446,7 @@ bool PG::search_for_missing(
   return found_missing;
 }
 
-void PG::discover_all_missing(map<pg_shard_t, map<pg_t,pg_query_t> > &query_map)
+void PG::discover_all_missing(map<int, map<spg_t,pg_query_t> > &query_map)
 {
   const pg_missing_t &missing = pg_log.get_missing();
   assert(missing.have_missing());
@@ -496,7 +496,7 @@ void PG::discover_all_missing(map<pg_shard_t, map<pg_t,pg_query_t> > &query_map)
     dout(10) << __func__ << ": osd." << peer << ": requesting pg_missing_t"
 	     << dendl;
     peer_missing_requested.insert(peer);
-    query_map[peer][info.pgid] =
+    query_map[peer.osd][spg_t(info.pgid, peer.shard)] =
       pg_query_t(
 	pg_query_t::MISSING,
 	peer.shard, pg_whoami.shard,
@@ -1232,8 +1232,8 @@ struct C_PG_ActivateCommitted : public Context {
 void PG::activate(ObjectStore::Transaction& t,
 		  epoch_t query_epoch,
 		  list<Context*>& tfin,
-		  map<pg_shard_t, map<pg_t,pg_query_t> >& query_map,
-		  map<pg_shard_t,
+		  map<int, map<spg_t,pg_query_t> >& query_map,
+		  map<int,
 		      vector<
 			pair<pg_notify_t,
 			     pg_interval_map_t> > > *activator_map)
@@ -1350,7 +1350,7 @@ void PG::activate(ObjectStore::Transaction& t,
         // empty log
 	if (!pi.is_empty() && activator_map) {
 	  dout(10) << "activate peer osd." << peer << " is up to date, queueing in pending_activators" << dendl;
-	  (*activator_map)[peer].push_back(
+	  (*activator_map)[peer.osd].push_back(
 	    make_pair(
 	      pg_notify_t(
 		peer.shard, pg_whoami.shard,
@@ -1360,7 +1360,9 @@ void PG::activate(ObjectStore::Transaction& t,
 	      past_intervals));
 	} else {
 	  dout(10) << "activate peer osd." << peer << " is up to date, but sending pg_log anyway" << dendl;
-	  m = new MOSDPGLog(get_osdmap()->get_epoch(), info);
+	  m = new MOSDPGLog(
+	    i->shard, pg_whoami.shard,
+	    get_osdmap()->get_epoch(), info);
 	}
       } else if (pg_log.get_tail() > pi.last_update || pi.last_backfill == hobject_t()) {
 	// backfill
@@ -1374,7 +1376,9 @@ void PG::activate(ObjectStore::Transaction& t,
 	pi.history = info.history;
 	pi.stats.stats.clear();
 
-	m = new MOSDPGLog(get_osdmap()->get_epoch(), pi);
+	m = new MOSDPGLog(
+	  i->shard, pg_whoami.shard,
+	  get_osdmap()->get_epoch(), pi);
 
 	// send some recent log, so that op dup detection works well.
 	m->log.copy_up_to(pg_log.get_log(), cct->_conf->osd_min_pg_log_entries);
@@ -1385,7 +1389,9 @@ void PG::activate(ObjectStore::Transaction& t,
       } else {
 	// catch up
 	assert(pg_log.get_tail() <= pi.last_update);
-	m = new MOSDPGLog(get_osdmap()->get_epoch(), info);
+	m = new MOSDPGLog(
+	  i->shard, pg_whoami.shard,
+	  get_osdmap()->get_epoch(), info);
 	// send new stuff to append to replicas log
 	m->log.copy_after(pg_log.get_log(), pi.last_update);
       }
@@ -1901,8 +1907,8 @@ void PG::purge_strays()
        ++p) {
     if (get_osdmap()->is_up(p->osd)) {
       dout(10) << "sending PGRemove to osd." << *p << dendl;
-      vector<pg_t> to_remove;
-      to_remove.push_back(info.pgid);
+      vector<spg_t> to_remove;
+      to_remove.push_back(spg_t(info.pgid, p->shard));
       MOSDPGRemove *m = new MOSDPGRemove(
 	get_osdmap()->get_epoch(),
 	to_remove);
@@ -4449,7 +4455,9 @@ void PG::share_pg_log()
     pg_missing_t& pmissing(peer_missing[peer]);
     pg_info_t& pinfo(peer_info[peer]);
 
-    MOSDPGLog *m = new MOSDPGLog(info.last_update.epoch, info);
+    MOSDPGLog *m = new MOSDPGLog(
+      a->shard, pg_whoami.shard,
+      info.last_update.epoch, info);
     m->log.copy_after(pg_log.get_log(), pinfo.last_update);
 
     for (list<pg_log_entry_t>::const_iterator i = m->log.log.begin();
@@ -4490,8 +4498,10 @@ void PG::fulfill_log(
   assert(from == primary);
   assert(query.type != pg_query_t::INFO);
 
-  MOSDPGLog *mlog = new MOSDPGLog(get_osdmap()->get_epoch(),
-				  info, query_epoch);
+  MOSDPGLog *mlog = new MOSDPGLog(
+    from.shard, pg_whoami.shard,
+    get_osdmap()->get_epoch(),
+    info, query_epoch);
   mlog->missing = pg_log.get_missing();
 
   // primary -> other, when building master log
@@ -6371,7 +6381,7 @@ boost::statechart::result PG::RecoveryState::ReplicaActive::react(
   const Activate& actevt) {
   dout(10) << "In ReplicaActive, about to call activate" << dendl;
   PG *pg = context< RecoveryMachine >().pg;
-  map<pg_shard_t, map< pg_t, pg_query_t> > query_map;
+  map<int, map<spg_t, pg_query_t> > query_map;
   pg->activate(*context< RecoveryMachine >().get_cur_transaction(),
 	       actevt.query_epoch,
 	       *context< RecoveryMachine >().get_on_safe_context_list(),
