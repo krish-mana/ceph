@@ -391,12 +391,7 @@ struct spg_t {
   pg_t pgid;
   shard_id_t shard;
   spg_t() : shard(ghobject_t::NO_SHARD) {}
-  spg_t(pg_t pgid) : pgid(pgid), shard(ghobject_t::NO_SHARD) {}
   spg_t(pg_t pgid, shard_id_t shard) : pgid(pgid), shard(shard) {}
-  operator pg_t() const {
-    assert(shard == ghobject_t::NO_SHARD);
-    return pgid;
-  }
   unsigned get_split_bits(unsigned pg_num) const {
     return pgid.get_split_bits(pg_num);
   }
