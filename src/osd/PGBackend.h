@@ -583,6 +583,14 @@
      const spg_t pgid,
      const vector<int> &acting,
      ostream &errorstream) { assert(0); }
+
+   static PGBackend *build_pg_backend(
+     const pg_pool_t &pool,
+     Listener *l,
+     coll_t coll,
+     coll_t temp_coll,
+     ObjectStore *store,
+     CephContext *cct);
  };
 
 struct PG_SendMessageOnConn: public Context {

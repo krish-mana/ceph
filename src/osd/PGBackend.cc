@@ -13,8 +13,11 @@
  */
 
 
+#include "ReplicatedBackend.h"
+#include "ECBackend.h"
 #include "PGBackend.h"
 #include "OSD.h"
+#include "ErasureCodePlugin.h"
 
 #define dout_subsys ceph_subsys_osd
 #define DOUT_PREFIX_ARGS this
@@ -250,4 +253,39 @@ void PGBackend::trim_stashed_object(
   ObjectStore::Transaction *t) {
   t->remove(
     coll, ghobject_t(hoid, old_version, get_parent()->whoami_shard().shard));
+}
+
+PGBackend *PGBackend::build_pg_backend(
+  const pg_pool_t &pool,
+  Listener *l,
+  coll_t coll,
+  coll_t temp_coll,
+  ObjectStore *store,
+  CephContext *cct)
+{
+  switch (pool.type) {
+  case pg_pool_t::TYPE_REPLICATED: {
+    return new ReplicatedBackend(l, coll, temp_coll, store, cct);
+  }
+  case pg_pool_t::TYPE_ERASURE: {
+    ErasureCodeInterfaceRef ec_impl;
+    assert(pool.properties.count("erasure-code-plugin"));
+    ceph::ErasureCodePluginRegistry::instance().factory(
+      pool.properties.find("erasure-code-plugin")->second,
+      pool.properties,
+      &ec_impl);
+    assert(ec_impl);
+    return new ECBackend(
+      l,
+      coll,
+      temp_coll,
+      store,
+      cct,
+      ec_impl,
+      pool.stripe_width);
+  }
+  default:
+    assert(0);
+    return NULL;
+  }
 }
