@@ -34,6 +34,19 @@ struct ECRecoveryHandle : public PGBackend::RecoveryHandle {
   list<ECBackend::RecoveryOp> ops;
 };
 
+ECBackend::ECBackend(
+  PGBackend::Listener *pg,
+  coll_t coll,
+  coll_t temp_coll,
+  ObjectStore *store,
+  CephContext *cct,
+  ErasureCodeInterfaceRef ec_impl)
+  : PGBackend(pg, store, coll, temp_coll),
+    cct(cct),
+    ec_impl(ec_impl),
+    stripe_width(4*(2<<10) /* TODO: make more flexible */),
+    stripe_size(ec_impl->get_data_chunk_count()) {}
+
 PGBackend::RecoveryHandle *ECBackend::open_recovery_op()
 {
   return new ECRecoveryHandle;
