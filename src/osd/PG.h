@@ -350,7 +350,9 @@ public:
     map<int, epoch_t> blocked_by;  /// current lost_at values for any OSDs in cur set for which (re)marking them lost would affect cur set
 
     bool pg_down;   /// some down osds are included in @a cur; the DOWN pg state bit should be set.
+    boost::scoped_ptr<PGBackend::IsRecoverablePredicate> pcontdec;
     PriorSet(bool ec_pool,
+	     PGBackend::IsRecoverablePredicate *c,
 	     const OSDMap &osdmap,
 	     const map<epoch_t, pg_interval_t> &past_intervals,
 	     const vector<int> &up,
@@ -1792,6 +1794,13 @@ public:
     int new_acting_primary) {
     actingset.clear();
     acting = newacting;
+    for (shard_id_t i = 0; i < acting.size(); ++i) {
+      if (acting[i] != -1)
+	actingset.insert(
+	  pg_shard_t(
+	    acting[i],
+	    pool.info.ec_pool() ? i : ghobject_t::NO_SHARD));
+    }
     up = newup;
     if (!pool.info.ec_pool()) {
       up_primary = pg_shard_t(new_up_primary, ghobject_t::no_shard());
@@ -1805,10 +1814,6 @@ public:
 	up_primary = pg_shard_t(up[i], i);
 	break;
       }
-    }
-    for (shard_id_t i = 0; i < acting.size(); ++i) {
-      if (acting[i] != -1)
-	actingset.insert(pg_shard_t(acting[i], i));
     }
     for (shard_id_t i = 0; i < acting.size(); ++i) {
       if (acting[i] == new_acting_primary) {
