@@ -221,9 +221,13 @@ struct TransGenerator : public boost::static_visitor<void> {
       bufferlist bl2;
       bl2.substr_of(iter->second.second, 0, offset % stripe_width);
       bl2.claim_append(bl);
+      bl.swap(bl2);
       offset = iter->second.first;
     }
     map<int, bufferlist> buffers;
+
+    // align
+    bl.append_zero(stripe_width - ((offset + bl.length()) % stripe_width));
     int r = ECUtil::encode(
       stripe_size, stripe_width, ecimpl, bl, want, &buffers);
     assert(r == 0);

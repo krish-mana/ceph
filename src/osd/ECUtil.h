@@ -32,20 +32,20 @@ inline int decode(
   bufferlist *out) {
   assert(to_decode.size());
   uint64_t obj_size = to_decode.begin()->second.length();
-  uint64_t chunk_stripe_size = stripe_size / stripe_width;
-  assert(obj_size % chunk_stripe_size == 0);
+  uint64_t chunk_stripe_width = stripe_width / stripe_size;
+  assert(obj_size % chunk_stripe_width == 0);
   assert(obj_size > 0);
   for (map<int, bufferlist>::iterator i = to_decode.begin();
        i != to_decode.end();
        ++i) {
     assert(i->second.length() == obj_size);
   }
-  for (uint64_t i = 0; i < obj_size; i += chunk_stripe_size) {
+  for (uint64_t i = 0; i < obj_size; i += chunk_stripe_width) {
     map<int, bufferlist> chunks;
     for (map<int, bufferlist>::iterator j = to_decode.begin();
 	 j != to_decode.end();
 	 ++j) {
-      chunks[j->first].substr_of(j->second, i, i + chunk_stripe_size);
+      chunks[j->first].substr_of(j->second, i, i + chunk_stripe_width);
     }
     bufferlist bl;
     int r = ec_impl->decode_concat(chunks, &bl);
