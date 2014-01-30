@@ -560,7 +560,7 @@ void ECBackend::handle_sub_write(
     get_parent()->bless_context(
       new SubWriteApplied(this, msg, op.tid, op.at_version)));
   if (on_local_applied_sync)
-    localt->register_on_applied_Sync(on_local_applied_sync);
+    localt->register_on_applied_sync(on_local_applied_sync);
   get_parent()->queue_transaction(localt, msg);
 }
 
