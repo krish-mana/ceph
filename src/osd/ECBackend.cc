@@ -421,7 +421,7 @@ bool ECBackend::can_handle_while_inactive(
 bool ECBackend::handle_message(
   OpRequestRef _op)
 {
-  dout(10) << __func__ << ": " << _op << dendl;
+  dout(10) << __func__ << ": " << *_op->get_req() << dendl;
   switch (_op->get_req()->get_type()) {
   case MSG_OSD_EC_WRITE: {
     MOSDECSubOpWrite *op = static_cast<MOSDECSubOpWrite*>(_op->get_req());
