@@ -24,28 +24,6 @@
 
 namespace ECUtil {
 
-inline int decode_helper(
-  ErasureCodeInterfaceRef &ecimpl,
-  const map<int, bufferlist> &chunks,
-  bufferlist *decoded) {
-  set<int> want_to_read;
-  for (unsigned int i = 0;
-       i < 1/*get_data_chunk_count()*/;
-       i++) {
-    want_to_read.insert(i);
-  }
-  map<int, bufferlist> decoded_map;
-  int r = ecimpl->decode(want_to_read, chunks, &decoded_map);
-  if (r)
-    return r;
-  for (unsigned int i = 0;
-       i < 1/*get_data_chunk_count()*/;
-       i++) {
-    decoded->claim_append(decoded_map[i]);
-  }
-  return 0;
-}
-
 inline int decode(
   uint64_t stripe_size,
   uint64_t stripe_width,
@@ -54,22 +32,23 @@ inline int decode(
   bufferlist *out) {
   assert(to_decode.size());
   uint64_t obj_size = to_decode.begin()->second.length();
-  assert(obj_size % stripe_size == 0);
+  uint64_t chunk_stripe_size = stripe_size / stripe_width;
+  assert(obj_size % chunk_stripe_size == 0);
   assert(obj_size > 0);
   for (map<int, bufferlist>::iterator i = to_decode.begin();
        i != to_decode.end();
        ++i) {
     assert(i->second.length() == obj_size);
   }
-  for (uint64_t i = 0; i < obj_size; i += stripe_size) {
+  for (uint64_t i = 0; i < obj_size; i += chunk_stripe_size) {
     map<int, bufferlist> chunks;
     for (map<int, bufferlist>::iterator j = to_decode.begin();
 	 j != to_decode.end();
 	 ++j) {
-      chunks[j->first].substr_of(j->second, i, i+stripe_size);
+      chunks[j->first].substr_of(j->second, i, i + chunk_stripe_size);
     }
     bufferlist bl;
-    int r = decode_helper(ec_impl, chunks, &bl);
+    int r = ec_impl->decode_concat(chunks, &bl);
     assert(bl.length() == stripe_width);
     assert(r == 0);
     out->claim_append(bl);
