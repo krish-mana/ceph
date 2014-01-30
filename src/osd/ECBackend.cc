@@ -1203,7 +1203,7 @@ void ECBackend::check_pending_ops()
       unstable.erase(*i);
     }
     op->writes.clear();
-    dout(10) << __func__ << "Completing " << *op << dendl;
+    dout(10) << __func__ << " Completing " << *op << dendl;
     delete op;
     writing.pop_front();
   }
@@ -1211,9 +1211,9 @@ void ECBackend::check_pending_ops()
   while (!waiting.empty()) {
     Op *op = waiting.front();
     if (can_read(op)) {
-      dout(10) << __func__ << "Starting read on " << *op << dendl;
+      dout(10) << __func__ << " Starting read on " << *op << dendl;
       start_read(op);
-      dout(10) << __func__ << "Started read on " << *op << dendl;
+      dout(10) << __func__ << " Started read on " << *op << dendl;
       waiting.pop_front();
       reading.push_back(op);
     } else {
@@ -1224,9 +1224,9 @@ void ECBackend::check_pending_ops()
   while (!reading.empty()) {
     Op *op = reading.front();
     if (op->must_read.empty()) {
-      dout(10) << __func__ << "Starting write on " << *op << dendl;
+      dout(10) << __func__ << " Starting write on " << *op << dendl;
       start_write(op);
-      dout(10) << __func__ << "Started write on " << *op << dendl;
+      dout(10) << __func__ << " Started write on " << *op << dendl;
       reading.pop_front();
       writing.push_back(op);
     } else {
