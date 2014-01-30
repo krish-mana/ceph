@@ -607,9 +607,11 @@ void ECBackend::handle_sub_write_reply(
   map<tid_t, Op>::iterator i = tid_to_op_map.find(op.tid);
   assert(i != tid_to_op_map.end());
   if (op.committed) {
+    assert(i->second.pending_commit.count(from));
     i->second.pending_commit.erase(from);
   }
   if (op.applied) {
+    assert(i->second.pending_apply.count(from));
     i->second.pending_apply.erase(from);
   }
   check_pending_ops();
@@ -1130,6 +1132,8 @@ void ECBackend::start_write(Op *op) {
 	 get_parent()->get_actingbackfill_shards().begin();
        i != get_parent()->get_actingbackfill_shards().end();
        ++i) {
+    op->pending_apply.insert(*i);
+    op->pending_commit.insert(*i);
     map<shard_id_t, ObjectStore::Transaction>::iterator iter =
       trans.find(i->shard);
     assert(iter != trans.end());
@@ -1181,13 +1185,17 @@ void ECBackend::check_pending_ops()
       unstable.erase(*i);
     }
     op->writes.clear();
+    dout(10) << __func__ << "Completing " << *op << dendl;
+    delete op;
     writing.pop_front();
   }
 
   while (!waiting.empty()) {
     Op *op = waiting.front();
     if (can_read(op)) {
+      dout(10) << __func__ << "Starting read on " << *op << dendl;
       start_read(op);
+      dout(10) << __func__ << "Started read on " << *op << dendl;
       waiting.pop_front();
       reading.push_back(op);
     } else {
@@ -1198,7 +1206,9 @@ void ECBackend::check_pending_ops()
   while (!reading.empty()) {
     Op *op = reading.front();
     if (op->must_read.empty()) {
+      dout(10) << __func__ << "Starting write on " << *op << dendl;
       start_write(op);
+      dout(10) << __func__ << "Started write on " << *op << dendl;
       reading.pop_front();
       writing.push_back(op);
     } else {
