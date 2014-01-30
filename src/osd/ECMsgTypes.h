@@ -20,18 +20,20 @@
 #include "os/ObjectStore.h"
 
 struct ECSubWrite {
+  pg_shard_t from;
   tid_t tid;
   osd_reqid_t reqid;
   hobject_t soid;
   pg_stat_t stats;
   ObjectStore::Transaction t;
-  eversion_t at_version;
+ eversion_t at_version;
   eversion_t trim_to;
   vector<pg_log_entry_t> log_entries;
   set<hobject_t> temp_removed;
   set<hobject_t> temp_added;
   ECSubWrite() {}
-  ECSubWrite(
+  ECSubWrite( 
+    pg_shard_t from,
     tid_t tid,
     osd_reqid_t reqid,
     hobject_t soid,
@@ -42,7 +44,8 @@ struct ECSubWrite {
     vector<pg_log_entry_t> log_entries,
     const set<hobject_t> &temp_removed,
     const set<hobject_t> &temp_added)
-    : tid(tid), reqid(reqid), soid(soid), stats(stats), t(t),
+    : from(from), tid(tid), reqid(reqid),
+      soid(soid), stats(stats), t(t),
       at_version(at_version),
       trim_to(trim_to), log_entries(log_entries),
       temp_removed(temp_removed),
@@ -53,6 +56,7 @@ struct ECSubWrite {
 WRITE_CLASS_ENCODER(ECSubWrite)
 
 struct ECSubWriteReply {
+  pg_shard_t from;
   tid_t tid;
   bool committed;
   bool applied;
@@ -63,6 +67,7 @@ struct ECSubWriteReply {
 WRITE_CLASS_ENCODER(ECSubWriteReply)
 
 struct ECSubRead {
+  pg_shard_t from;
   tid_t tid;
   list<pair<hobject_t, pair<uint64_t, uint64_t> > > to_read;
   set<hobject_t> attrs_to_read; 
@@ -72,6 +77,7 @@ struct ECSubRead {
 WRITE_CLASS_ENCODER(ECSubRead)
 
 struct ECSubReadReply {
+  pg_shard_t from;
   tid_t tid;
   list<pair<hobject_t, pair<uint64_t, bufferlist> > > buffers_read;
   map<hobject_t, map<string, bufferlist> > attrs_read;

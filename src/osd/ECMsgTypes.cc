@@ -17,6 +17,7 @@
 void ECSubWrite::encode(bufferlist &bl) const
 {
   ENCODE_START(1, 1, bl);
+  ::encode(from, bl);
   ::encode(tid, bl);
   ::encode(reqid, bl);
   ::encode(soid, bl);
@@ -33,6 +34,7 @@ void ECSubWrite::encode(bufferlist &bl) const
 void ECSubWrite::decode(bufferlist::iterator &bl)
 {
   DECODE_START(1, bl);
+  ::decode(from, bl);
   ::decode(tid, bl);
   ::decode(reqid, bl);
   ::decode(soid, bl);
@@ -59,6 +61,7 @@ std::ostream &operator<<(
 void ECSubWriteReply::encode(bufferlist &bl) const
 {
   ENCODE_START(1, 1, bl);
+  ::encode(from, bl);
   ::encode(tid, bl);
   ::encode(committed, bl);
   ::encode(applied, bl);
@@ -68,6 +71,7 @@ void ECSubWriteReply::encode(bufferlist &bl) const
 void ECSubWriteReply::decode(bufferlist::iterator &bl)
 {
   DECODE_START(1, bl);
+  ::decode(from, bl);
   ::decode(tid, bl);
   ::decode(committed, bl);
   ::decode(applied, bl);
@@ -86,6 +90,7 @@ std::ostream &operator<<(
 void ECSubRead::encode(bufferlist &bl) const
 {
   ENCODE_START(1, 1, bl);
+  ::encode(from, bl);
   ::encode(tid, bl);
   ::encode(to_read, bl);
   ::encode(attrs_to_read, bl);
@@ -95,6 +100,7 @@ void ECSubRead::encode(bufferlist &bl) const
 void ECSubRead::decode(bufferlist::iterator &bl)
 {
   DECODE_START(1, bl);
+  ::decode(from, bl);
   ::decode(tid, bl);
   ::decode(to_read, bl);
   ::decode(attrs_to_read, bl);
@@ -113,6 +119,7 @@ std::ostream &operator<<(
 void ECSubReadReply::encode(bufferlist &bl) const
 {
   ENCODE_START(1, 1, bl);
+  ::encode(from, bl);
   ::encode(tid, bl);
   ::encode(buffers_read, bl);
   ::encode(attrs_read, bl);
@@ -122,6 +129,7 @@ void ECSubReadReply::encode(bufferlist &bl) const
 void ECSubReadReply::decode(bufferlist::iterator &bl)
 {
   DECODE_START(1, bl);
+  ::decode(from, bl);
   ::decode(tid, bl);
   ::decode(buffers_read, bl);
   ::decode(attrs_read, bl);

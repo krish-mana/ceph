@@ -425,24 +425,21 @@ bool ECBackend::handle_message(
   switch (_op->get_req()->get_type()) {
   case MSG_OSD_EC_WRITE: {
     MOSDECSubOpWrite *op = static_cast<MOSDECSubOpWrite*>(_op->get_req());
-    pg_shard_t from(op->get_source().num(), op->pgid.shard);
-    handle_sub_write(from, _op, op->op);
+    handle_sub_write(op->op.from, _op, op->op);
     return true;
   }
   case MSG_OSD_EC_WRITE_REPLY: {
     MOSDECSubOpWriteReply *op = static_cast<MOSDECSubOpWriteReply*>(
       _op->get_req());
-    pg_shard_t from(op->get_source().num(), op->pgid.shard);
-    handle_sub_write_reply(from, op->op);
+    handle_sub_write_reply(op->op.from, op->op);
     return true;
   }
   case MSG_OSD_EC_READ: {
     MOSDECSubOpRead *op = static_cast<MOSDECSubOpRead*>(_op->get_req());
-    pg_shard_t from(op->get_source().num(), op->pgid.shard);
     MOSDECSubOpReadReply *reply = new MOSDECSubOpReadReply;
     reply->pgid = get_parent()->primary_spg_t();
     reply->map_epoch = get_parent()->get_epoch();
-    handle_sub_read(from, op->op, &(reply->op));
+    handle_sub_read(op->op.from, op->op, &(reply->op));
     get_parent()->send_message_osd_cluster(
       from.osd, reply, get_parent()->get_epoch());
     return true;
@@ -450,8 +447,7 @@ bool ECBackend::handle_message(
   case MSG_OSD_EC_READ_REPLY: {
     MOSDECSubOpReadReply *op = static_cast<MOSDECSubOpReadReply*>(
       _op->get_req());
-    pg_shard_t from(op->get_source().num(), op->pgid.shard);
-    handle_sub_read_reply(from, op->op);
+    handle_sub_read_reply(op->op.from, op->op);
     return true;
   }
   case MSG_OSD_PG_PUSH: {
@@ -504,6 +500,7 @@ void ECBackend::sub_write_committed(
     ECSubWriteReply reply;
     reply.tid = tid;
     reply.committed = true;
+    reply.from = get_parent()->whoami_shard();
     handle_sub_write_reply(
       get_parent()->whoami_shard(),
       reply);
@@ -513,6 +510,7 @@ void ECBackend::sub_write_committed(
     r->map_epoch = get_parent()->get_epoch();
     r->op.tid = tid;
     r->op.committed = true;
+    r->op.from = get_parent()->whoami_shard();
     get_parent()->send_message_osd_cluster(
       get_parent()->primary_shard().osd, r, get_parent()->get_epoch());
   }
@@ -539,6 +537,7 @@ void ECBackend::sub_write_applied(
   parent->op_applied(version);
   if (get_parent()->pgb_is_primary()) {
     ECSubWriteReply reply;
+    reply.from = get_parent()->whoami_shard();
     reply.tid = tid;
     reply.applied = true;
     handle_sub_write_reply(
@@ -548,6 +547,7 @@ void ECBackend::sub_write_applied(
     MOSDECSubOpWriteReply *r = new MOSDECSubOpWriteReply;
     r->pgid = get_parent()->primary_spg_t();
     r->map_epoch = get_parent()->get_epoch();
+    r->op.from = get_parent()->whoami_shard();
     r->op.tid = tid;
     r->op.applied = true;
     get_parent()->send_message_osd_cluster(
@@ -616,6 +616,7 @@ void ECBackend::handle_sub_read(
       *i,
       reply->attrs_read[*i]);
   }
+  reply->from = get_parent()->whoami_shard();
 }
 
 void ECBackend::handle_sub_write_reply(
@@ -1003,6 +1004,8 @@ void ECBackend::start_read_op(
     msg->pgid = get_parent()->whoami_spg_t();
     msg->map_epoch = get_parent()->get_epoch();
     msg->op = i->second;
+    msg->op.from = get_parent()->whoami_shard();
+    msg->op.tid = tid;
     get_parent()->send_message_osd_cluster(
       i->first.osd,
       msg,
@@ -1162,6 +1165,7 @@ void ECBackend::start_write(Op *op) {
       parent->get_shard_info().find(*i)->second.stats;
 	
     ECSubWrite sop(
+      get_parent()->whoami_shard(),
       op->tid,
       op->reqid,
       op->hoid,
