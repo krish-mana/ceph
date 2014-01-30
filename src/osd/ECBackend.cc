@@ -482,7 +482,6 @@ struct SubWriteCommitted : public Context {
 };
 void ECBackend::sub_write_committed(
   tid_t tid, eversion_t version) {
-  parent->op_applied(version);
   if (get_parent()->pgb_is_primary()) {
     ECSubWriteReply reply;
     reply.tid = tid;
@@ -541,7 +540,8 @@ void ECBackend::sub_write_applied(
 void ECBackend::handle_sub_write(
   pg_shard_t from,
   OpRequestRef msg,
-  ECSubWrite &op)
+  ECSubWrite &op,
+  Context *on_local_applied_sync)
 {
   msg->mark_started();
   assert(!get_parent()->get_log().get_missing().is_missing(op.soid));
@@ -556,9 +556,11 @@ void ECBackend::handle_sub_write(
   localt->register_on_commit(
     get_parent()->bless_context(
       new SubWriteCommitted(this, msg, op.tid, op.at_version)));
-  localt->register_on_commit(
+  localt->register_on_applied(
     get_parent()->bless_context(
       new SubWriteApplied(this, msg, op.tid, op.at_version)));
+  if (on_local_applied_sync)
+    localt->register_on_applied_Sync(on_local_applied_sync);
   get_parent()->queue_transaction(localt, msg);
 }
 
@@ -1152,7 +1154,8 @@ void ECBackend::start_write(Op *op) {
       handle_sub_write(
 	get_parent()->whoami_shard(),
 	op->client_op,
-	sop);
+	sop,
+	op->on_local_applied_sync);
     } else {
       MOSDECSubOpWrite *r = new MOSDECSubOpWrite(sop);
       r->pgid = get_parent()->primary_spg_t();

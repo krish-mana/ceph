@@ -60,7 +60,8 @@ public:
   void handle_sub_write(
     pg_shard_t from,
     OpRequestRef msg,
-    ECSubWrite &op
+    ECSubWrite &op,
+    Context *on_local_applied_sync = 0
     );
   void handle_sub_read(
     pg_shard_t from,
