@@ -6605,7 +6605,7 @@ ObjectContextRef ReplicatedPG::create_object_context(const object_info_t& oi,
 
 ObjectContextRef ReplicatedPG::get_object_context(const hobject_t& soid,
 						  bool can_create,
-						  map<string, bufferptr> *attrs)
+						  map<string, bufferlist> *attrs)
 {
   assert(
     attrs || !pg_log.get_missing().is_missing(soid) ||
@@ -6623,7 +6623,7 @@ ObjectContextRef ReplicatedPG::get_object_context(const hobject_t& soid,
     bufferlist bv;
     if (attrs) {
       assert(attrs->count(OI_ATTR));
-      bv.push_back(attrs->find(OI_ATTR)->second);
+      bv = attrs->find(OI_ATTR)->second;
     } else {
       int r = pgbackend->objects_get_attr(soid, OI_ATTR, &bv);
       if (r < 0) {
@@ -6658,13 +6658,7 @@ ObjectContextRef ReplicatedPG::get_object_context(const hobject_t& soid,
 
     if (pool.info.require_rollback()) {
       if (attrs) {
-	for (map<string, bufferptr>::iterator i = attrs->begin();
-	     i != attrs->end();
-	     ++i) {
-	  bufferlist bl;
-	  bl.append(i->second);
-	  obc->attr_cache.insert(make_pair(i->first, bl));
-	}
+	obc->attr_cache = *attrs;
       } else {
 	int r = pgbackend->objects_get_attrs(
 	  soid,
@@ -6947,7 +6941,7 @@ SnapSetContext *ReplicatedPG::get_snapset_context(
   ps_t seed,
   bool can_create,
   const string& nspace,
-  map<string, bufferptr> *attrs)
+  map<string, bufferlist> *attrs)
 {
   Mutex::Locker l(snapset_contexts_lock);
   SnapSetContext *ssc;
@@ -6970,7 +6964,7 @@ SnapSetContext *ReplicatedPG::get_snapset_context(
       }
     } else {
       assert(attrs->count(SS_ATTR));
-      bv.push_back(attrs->find(SS_ATTR)->second);
+      bv = attrs->find(SS_ATTR)->second;
     }
     ssc = new SnapSetContext(oid);
     _register_snapset_context(ssc);
@@ -7642,7 +7636,7 @@ void ReplicatedBackend::submit_push_data(
   const interval_set<uint64_t> &intervals_included,
   bufferlist data_included,
   bufferlist omap_header,
-  map<string, bufferptr> &attrs,
+  map<string, bufferlist> &attrs,
   map<string, bufferlist> &omap_entries,
   ObjectStore::Transaction *t)
 {
@@ -7966,8 +7960,7 @@ int ReplicatedBackend::build_push_op(const ObjectRecoveryInfo &recovery_info,
     store->getattrs(coll, recovery_info.soid, out_op->attrset);
 
     // Debug
-    bufferlist bv;
-    bv.push_back(out_op->attrset[OI_ATTR]);
+    bufferlist bv = out_op->attrset[OI_ATTR];
     object_info_t oi(bv);
 
     if (oi.version != recovery_info.version) {
