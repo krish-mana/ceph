@@ -1184,7 +1184,7 @@ void ECBackend::start_write(Op *op) {
 	op->on_local_applied_sync);
     } else {
       MOSDECSubOpWrite *r = new MOSDECSubOpWrite(sop);
-      r->pgid = (get_parent()->primary_spg_t().pgid, i->shard);
+      r->pgid = spg_t(get_parent()->primary_spg_t().pgid, i->shard);
       r->map_epoch = get_parent()->get_epoch();
       get_parent()->send_message_osd_cluster(
 	i->osd, r, get_parent()->get_epoch());
