@@ -222,6 +222,7 @@ private:
       delete on_all_commit;
     }
   };
+  friend ostream &operator<<(ostream &lhs, const Op &rhs);
 
   void continue_recovery_op(
     RecoveryOp &op,

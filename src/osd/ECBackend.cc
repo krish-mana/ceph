@@ -34,6 +34,24 @@ struct ECRecoveryHandle : public PGBackend::RecoveryHandle {
   list<ECBackend::RecoveryOp> ops;
 };
 
+ostream &operator<<(ostream &lhs, const ECBackend::Op &rhs) {
+  lhs << "Op(" << rhs.hoid
+      << " v=" << rhs.version
+      << " tt=" << rhs.trim_to
+      << " tid=" << rhs.tid
+      << " reqid=" << rhs.reqid;
+  if (rhs.client_op) {
+    lhs << " client_op=";
+    rhs.client_op->get_req()->print(lhs);
+  }
+  lhs << " must_read=" << rhs.must_read
+      << " writes=" << rhs.writes
+      << " pending_commit=" << rhs.pending_commit
+      << " pending_apply=" << rhs.pending_apply
+      << ")";
+  return lhs;
+}
+
 ECBackend::ECBackend(
   PGBackend::Listener *pg,
   coll_t coll,
