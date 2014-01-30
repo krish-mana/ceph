@@ -89,7 +89,7 @@ inline int encode(
   assert(logical_size > 0);
   for (uint64_t i = 0; i < logical_size; i += stripe_width) {
     map<int, bufferlist> encoded;
-    int r = ec_impl->encode(want, in, &encoded);
+    int r = ec_impl->encode(want, in.substr(i, i + stripe_width), &encoded);
     assert(r == 0);
     for (map<int, bufferlist>::iterator i = encoded.begin();
 	 i != encoded.end();
