@@ -45,7 +45,7 @@ inline int decode(
     for (map<int, bufferlist>::iterator j = to_decode.begin();
 	 j != to_decode.end();
 	 ++j) {
-      chunks[j->first].substr_of(j->second, i, i + chunk_stripe_width);
+      chunks[j->first].substr_of(j->second, i, chunk_stripe_width);
     }
     bufferlist bl;
     int r = ec_impl->decode_concat(chunks, &bl);
@@ -69,7 +69,7 @@ inline int encode(
   for (uint64_t i = 0; i < logical_size; i += stripe_width) {
     map<int, bufferlist> encoded;
     bufferlist buf;
-    buf.substr_of(in, i, i + stripe_width);
+    buf.substr_of(in, i, stripe_width);
     int r = ec_impl->encode(want, buf, &encoded);
     assert(r == 0);
     for (map<int, bufferlist>::iterator i = encoded.begin();
