@@ -441,7 +441,7 @@ bool ECBackend::handle_message(
     reply->map_epoch = get_parent()->get_epoch();
     handle_sub_read(op->op.from, op->op, &(reply->op));
     get_parent()->send_message_osd_cluster(
-      from.osd, reply, get_parent()->get_epoch());
+      op->op.from.osd, reply, get_parent()->get_epoch());
     return true;
   }
   case MSG_OSD_EC_READ_REPLY: {
