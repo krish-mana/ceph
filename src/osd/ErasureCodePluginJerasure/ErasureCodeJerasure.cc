@@ -97,10 +97,10 @@ int ErasureCodeJerasure::encode(const set<int> &want_to_encode,
     pad.zero();
     out.push_back(pad);
   }
-  out.rebuild_page_aligned();
   unsigned coding_length = blocksize * m;
   bufferptr coding(buffer::create_page_aligned(coding_length));
   out.push_back(coding);
+  out.rebuild_page_aligned();
   char *chunks[k + m];
   for (int i = 0; i < k + m; i++) {
     bufferlist &chunk = (*encoded)[i];
