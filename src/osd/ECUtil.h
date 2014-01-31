@@ -85,14 +85,15 @@ inline uint64_t logical_to_prev_stripe_bound_obj(
   uint64_t stripe_size,
   uint64_t stripe_width,
   uint64_t logical_offset) {
-  return (logical_offset / stripe_width) * stripe_size;
+  return (logical_offset / stripe_width) * (stripe_width / stripe_size);
 }
 
 inline uint64_t logical_to_next_stripe_bound_obj(
   uint64_t stripe_size,
   uint64_t stripe_width,
   uint64_t logical_offset) {
-  return ((logical_offset + stripe_width - 1)/ stripe_width) * stripe_size;
+  return ((logical_offset + stripe_width - 1)/ stripe_width) *
+    (stripe_width / stripe_size);
 }
 
 

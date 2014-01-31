@@ -985,7 +985,7 @@ void ECBackend::start_read_op(
     uint64_t obj_end =
       ECUtil::logical_to_next_stripe_bound_obj(
 	stripe_size, stripe_width,
-	i->second.get<0>());
+	i->second.get<1>());
     uint64_t obj_len = obj_end - obj_offset;
     set<pg_shard_t> min;
     if (i->second.get<2>()) {
