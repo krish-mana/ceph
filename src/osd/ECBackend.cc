@@ -1189,6 +1189,7 @@ void ECBackend::start_write(Op *op) {
 	op->client_op,
 	sop,
 	op->on_local_applied_sync);
+      op->on_local_applied_sync = 0;
     } else {
       MOSDECSubOpWrite *r = new MOSDECSubOpWrite(sop);
       r->pgid = spg_t(get_parent()->primary_spg_t().pgid, i->shard);
@@ -1196,7 +1197,6 @@ void ECBackend::start_write(Op *op) {
       get_parent()->send_message_osd_cluster(
 	i->osd, r, get_parent()->get_epoch());
     }
-    op->on_local_applied_sync = 0;
   }
 }
 
