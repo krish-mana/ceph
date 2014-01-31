@@ -804,17 +804,17 @@ void ECBackend::check_recovery_sources(const OSDMapRef osdmap)
 
 void ECBackend::_on_change(ObjectStore::Transaction *t)
 {
-  clear_state();
-}
-
-void ECBackend::clear_state()
-{
   waiting.clear();
   reading.clear();
   writing.clear();
   tid_to_op_map.clear();
   tid_to_read_map.clear();
   shard_to_read_map.clear();
+  clear_state();
+}
+
+void ECBackend::clear_state()
+{
 }
 
 void ECBackend::on_flushed()
