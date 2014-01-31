@@ -57,7 +57,7 @@ ostream &operator<<(ostream &lhs, const ECBackend::ReadOp &rhs)
   }
   return lhs << "] complete=" << rhs.complete
 	     << " attrs_to_read=" << rhs.attrs_to_read
-	     << " in_progress=" << rhs.in_progress;
+	     << " in_progress=" << rhs.in_progress << ")";
 }
 
 ostream &operator<<(ostream &lhs, const ECBackend::Op &rhs)
