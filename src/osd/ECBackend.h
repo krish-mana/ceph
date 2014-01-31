@@ -259,7 +259,7 @@ private:
     set<int> want;
     ErasureCodeInterfaceRef ec_impl;
   public:
-    ECDec(ErasureCodeInterfaceRef ec_impl) {
+    ECDec(ErasureCodeInterfaceRef ec_impl) : ec_impl(ec_impl) {
       for (unsigned i = 0; i < ec_impl->get_data_chunk_count(); ++i) {
 	want.insert(i);
       }
