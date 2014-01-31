@@ -1237,6 +1237,11 @@ void ECBackend::check_pending_ops()
       break;
     }
   }
+  for (map<tid_t, Op>::iterator i = tid_to_op_map.begin();
+       i != tid_to_op_map.end();
+       ++i) {
+    dout(20) << __func__ << " tid " << i->first <<": " << i->second << dendl;
+  }
 }
 
 int ECBackend::objects_read_sync(
