@@ -34,7 +34,34 @@ struct ECRecoveryHandle : public PGBackend::RecoveryHandle {
   list<ECBackend::RecoveryOp> ops;
 };
 
-ostream &operator<<(ostream &lhs, const ECBackend::Op &rhs) {
+ostream &operator<<(ostream &lhs, const ECBackend::ReadOp &rhs)
+{
+  lhs << "ReadOp(to_read=[";
+  for (list<
+	 pair<
+	   hobject_t,
+	   boost::tuple<
+	     uint64_t, uint64_t, bufferlist*, map<shard_id_t, bufferlist*> >
+	   >
+	 >::const_iterator i = rhs.to_read.begin();
+       i != rhs.to_read.end();
+       ++i) {
+    if (i != rhs.to_read.begin())
+      lhs << ", ";
+    lhs << i->first << "->"
+	<< "(" << i->second.get<0>()
+	<< ", " << i->second.get<1>()
+	<< ", " << i->second.get<2>()
+	<< ", " << i->second.get<3>()
+	<< ")";
+  }
+  return lhs << "] complete=" << rhs.complete
+	     << " attrs_to_read=" << rhs.attrs_to_read
+	     << " in_progress=" << rhs.in_progress;
+}
+
+ostream &operator<<(ostream &lhs, const ECBackend::Op &rhs)
+{
   lhs << "Op(" << rhs.hoid
       << " v=" << rhs.version
       << " tt=" << rhs.trim_to
@@ -651,6 +678,8 @@ void ECBackend::handle_sub_read_reply(
   iter->second.complete[from].swap(op.buffers_read);
   iter->second.in_progress.erase(from);
 
+  dout(10) << __func__ << ": reply " << op << dendl;
+
   map<pg_shard_t, set<tid_t> >::iterator siter = shard_to_read_map.find(from);
   assert(siter != shard_to_read_map.end());
   assert(siter->second.count(op.tid));
@@ -937,6 +966,7 @@ void ECBackend::start_read_op(
   op.on_complete = onfinish;
   op.attrs_to_read = attrs_to_read;
   op.op = _op;
+  dout(10) << __func__ << ": starting " << op << dendl;
 
   map<pg_shard_t, ECSubRead> messages;
   for (list<
@@ -1016,6 +1046,7 @@ void ECBackend::start_read_op(
       msg,
       get_parent()->get_epoch());
   }
+  dout(10) << __func__ << ": started " << op << dendl;
 }
 
 void ECBackend::cancel_read_op(

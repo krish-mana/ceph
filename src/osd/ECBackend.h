@@ -173,6 +173,7 @@ private:
     ReadOp() : on_complete(NULL) {}
     ~ReadOp() { delete on_complete; }
   };
+  friend ostream &operator<<(ostream &lhs, const ReadOp &rhs);
   map<tid_t, ReadOp> tid_to_read_map;
   map<pg_shard_t, set<tid_t> > shard_to_read_map;
   void start_read_op(
