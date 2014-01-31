@@ -5262,6 +5262,26 @@ bool PG::op_must_wait_for_map(OSDMapRef curmap, OpRequestRef op)
     return !have_same_or_newer_map(
       curmap,
       static_cast<MOSDPGPushReply*>(op->get_req())->map_epoch);
+
+  case MSG_OSD_EC_WRITE:
+    return !have_same_or_newer_map(
+      curmap,
+      static_cast<MOSDECSubOpWrite*>(op->get_req())->map_epoch);
+
+  case MSG_OSD_EC_WRITE_REPLY:
+    return !have_same_or_newer_map(
+      curmap,
+      static_cast<MOSDECSubOpWriteReply*>(op->get_req())->map_epoch);
+
+  case MSG_OSD_EC_READ:
+    return !have_same_or_newer_map(
+      curmap,
+      static_cast<MOSDECSubOpRead*>(op->get_req())->map_epoch);
+
+  case MSG_OSD_EC_READ_REPLY:
+    return !have_same_or_newer_map(
+      curmap,
+      static_cast<MOSDECSubOpReadReply*>(op->get_req())->map_epoch);
   }
   assert(0);
   return false;
