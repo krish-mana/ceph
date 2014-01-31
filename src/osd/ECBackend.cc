@@ -833,7 +833,7 @@ void ECBackend::submit_transaction(
     &(op->must_read),
     &(op->writes));
   dout(10) << __func__ << ": op " << *op << " waiting stripe_width: "
-	   << stripe_width << " stripe_size: " << stripe_size;
+	   << stripe_width << " stripe_size: " << stripe_size << dendl;
   waiting.push_back(op);
   check_pending_ops();
 }
