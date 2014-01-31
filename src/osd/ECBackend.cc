@@ -906,7 +906,7 @@ int ECBackend::get_min_avail_to_read_shards(
   
   for (set<pg_shard_t>::const_iterator i = 
 	 get_parent()->get_backfill_shards().begin();
-       i != get_parent()->get_acting_shards().end();
+       i != get_parent()->get_backfill_shards().end();
        ++i) {
     if (have.count(i->shard)) {
       assert(shards.count(i->shard));
