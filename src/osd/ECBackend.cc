@@ -40,7 +40,7 @@ ostream &operator<<(ostream &lhs, const ECBackend::Op &rhs) {
       << " tt=" << rhs.trim_to
       << " tid=" << rhs.tid
       << " reqid=" << rhs.reqid;
-  if (rhs.client_op) {
+  if (rhs.client_op && rhs.client_op->get_req()) {
     lhs << " client_op=";
     rhs.client_op->get_req()->print(lhs);
   }
