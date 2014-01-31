@@ -837,6 +837,7 @@ void ECBackend::submit_transaction(
   dout(10) << __func__ << ": op " << *op << " waiting stripe_width: "
 	   << stripe_width << " stripe_size: " << stripe_size << dendl;
   waiting.push_back(op);
+  dout(10) << "onreadable_sync: " << op->on_local_applied_sync << dendl;
   check_pending_ops();
 }
 
@@ -1152,6 +1153,8 @@ void ECBackend::start_write(Op *op) {
     &trans,
     &(op->temp_added),
     &(op->temp_cleared));
+
+  dout(10) << "onreadable_sync: " << op->on_local_applied_sync << dendl;
 
   for (set<pg_shard_t>::const_iterator i =
 	 get_parent()->get_actingbackfill_shards().begin();
