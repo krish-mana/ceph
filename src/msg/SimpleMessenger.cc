@@ -427,7 +427,7 @@ void SimpleMessenger::submit_message(Message *m, Connection *con,
   // local?
   if (my_inst.addr == dest_addr) {
     // local
-    ldout(cct,20) << "submit_message " << *m << " local" << dendl;
+    ldout(cct,5) << "submit_message " << *m << " local" << dendl;
     m->set_connection(local_connection.get());
     dispatch_queue.local_delivery(m, m->get_priority());
     return;
