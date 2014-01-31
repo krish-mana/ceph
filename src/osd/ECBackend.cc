@@ -571,14 +571,14 @@ void ECBackend::handle_sub_write(
     !(op.t.empty()),
     localt);
   localt->append(op.t);
+  if (on_local_applied_sync)
+    localt->register_on_applied_sync(on_local_applied_sync);
   localt->register_on_commit(
     get_parent()->bless_context(
       new SubWriteCommitted(this, msg, op.tid, op.at_version)));
   localt->register_on_applied(
     get_parent()->bless_context(
       new SubWriteApplied(this, msg, op.tid, op.at_version)));
-  if (on_local_applied_sync)
-    localt->register_on_applied_sync(on_local_applied_sync);
   get_parent()->queue_transaction(localt, msg);
 }
 
