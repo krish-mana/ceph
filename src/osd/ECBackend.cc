@@ -1208,7 +1208,6 @@ void ECBackend::check_pending_ops()
     }
     op->writes.clear();
     dout(10) << __func__ << " Completing " << *op << dendl;
-    delete op;
     writing.pop_front();
   }
 
