@@ -34,7 +34,7 @@ ReplicatedBackend::ReplicatedBackend(
   ObjectStore *store,
   CephContext *cct) :
   PGBackend(pg, store,
-	    temp_coll, coll),
+	    coll, temp_coll),
   cct(cct) {}
 
 void ReplicatedBackend::run_recovery_op(
