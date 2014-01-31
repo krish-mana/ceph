@@ -571,8 +571,10 @@ void ECBackend::handle_sub_write(
     !(op.t.empty()),
     localt);
   localt->append(op.t);
-  if (on_local_applied_sync)
+  if (on_local_applied_sync) {
+    dout(10) << "Queueing onreadable_sync: " << on_local_applied_sync << dendl;
     localt->register_on_applied_sync(on_local_applied_sync);
+  }
   localt->register_on_commit(
     get_parent()->bless_context(
       new SubWriteCommitted(this, msg, op.tid, op.at_version)));

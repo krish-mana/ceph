@@ -1703,7 +1703,10 @@ void FileStore::_finish_op(OpSequencer *osr)
   logger->tinc(l_os_apply_lat, lat);
 
   if (o->onreadable_sync) {
+    dout(10) << "Firing onreadable_sync: " << o->onreadable_sync << dendl;
     o->onreadable_sync->complete(0);
+  } else {
+    dout(10) << "Not firing onreadable_sync" << dendl;
   }
   op_finisher.queue(o->onreadable);
   delete o;
