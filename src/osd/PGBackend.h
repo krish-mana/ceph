@@ -208,7 +208,7 @@
    };
    Listener *parent;
    Listener *get_parent() const { return parent; }
-   PGBackend(Listener *l, ObjectStore *store, coll_t temp_coll, coll_t coll) :
+   PGBackend(Listener *l, ObjectStore *store, coll_t coll, coll_t temp_coll) :
      store(store),
      coll(coll),
      temp_coll(temp_coll),
