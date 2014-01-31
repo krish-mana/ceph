@@ -96,8 +96,8 @@ int ErasureCodeJerasure::encode(const set<int> &want_to_encode,
     bufferptr pad(padded_length - in.length());
     pad.zero();
     out.push_back(pad);
-    out.rebuild_page_aligned();
   }
+  out.rebuild_page_aligned();
   unsigned coding_length = blocksize * m;
   bufferptr coding(buffer::create_page_aligned(coding_length));
   out.push_back(coding);
