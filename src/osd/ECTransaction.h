@@ -163,8 +163,7 @@ public:
     stringstream *dbg = 0) const;
   void generate_transactions(
     ErasureCodeInterfaceRef &ecimpl,
-    coll_t coll,
-    coll_t temp_coll,
+    pg_t pgid,
     uint64_t stripe_width,
     uint64_t stripe_size,
     const map<hobject_t, pair<uint64_t, bufferlist> > &reads,

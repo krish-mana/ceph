@@ -662,7 +662,7 @@ void ECBackend::handle_sub_read(
       make_pair(
 	i->first,
 	make_pair(
-	  i->second.second,
+	  i->second.first,
 	  bl)
 	)
       );
@@ -728,7 +728,7 @@ void ECBackend::handle_sub_read_reply(
 
   ReadOp &readop = iter->second;
   if (!readop.in_progress.empty()) {
-    dout(10) << __func__ << " readop not complete:" << dendl;
+    dout(10) << __func__ << " readop not complete: " << readop << dendl;
     return;
   }
 
@@ -1214,8 +1214,7 @@ void ECBackend::start_write(Op *op) {
   }
   op->t->generate_transactions(
     ec_impl,
-    coll,
-    temp_coll,
+    get_parent()->get_info().pgid.pgid,
     stripe_width,
     stripe_size,
     op->reads_completed,

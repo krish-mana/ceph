@@ -154,8 +154,7 @@ struct TransGenerator : public boost::static_visitor<void> {
   typedef void result_type;
 
   ErasureCodeInterfaceRef &ecimpl;
-  const coll_t coll;
-  const coll_t temp_coll;
+  const pg_t pgid;
   const uint64_t stripe_width;
   const uint64_t stripe_size;
   map<hobject_t, pair<uint64_t, bufferlist> > partial_stripes;
@@ -166,8 +165,7 @@ struct TransGenerator : public boost::static_visitor<void> {
   stringstream *out;
   TransGenerator(
     ErasureCodeInterfaceRef &ecimpl,
-    coll_t coll,
-    coll_t temp_coll,
+    pg_t pgid,
     const uint64_t stripe_width,
     const uint64_t stripe_size,
     const map<hobject_t, pair<uint64_t, bufferlist> > &partial_stripes,
@@ -175,7 +173,7 @@ struct TransGenerator : public boost::static_visitor<void> {
     set<hobject_t> *temp_added,
     set<hobject_t> *temp_removed,
     stringstream *out)
-    : ecimpl(ecimpl), coll(coll), temp_coll(temp_coll),
+    : ecimpl(ecimpl), pgid(pgid),
       stripe_width(stripe_width), stripe_size(stripe_size),
       partial_stripes(partial_stripes),
       trans(trans),
@@ -188,29 +186,28 @@ struct TransGenerator : public boost::static_visitor<void> {
     }
   }
 
-  const coll_t &get_coll_ct(const hobject_t &hoid) {
+  coll_t get_coll_ct(shard_id_t shard, const hobject_t &hoid) {
     if (hoid.is_temp()) {
       temp_removed->erase(hoid);
       temp_added->insert(hoid);
     }
-    return get_coll(hoid);
+    return get_coll(shard, hoid);
   }
-  const coll_t &get_coll_rm(const hobject_t &hoid) {
+  coll_t get_coll_rm(shard_id_t shard, const hobject_t &hoid) {
     if (hoid.is_temp()) {
       temp_added->erase(hoid);
       temp_removed->insert(hoid);
     }
-    return get_coll(hoid);
+    return get_coll(shard, hoid);
   }
-  const coll_t &get_coll(const hobject_t &hoid) {
+  coll_t get_coll(shard_id_t shard, const hobject_t &hoid) {
     if (hoid.is_temp())
-      return temp_coll;
+      return coll_t::make_temp_coll(spg_t(pgid, shard));
     else
-      return coll;
+      return coll_t(spg_t(pgid, shard));
   }
 
   void operator()(const ECTransaction::AppendOp &op) {
-    coll_t cid(get_coll_ct(op.oid));
     uint64_t offset = op.off;
     bufferlist bl(op.bl);
     if (offset % stripe_width != 0) {
@@ -237,7 +234,7 @@ struct TransGenerator : public boost::static_visitor<void> {
       assert(buffers.count(i->first));
       bufferlist &enc_bl = buffers[i->first];
       i->second.write(
-	cid,
+	get_coll_ct(i->first, op.oid),
 	ghobject_t(op.oid, ghobject_t::NO_GEN, i->first),
 	(offset / stripe_width) * stripe_size,
 	enc_bl.length(),
@@ -260,7 +257,6 @@ struct TransGenerator : public boost::static_visitor<void> {
     }
   }
   void operator()(const ECTransaction::CloneOp &op) {
-    coll_t cid(get_coll_ct(op.target));
     map<hobject_t, pair<uint64_t, bufferlist> >::iterator siter =
       partial_stripes.find(op.source);
     assert(siter != partial_stripes.end());
@@ -272,14 +268,12 @@ struct TransGenerator : public boost::static_visitor<void> {
 	 i != trans->end();
 	 ++i) {
       i->second.clone(
-	cid,
+	get_coll_ct(i->first, op.source),
 	ghobject_t(op.source, ghobject_t::NO_GEN, i->first),
 	ghobject_t(op.target, ghobject_t::NO_GEN, i->first));
     }
   }
   void operator()(const ECTransaction::RenameOp &op) {
-    coll_t to_cid(get_coll_ct(op.destination));
-    coll_t from_cid(get_coll_rm(op.source));
     map<hobject_t, pair<uint64_t, bufferlist> >::iterator siter =
       partial_stripes.find(op.source);
     assert(siter != partial_stripes.end());
@@ -292,18 +286,18 @@ struct TransGenerator : public boost::static_visitor<void> {
 	 i != trans->end();
 	 ++i) {
       i->second.collection_move_rename(
-	from_cid,
+	get_coll_rm(i->first, op.source),
 	ghobject_t(op.source, ghobject_t::NO_GEN, i->first),
-	to_cid,
+	get_coll_ct(i->first, op.destination),
 	ghobject_t(op.destination, ghobject_t::NO_GEN, i->first));
     }
   }
   void operator()(const ECTransaction::StashOp &op) {
     partial_stripes.erase(op.oid);
-    coll_t cid(get_coll_rm(op.oid));
     for (map<shard_id_t, ObjectStore::Transaction>::iterator i = trans->begin();
 	 i != trans->end();
 	 ++i) {
+      coll_t cid(get_coll_rm(i->first, op.oid));
       i->second.collection_move_rename(
 	cid,
 	ghobject_t(op.oid, ghobject_t::NO_GEN, i->first),
@@ -313,34 +307,31 @@ struct TransGenerator : public boost::static_visitor<void> {
   }
   void operator()(const ECTransaction::RemoveOp &op) {
     partial_stripes.erase(op.oid);
-    coll_t cid(get_coll_rm(op.oid));
     for (map<shard_id_t, ObjectStore::Transaction>::iterator i = trans->begin();
 	 i != trans->end();
 	 ++i) {
       i->second.remove(
-	cid,
+	get_coll_rm(i->first, op.oid),
 	ghobject_t(op.oid, ghobject_t::NO_GEN, i->first));
     }
   }
   void operator()(const ECTransaction::SetAttrsOp &op) {
-    coll_t cid(get_coll_ct(op.oid));
     map<string, bufferlist> attrs(op.attrs);
     for (map<shard_id_t, ObjectStore::Transaction>::iterator i = trans->begin();
 	 i != trans->end();
 	 ++i) {
       i->second.setattrs(
-	cid,
+	get_coll_ct(i->first, op.oid),
 	ghobject_t(op.oid, ghobject_t::NO_GEN, i->first),
 	attrs);
     }
   }
   void operator()(const ECTransaction::RmAttrOp &op) {
-    coll_t cid(get_coll_ct(op.oid));
     for (map<shard_id_t, ObjectStore::Transaction>::iterator i = trans->begin();
 	 i != trans->end();
 	 ++i) {
       i->second.rmattr(
-	cid,
+	get_coll_ct(i->first, op.oid),
 	ghobject_t(op.oid, ghobject_t::NO_GEN, i->first),
 	op.key);
     }
@@ -351,8 +342,7 @@ struct TransGenerator : public boost::static_visitor<void> {
 
 void ECTransaction::generate_transactions(
   ErasureCodeInterfaceRef &ecimpl,
-  coll_t coll,
-  coll_t temp_coll,
+  pg_t pgid,
   uint64_t stripe_width,
   uint64_t stripe_size,
   const map<hobject_t, pair<uint64_t, bufferlist> > &reads,
@@ -363,7 +353,7 @@ void ECTransaction::generate_transactions(
 {
   TransGenerator gen(
     ecimpl,
-    coll, temp_coll,
+    pgid,
     stripe_width,
     stripe_size,
     reads,
