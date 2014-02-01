@@ -1038,7 +1038,9 @@ void ECBackend::start_read_op(
     shard_to_read_map[i->first].insert(op.tid);
     i->second.tid = tid;
     MOSDECSubOpRead *msg = new MOSDECSubOpRead;
-    msg->pgid = get_parent()->whoami_spg_t();
+    msg->pgid = spg_t(
+      get_parent()->whoami_spg_t(),
+      i->first.shard);
     msg->map_epoch = get_parent()->get_epoch();
     msg->op = i->second;
     msg->op.from = get_parent()->whoami_shard();
