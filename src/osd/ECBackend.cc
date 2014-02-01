@@ -55,9 +55,39 @@ ostream &operator<<(ostream &lhs, const ECBackend::ReadOp &rhs)
 	<< ", " << i->second.get<3>()
 	<< ")";
   }
-  return lhs << "] complete=" << rhs.complete
-	     << " attrs_to_read=" << rhs.attrs_to_read
-	     << " in_progress=" << rhs.in_progress << ")";
+  lhs << "] complete=";
+  for (map<
+	 pg_shard_t,
+	 list<
+	   pair<
+	     hobject_t,
+	     pair<uint64_t, bufferlist>
+	     >
+	   >
+	 >::const_iterator i = rhs.complete.begin();
+       i != rhs.complete.end();
+       ++i) {
+    if (i != rhs.complete.begin())
+      lhs << ", ";
+    lhs << i->first << ": {";
+    for (list<
+	   pair<
+	     hobject_t,
+	     pair<uint64_t, bufferlist>
+	     >
+	   >::const_iterator j = i->second.begin();
+	 j != i->second.end();
+	 ++j) {
+      if (j != i->second.begin())
+	lhs << ", ";
+      lhs << j->first << "->"
+	  << make_pair(j->second.first, j->second.second.length());
+    }
+    lhs << "}";
+  }
+  return lhs << "] attrs_to_read=" << rhs.attrs_to_read
+	     << " in_progress=" << rhs.in_progress
+	     << " tid=" << rhs.tid << ")";
 }
 
 ostream &operator<<(ostream &lhs, const ECBackend::Op &rhs)
@@ -696,10 +726,14 @@ void ECBackend::handle_sub_read_reply(
       *(j->second) = i->second;
   }
 
-  if (!iter->second.in_progress.empty())
+  if (!iter->second.in_progress.empty()) {
+    dout(10) << __func__ << " readop not complete:" << readop << dendl;
     return;
+  }
+
   // done
   ReadOp &readop = iter->second;
+  dout(10) << __func__ << " completing op " << readop << dendl;
   map<pg_shard_t,
       list<pair<hobject_t, pair<uint64_t, bufferlist> > >::iterator
       > res_iters;
@@ -1039,7 +1073,7 @@ void ECBackend::start_read_op(
     i->second.tid = tid;
     MOSDECSubOpRead *msg = new MOSDECSubOpRead;
     msg->pgid = spg_t(
-      get_parent()->whoami_spg_t(),
+      get_parent()->whoami_spg_t().pgid,
       i->first.shard);
     msg->map_epoch = get_parent()->get_epoch();
     msg->op = i->second;
