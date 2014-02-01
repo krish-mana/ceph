@@ -245,7 +245,6 @@ private:
     pg_shard_t from,
     RecoveryMessages *m);
 
-  ObjectStore *store;
   set<hobject_t> unstable;
 
   map<tid_t, Op> tid_to_op_map; /// lists below point into here

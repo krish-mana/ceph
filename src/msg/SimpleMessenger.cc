@@ -147,6 +147,7 @@ void SimpleMessenger::set_addr_unknowns(entity_addr_t &addr)
     int port = my_inst.addr.get_port();
     my_inst.addr.addr = addr.addr;
     my_inst.addr.set_port(port);
+    init_local_connection();
   }
 }
 
@@ -294,8 +295,10 @@ int SimpleMessenger::start()
   assert(!started);
   started = true;
 
-  if (!did_bind)
+  if (!did_bind) {
     my_inst.addr.nonce = nonce;
+    init_local_connection();
+  }
 
   lock.Unlock();
 
@@ -409,7 +412,7 @@ void SimpleMessenger::submit_message(Message *m, Connection *con,
     if (pipe) {
       pipe->pipe_lock.Lock();
       if (pipe->state != Pipe::STATE_CLOSED) {
-	ldout(cct,20) << "submit_message " << *m << " remote, " << dest_addr << ", have pipe." << dendl;
+	ldout(cct,1) << "submit_message " << *m << " remote, " << dest_addr << ", have pipe." << dendl;
 	pipe->_send(m);
 	pipe->pipe_lock.Unlock();
 	pipe->put();
@@ -417,7 +420,7 @@ void SimpleMessenger::submit_message(Message *m, Connection *con,
       }
       pipe->pipe_lock.Unlock();
       pipe->put();
-      ldout(cct,20) << "submit_message " << *m << " remote, " << dest_addr
+      ldout(cct,1) << "submit_message " << *m << " remote, " << dest_addr
 		    << ", had pipe " << pipe << ", but it closed." << dendl;
       m->put();
       return;
@@ -427,8 +430,9 @@ void SimpleMessenger::submit_message(Message *m, Connection *con,
   // local?
   if (my_inst.addr == dest_addr) {
     // local
-    ldout(cct,5) << "submit_message " << *m << " local" << dendl;
-    m->set_connection(local_connection.get());
+    ldout(cct,1) << "submit_message " << *m << " local" << dendl;
+    assert(my_inst.addr == dest_addr);
+    assert(local_connection->get_peer_addr() == dest_addr);
     dispatch_queue.local_delivery(m, m->get_priority());
     return;
   }
@@ -436,14 +440,14 @@ void SimpleMessenger::submit_message(Message *m, Connection *con,
   // remote, no existing pipe.
   const Policy& policy = get_policy(dest_type);
   if (policy.server) {
-    ldout(cct,20) << "submit_message " << *m << " remote, " << dest_addr << ", lossy server for target type "
+    ldout(cct,1) << "submit_message " << *m << " remote, " << dest_addr << ", lossy server for target type "
 		  << ceph_entity_type_name(dest_type) << ", no session, dropping." << dendl;
     m->put();
   } else if (lazy) {
-    ldout(cct,20) << "submit_message " << *m << " remote, " << dest_addr << ", lazy, dropping." << dendl;
+    ldout(cct,1) << "submit_message " << *m << " remote, " << dest_addr << ", lazy, dropping." << dendl;
     m->put();
   } else {
-    ldout(cct,20) << "submit_message " << *m << " remote, " << dest_addr << ", new pipe." << dendl;
+    ldout(cct,1) << "submit_message " << *m << " remote, " << dest_addr << ", new pipe." << dendl;
     connect_rank(dest_addr, dest_type, con, m);
   }
 }

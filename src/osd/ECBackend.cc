@@ -646,6 +646,7 @@ void ECBackend::handle_sub_read(
       reply->attrs_read[*i]);
   }
   reply->from = get_parent()->whoami_shard();
+  reply->tid = op.tid;
 }
 
 void ECBackend::handle_sub_write_reply(
@@ -966,6 +967,7 @@ void ECBackend::start_read_op(
   op.on_complete = onfinish;
   op.attrs_to_read = attrs_to_read;
   op.op = _op;
+  op.tid = tid;
   dout(10) << __func__ << ": starting " << op << dendl;
 
   map<pg_shard_t, ECSubRead> messages;
