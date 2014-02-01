@@ -128,10 +128,11 @@ int ErasureCodeJerasure::decode(const set<int> &want_to_read,
     if (chunks.find(i) == chunks.end()) {
       erasures[erasures_count] = i;
       erasures_count++;
-      bufferptr ptr(blocksize);
+      bufferptr ptr(buffer::create_page_aligned(blocksize));
       (*decoded)[i].push_front(ptr);
     } else {
       (*decoded)[i] = chunks.find(i)->second;
+      (*decoded)[i].rebuild_page_aligned();
     }
     if (i < k)
       data[i] = (*decoded)[i].c_str();
