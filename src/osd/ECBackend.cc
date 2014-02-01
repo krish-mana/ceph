@@ -726,13 +726,13 @@ void ECBackend::handle_sub_read_reply(
       *(j->second) = i->second;
   }
 
-  if (!iter->second.in_progress.empty()) {
-    dout(10) << __func__ << " readop not complete:" << readop << dendl;
+  ReadOp &readop = iter->second;
+  if (!readop.in_progress.empty()) {
+    dout(10) << __func__ << " readop not complete:" << dendl;
     return;
   }
 
   // done
-  ReadOp &readop = iter->second;
   dout(10) << __func__ << " completing op " << readop << dendl;
   map<pg_shard_t,
       list<pair<hobject_t, pair<uint64_t, bufferlist> > >::iterator
