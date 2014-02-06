@@ -14,6 +14,7 @@
 #ifndef CEPH_ENCODING_H
 #define CEPH_ENCODING_H
 
+#include <boost/tuple/tuple.hpp>
 #include "include/int_types.h"
 
 #include "include/memory.h"
@@ -296,6 +297,23 @@ inline void decode(T &o, bufferlist& bl)
 
 #include "triple.h"
 
+// boost tuple
+template<typename A, typename B, typename C>
+inline void encode(const boost::tuples::tuple<A,B,C> &t, bufferlist &bl)
+{
+  encode(boost::tuples::get<0>(t), bl);
+  encode(boost::tuples::get<1>(t), bl);
+  encode(boost::tuples::get<2>(t), bl);
+}
+
+template<typename A, typename B, typename C>
+inline void decode(boost::tuples::tuple<A,B,C> &t, bufferlist::iterator &bl)
+{
+  decode(boost::tuples::get<0>(t), bl);
+  decode(boost::tuples::get<1>(t), bl);
+  decode(boost::tuples::get<2>(t), bl);
+}
+
 // boost optional
 template<typename T>
 inline void encode(const boost::optional<T> &p, bufferlist &bl)
@@ -347,7 +365,6 @@ inline void decode(triple<A,B,C> &t, bufferlist::iterator &p)
   decode(t.second, p);
   decode(t.third, p);
 }
-
 
 // list
 template<class T>
