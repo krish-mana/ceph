@@ -232,6 +232,16 @@ void ECBackend::handle_recovery_push(
   uint64_t end = op.data_included.range_end();
   assert(op.data.length() == (end - start));
 
+  if (op.before_progress.first) {
+    get_parent()->on_local_recover_start(
+      op.soid,
+      m->t);
+    t->remove(
+      get_temp_coll(m->t),
+      ghobject_t(
+	op.soid, ghobject_t::NO_GEN, get_parent()->whoami_shard().shard));
+  }
+
   m->t->write(
     tcoll,
     ghobject_t(
@@ -258,11 +268,6 @@ void ECBackend::handle_recovery_push(
       tcoll,
       ghobject_t(
 	op.soid, ghobject_t::NO_GEN, get_parent()->whoami_shard().shard));
-  }
-  if (op.before_progress.first) {
-    get_parent()->on_local_recover_start(
-      op.soid,
-      m->t);
   }
   if (op.after_progress.data_complete) {
     if ((get_parent()->pgb_is_primary())) {
