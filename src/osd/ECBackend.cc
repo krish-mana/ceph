@@ -236,7 +236,7 @@ void ECBackend::handle_recovery_push(
     get_parent()->on_local_recover_start(
       op.soid,
       m->t);
-    t->remove(
+    m->t->remove(
       get_temp_coll(m->t),
       ghobject_t(
 	op.soid, ghobject_t::NO_GEN, get_parent()->whoami_shard().shard));
