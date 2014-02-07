@@ -377,13 +377,27 @@ void PG::rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead)
  */
 bool PG::search_for_missing(
   const pg_info_t &oinfo, const pg_missing_t &omissing,
-  pg_shard_t fromosd)
+  pg_shard_t from,
+  RecoveryCtx *ctx)
 {
   unsigned num_unfound_before = missing_loc.num_unfound();
   bool found_missing = missing_loc.add_source_info(
-    fromosd, oinfo, omissing);
+    from, oinfo, omissing);
   if (found_missing && num_unfound_before != missing_loc.num_unfound())
     publish_stats_to_osd();
+  if (found_missing &&
+    (get_osdmap()->get_features(NULL) & CEPH_FEATURE_OSD_ERASURE_CODES)) {
+    pg_info_t tinfo(oinfo);
+    tinfo.pgid.shard = pg_whoami.shard;
+    (*(ctx->info_map))[from.osd].push_back(
+      make_pair(
+	pg_notify_t(
+	  from.shard, pg_whoami.shard,
+	  get_osdmap()->get_epoch(),
+	  get_osdmap()->get_epoch(),
+	  tinfo),
+	past_intervals));
+  }
   return found_missing;
 }
 
@@ -1378,7 +1392,8 @@ void PG::activate(ObjectStore::Transaction& t,
 
   send_notify = false;
 
-  info.last_epoch_started = query_epoch;
+  if (is_acting(pg_whoami))
+    info.last_epoch_started = query_epoch;
 
   const pg_missing_t &missing = pg_log.get_missing();
 
@@ -6191,8 +6206,14 @@ boost::statechart::result PG::RecoveryState::Active::react(const MLogRec& logevt
   dout(10) << "searching osd." << logevt.from
            << " log for unfound items" << dendl;
   PG *pg = context< RecoveryMachine >().pg;
-  bool got_missing = pg->search_for_missing(logevt.msg->info,
-                                            logevt.msg->missing, logevt.from);
+  pg->proc_replica_log(
+    *context<RecoveryMachine>().get_cur_transaction(),
+    logevt.msg->info, logevt.msg->log, logevt.msg->missing, logevt.from);
+  bool got_missing = pg->search_for_missing(
+    pg->peer_info[logevt.from],
+    pg->peer_missing[logevt.from],
+    logevt.from,
+    context< RecoveryMachine >().get_recovery_ctx());
   if (got_missing)
     pg->osd->queue_for_recovery(pg);
   return discard_event();
