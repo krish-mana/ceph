@@ -32,9 +32,10 @@ class MOSDPGRemove : public Message {
 
   epoch_t get_epoch() { return epoch; }
 
-  MOSDPGRemove() : Message(MSG_OSD_PG_REMOVE) {}
+  MOSDPGRemove() :
+    Message(MSG_OSD_PG_REMOVE, HEAD_VERSION, COMPAT_VERSION) {}
   MOSDPGRemove(epoch_t e, vector<spg_t>& l) :
-    Message(MSG_OSD_PG_REMOVE) {
+    Message(MSG_OSD_PG_REMOVE, HEAD_VERSION, COMPAT_VERSION) {
     this->epoch = e;
     pg_list.swap(l);
   }
