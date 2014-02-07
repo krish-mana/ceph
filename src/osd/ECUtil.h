@@ -84,6 +84,7 @@ inline int decode(
 	 j != to_decode.end();
 	 ++j) {
       chunks[j->first].substr_of(j->second, i, chunk_stripe_width);
+      assert(chunks[j->first].length() == chunk_stripe_width);
     }
     map<int, bufferlist> out_bls;
     int r = ec_impl->decode(need, chunks, &out_bls);
@@ -93,6 +94,7 @@ inline int decode(
 	 j != out.end();
 	 ++j) {
       assert(out_bls.count(j->first));
+      assert(out_bls[j->first].length() == chunk_stripe_width);
       j->second->claim_append(out_bls[j->first]);
     }
   }

@@ -1392,7 +1392,8 @@ void PG::activate(ObjectStore::Transaction& t,
 
   send_notify = false;
 
-  info.last_epoch_started = query_epoch;
+  if (is_acting(pg_whoami))
+    info.last_epoch_started = query_epoch;
 
   const pg_missing_t &missing = pg_log.get_missing();
 
