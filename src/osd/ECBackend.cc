@@ -254,8 +254,8 @@ void ECBackend::handle_recovery_push(
   if (op.after_progress.data_complete && !oneshot) {
     clear_temp_obj(op.soid);
     m->t->collection_move(
-      tcoll,
       coll,
+      tcoll,
       ghobject_t(
 	op.soid, ghobject_t::NO_GEN, get_parent()->whoami_shard().shard));
   }
