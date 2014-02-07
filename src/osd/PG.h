@@ -826,7 +826,8 @@ public:
   void rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead);
   bool search_for_missing(
     const pg_info_t &oinfo, const pg_missing_t &omissing,
-    pg_shard_t fromosd);
+    pg_shard_t fromosd,
+    RecoveryCtx*);
 
   void check_for_lost_objects();
   void forget_lost_objects();
@@ -1367,6 +1368,8 @@ public:
 	assert(state->rctx->on_applied);
 	return &(state->rctx->on_applied->contexts);
       }
+
+      RecoveryCtx *get_recovery_ctx() { return state->rctx; }
 
       void send_notify(pg_shard_t to,
 		       const pg_notify_t &info, const pg_interval_map_t &pi) {
