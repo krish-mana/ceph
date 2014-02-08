@@ -1896,6 +1896,13 @@ public:
     int new_acting_primary) {
     actingset.clear();
     acting = newacting;
+    for (shard_id_t i = 0; i < acting.size(); ++i) {
+      if (acting[i] != -1)
+	actingset.insert(
+	  pg_shard_t(
+	    acting[i],
+	    pool.info.ec_pool() ? i : ghobject_t::NO_SHARD));
+    }
     up = newup;
     if (!pool.info.ec_pool()) {
       up_primary = pg_shard_t(new_up_primary, ghobject_t::no_shard());
@@ -1909,10 +1916,6 @@ public:
 	up_primary = pg_shard_t(up[i], i);
 	break;
       }
-    }
-    for (shard_id_t i = 0; i < acting.size(); ++i) {
-      if (acting[i] != -1)
-	actingset.insert(pg_shard_t(acting[i], i));
     }
     for (shard_id_t i = 0; i < acting.size(); ++i) {
       if (acting[i] == new_acting_primary) {
