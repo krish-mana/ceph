@@ -160,10 +160,9 @@ ECBackend::ECBackend(
   : PGBackend(pg, store, coll, temp_coll),
     cct(cct),
     ec_impl(ec_impl),
-    stripe_width(stripe_width),
-    stripe_size(ec_impl->get_data_chunk_count()) {
+    sinfo(ec_impl->get_data_chunk_count(), stripe_width) {
   assert((ec_impl->get_data_chunk_count() *
-      ec_impl->get_chunk_size(stripe_width)) == stripe_width);
+	  ec_impl->get_chunk_size(stripe_width)) == stripe_width);
 }
 
 PGBackend::RecoveryHandle *ECBackend::open_recovery_op()
@@ -336,7 +335,7 @@ void ECBackend::handle_recovery_read_complete(
     from[i->first.shard].claim(i->second);
   }
   dout(10) << __func__ << ": " << from << dendl;
-  ECUtil::decode(stripe_size, stripe_width, ec_impl, from, target);
+  ECUtil::decode(sinfo, ec_impl, from, target);
   if (attrs) {
     op.xattrs.swap(*attrs);
     if (!op.obc) {
@@ -470,8 +469,7 @@ void ECBackend::continue_recovery_op(
       after_progress.first = false;
       if (after_progress.data_recovered_to >= op.obc->obs.oi.size) {
 	after_progress.data_recovered_to =
-	  ECUtil::logical_to_next_stripe_bound(
-	    stripe_width,
+	  sinfo.logical_to_next_stripe_offset(
 	    op.obc->obs.oi.size);
 	after_progress.data_complete = true;
       }
@@ -490,16 +488,12 @@ void ECBackend::continue_recovery_op(
 		 << ", size=" << op.obc->obs.oi.size << dendl;
 	assert(
 	  pop.data.length() ==
-	  ECUtil::logical_to_prev_stripe_bound_obj(
-	    stripe_size,
-	    stripe_width,
+	  sinfo.aligned_logical_offset_to_chunk_offset(
 	    after_progress.data_recovered_to -
 	    op.recovery_progress.data_recovered_to)
 	  );
 	pop.data_included.insert(
-	  ECUtil::logical_to_prev_stripe_bound_obj(
-	    stripe_size,
-	    stripe_width,
+	  sinfo.aligned_logical_offset_to_chunk_offset(
 	    op.recovery_progress.data_recovered_to),
 	  pop.data.length()
 	  );
@@ -888,8 +882,8 @@ void ECBackend::handle_sub_read_reply(
       assert(req_iter != rop.to_read.find(i->first)->second.to_read.end());
       assert(riter != rop.complete[i->first].returned.end());
       pair<uint64_t, uint64_t> adjusted =
-	ECUtil::aligned_offset_len_to_chunk(
-	  stripe_width, stripe_width / stripe_size, *req_iter);
+	sinfo.aligned_offset_len_to_chunk(
+	  *req_iter);
       assert(adjusted.first == j->first);
       riter->get<2>()[from].claim(j->second);
     }
@@ -1084,8 +1078,7 @@ void ECBackend::submit_transaction(
   op->client_op = client_op;
 
   op->t = static_cast<ECTransaction*>(_t);
-  dout(10) << __func__ << ": op " << *op << " waiting stripe_width: "
-	   << stripe_width << " stripe_size: " << stripe_size << dendl;
+  dout(10) << __func__ << ": op " << *op << " starting" << dendl;
   start_write(op);
   writing.push_back(op);
   dout(10) << "onreadable_sync: " << op->on_local_applied_sync << dendl;
@@ -1209,9 +1202,7 @@ void ECBackend::start_read_op(
 	  j->second,
 	  map<pg_shard_t, bufferlist>()));
       pair<uint64_t, uint64_t> chunk_off_len =
-	ECUtil::aligned_offset_len_to_chunk(
-	  stripe_width,
-	  stripe_width / stripe_size,
+	sinfo.aligned_offset_len_to_chunk(
 	  *j);
       for (set<pg_shard_t>::const_iterator k = i->second.need.begin();
 	   k != i->second.need.end();
@@ -1282,8 +1273,7 @@ void ECBackend::start_write(Op *op) {
   op->t->generate_transactions(
     ec_impl,
     get_parent()->get_info().pgid.pgid,
-    stripe_width,
-    stripe_size,
+    sinfo,
     &trans,
     &(op->temp_added),
     &(op->temp_cleared));
@@ -1365,7 +1355,7 @@ struct CallClientContexts :
 	 i != to_read.end();
 	 to_read.erase(i++)) {
       pair<uint64_t, uint64_t> adjusted =
-	ECUtil::offset_len_to_stripe_bounds(ec->stripe_width, i->first);
+	sinfo.offset_len_to_stripe_bounds(i->first);
       assert(res.returned.front().get<0>() == adjusted.first &&
 	     res.returned.front().get<1>() == adjusted.second);
       map<int, bufferlist> to_decode;
@@ -1377,8 +1367,7 @@ struct CallClientContexts :
 	to_decode[j->first.shard].claim(j->second);
       }
       ECUtil::decode(
-	ec->stripe_size,
-	ec->stripe_width,
+	sinfo,
 	ec->ec_impl,
 	to_decode,
 	&bl);
@@ -1421,7 +1410,7 @@ void ECBackend::objects_read_async(
        i != to_read.end();
        ++i) {
     offsets.push_back(
-      ECUtil::offset_len_to_stripe_bounds(stripe_width, i->first));
+      sinfo.offset_len_to_stripe_bounds(i->first));
   }
 
   set<int> want_to_read;
@@ -1458,9 +1447,10 @@ void ECBackend::rollback_append(
   uint64_t old_size,
   ObjectStore::Transaction *t)
 {
-  assert(old_size % stripe_width == 0);
+  assert(old_size % sinfo.get_stripe_width() == 0);
   t->truncate(
     coll,
     ghobject_t(hoid, ghobject_t::NO_GEN, get_parent()->whoami_shard().shard),
-    ECUtil::logical_to_prev_stripe_bound_obj(stripe_size, stripe_width, old_size));
+    sinfo.aligned_logical_offset_to_chunk_offset(
+      old_size));
 }

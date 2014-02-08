@@ -27,8 +27,7 @@ struct TransGenerator : public boost::static_visitor<void> {
 
   ErasureCodeInterfaceRef &ecimpl;
   const pg_t pgid;
-  const uint64_t stripe_width;
-  const uint64_t stripe_size;
+  const stripe_info_t sinfo;
   map<shard_id_t, ObjectStore::Transaction> *trans;
   set<int> want;
   set<hobject_t> *temp_added;
@@ -37,14 +36,13 @@ struct TransGenerator : public boost::static_visitor<void> {
   TransGenerator(
     ErasureCodeInterfaceRef &ecimpl,
     pg_t pgid,
-    const uint64_t stripe_width,
-    const uint64_t stripe_size,
+    const stripe_info_t &sinfo,
     map<shard_id_t, ObjectStore::Transaction> *trans,
     set<hobject_t> *temp_added,
     set<hobject_t> *temp_removed,
     stringstream *out)
     : ecimpl(ecimpl), pgid(pgid),
-      stripe_width(stripe_width), stripe_size(stripe_size),
+      sinfo(sinfo),
       trans(trans),
       temp_added(temp_added), temp_removed(temp_removed),
       out(out) {
@@ -79,15 +77,17 @@ struct TransGenerator : public boost::static_visitor<void> {
   void operator()(const ECTransaction::AppendOp &op) {
     uint64_t offset = op.off;
     bufferlist bl(op.bl);
-    assert(offset % stripe_width == 0);
+    assert(offset % sinfo.get_stripe_width() == 0);
     map<int, bufferlist> buffers;
 
     // align
-    if (bl.length() % stripe_width)
-      bl.append_zero(stripe_width - ((offset + bl.length()) % stripe_width));
-    assert(bl.length() - op.bl.length() < stripe_width);
+    if (bl.length() % sinfo.get_stripe_width())
+      bl.append_zero(
+	sinfo.get_stripe_width() -
+	((offset + bl.length()) % sinfo.get_stripe_width()));
+    assert(bl.length() - op.bl.length() < sinfo.get_stripe_width());
     int r = ECUtil::encode(
-      stripe_size, stripe_width, ecimpl, bl, want, &buffers);
+      sinfo, ecimpl, bl, want, &buffers);
     assert(r == 0);
     for (map<shard_id_t, ObjectStore::Transaction>::iterator i = trans->begin();
 	 i != trans->end();
@@ -97,8 +97,8 @@ struct TransGenerator : public boost::static_visitor<void> {
       i->second.write(
 	get_coll_ct(i->first, op.oid),
 	ghobject_t(op.oid, ghobject_t::NO_GEN, i->first),
-	ECUtil::logical_to_prev_stripe_bound_obj(
-	  stripe_size, stripe_width, offset),
+	sinfo.logical_to_prev_chunk_offset(
+	  offset);
 	enc_bl.length(),
 	enc_bl);
     }
@@ -173,8 +173,7 @@ struct TransGenerator : public boost::static_visitor<void> {
 void ECTransaction::generate_transactions(
   ErasureCodeInterfaceRef &ecimpl,
   pg_t pgid,
-  uint64_t stripe_width,
-  uint64_t stripe_size,
+  const ECUtil::stripe_info_t &sinfo,
   map<shard_id_t, ObjectStore::Transaction> *transactions,
   set<hobject_t> *temp_added,
   set<hobject_t> *temp_removed,
@@ -183,8 +182,7 @@ void ECTransaction::generate_transactions(
   TransGenerator gen(
     ecimpl,
     pgid,
-    stripe_width,
-    stripe_size,
+    sinfo,
     transactions,
     temp_added,
     temp_removed,

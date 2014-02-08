@@ -120,8 +120,8 @@ private:
   friend struct ECRecoveryHandle;
   uint64_t get_recovery_chunk_size() const {
     uint64_t max = cct->_conf->osd_recovery_max_chunk;
-    max -= max % stripe_width;
-    max += stripe_width;
+    max -= max % sinfo.get_stripe_width();
+    max += sinfo.get_stripe_width();
     return max;
   }
   struct RecoveryOp {
@@ -300,8 +300,7 @@ public:
   }
 
 
-  const uint64_t stripe_width;
-  const uint64_t stripe_size;
+  const stripe_info_t sinfo;
 
   friend struct ReadCB;
   void check_op(Op *op);
