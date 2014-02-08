@@ -389,27 +389,24 @@ bool spg_t::parse(const char *s)
     return false;
   pgid.set_pool(ppool);
   pgid.set_ps(pseed);
-  s += r;
 
-  if (!s)
-    return true;
-
-  if (*s == 'p') {
-    r = sscanf(s, "p%d", &pref);
+  const char *p = strchr(s, 'p');
+  if (p) {
+    r = sscanf(p, "p%d", &pref);
     if (r == 1) {
       pgid.set_preferred(pref);
-      s += r;
+    } else {
+      return false;
     }
   }
 
-  if (!s)
-    return true;
-
-  if (*s == 's') {
-    r = sscanf(s, "s%d", &pshard);
+  p = strchr(s, 's');
+  if (p) {
+    r = sscanf(p, "s%d", &pshard);
     if (r == 1) {
       shard = pshard;
-      s += r;
+    } else {
+      return false;
     }
   }
   return true;
