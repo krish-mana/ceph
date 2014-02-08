@@ -149,7 +149,7 @@ int ECUtil::decode(
 	bl,
 	&(chunks[j->first]),
 	&this_stripe_sum);
-      assert(chunks[j->first].length() == sinfo.get_chunk_size());
+      assert(chunks[j->first].length() == sinfo.get_unpadded_chunk_size());
       if (r < 0)
 	return r;
       if (j == to_decode.begin())
