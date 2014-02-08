@@ -16,7 +16,8 @@ void ECUtil::pack_append_chunk(
   packed_chunk->claim_append(raw_chunk);
   ::encode(stripe_sum, *packed_chunk);
   ::encode(chunk_sum, *packed_chunk);
-  packed_chunk->append_zero(CHUNK_PADDING);
+  packed_chunk->append_zero(
+    sinfo.get_chunk_size() - sinfo.get_unpacked_chun_size() - CHUNK_INFO);
 }
 
 void ECUtil::unpack_chunk(
