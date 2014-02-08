@@ -86,7 +86,7 @@ public:
   class RPCReadPred : public IsReadablePredicate {
     pg_shard_t whoami;
   public:
-    RPCReadPred(pg_shard_t whoami) : whoami(whaomi) {}
+    RPCReadPred(pg_shard_t whoami) : whoami(whoami) {}
     bool operator()(const set<pg_shard_t> &have) const {
       return have.count(whoami);
     }
