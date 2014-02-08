@@ -1,5 +1,6 @@
 // -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
 
+#include <errno.h>
 #include "include/encoding.h"
 #include "ECUtil.h"
 
@@ -22,8 +23,8 @@ void ECUtil::unpack_chunk(
   const stripe_info_t &sinfo,
   bufferlist &packed_chunk,
   bufferlist *raw_chunk,
-  uint32_t *stripe_sum = NULL,
-  uint32_t *chunk_sum = NULL) {
+  uint32_t *stripe_sum,
+  uint32_t *chunk_sum) {
   assert(raw_chunk);
   assert(packed_chunk.length() == sinfo.get_chunk_size());
   raw_chunk->substr_of(packed_chunk, 0, sinfo.get_unpadded_chunk_size());
@@ -46,7 +47,7 @@ int ECUtil::unpack_verify_chunk(
   const stripe_info_t &sinfo,
   bufferlist &packed_chunk,
   bufferlist *raw_chunk,
-  uint32_t *stripe_sum = NULL) {
+  uint32_t *stripe_sum) {
   uint32_t chunk_sum = 0;
   unpack_chunk(
     sinfo, packed_chunk, raw_chunk, stripe_sum, &chunk_sum);
@@ -141,13 +142,13 @@ int ECUtil::decode(
 	 ++j) {
       uint32_t this_stripe_sum = 0;
       bufferlist bl;
-      bl.substr_of(j->second, i, chunk_stripe_width);
+      bl.substr_of(j->second, i, sinfo.get_chunk_size());
       int r = unpack_verify_chunk(
 	sinfo,
 	bl,
 	&(chunks[j->first]),
 	&this_stripe_sum);
-      assert(chunks[j->first].length() == chunk_stripe_width);
+      assert(chunks[j->first].length() == sinfo.get_chunk_size());
       if (r < 0)
 	return r;
       if (j == to_decode.begin())
@@ -167,7 +168,7 @@ int ECUtil::decode(
 	sinfo,
 	first_stripe_sum,
 	out_bls[j->first],
-	&(j->second->claim_append(out_bls[j->first])));
+	j->second);
     }
   }
   for (map<int, bufferlist*>::iterator i = out.begin();
@@ -202,7 +203,7 @@ int ECUtil::encode(
     for (map<int, bufferlist>::iterator i = encoded.begin();
 	 i != encoded.end();
 	 ++i) {
-      assert(j->second.length() == sinfo.get_unpadded_chunk_size());
+      assert(i->second.length() == sinfo.get_unpadded_chunk_size());
       pack_append_chunk(
 	sinfo,
 	stripe_sum,

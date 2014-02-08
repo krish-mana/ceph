@@ -18,6 +18,7 @@
 #include "OSD.h"
 #include "PGBackend.h"
 #include "osd_types.h"
+#include "ECUtil.h"
 #include <boost/optional.hpp>
 #include "ErasureCodeInterface.h"
 
@@ -159,8 +160,7 @@ public:
   void generate_transactions(
     ErasureCodeInterfaceRef &ecimpl,
     pg_t pgid,
-    uint64_t stripe_width,
-    uint64_t stripe_size,
+    const ECUtil::stripe_info_t &sinfo,
     map<shard_id_t, ObjectStore::Transaction> *transactions,
     set<hobject_t> *temp_added,
     set<hobject_t> *temp_removed,

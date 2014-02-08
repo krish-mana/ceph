@@ -27,7 +27,7 @@ struct TransGenerator : public boost::static_visitor<void> {
 
   ErasureCodeInterfaceRef &ecimpl;
   const pg_t pgid;
-  const stripe_info_t sinfo;
+  const ECUtil::stripe_info_t sinfo;
   map<shard_id_t, ObjectStore::Transaction> *trans;
   set<int> want;
   set<hobject_t> *temp_added;
@@ -36,7 +36,7 @@ struct TransGenerator : public boost::static_visitor<void> {
   TransGenerator(
     ErasureCodeInterfaceRef &ecimpl,
     pg_t pgid,
-    const stripe_info_t &sinfo,
+    const ECUtil::stripe_info_t &sinfo,
     map<shard_id_t, ObjectStore::Transaction> *trans,
     set<hobject_t> *temp_added,
     set<hobject_t> *temp_removed,
@@ -98,7 +98,7 @@ struct TransGenerator : public boost::static_visitor<void> {
 	get_coll_ct(i->first, op.oid),
 	ghobject_t(op.oid, ghobject_t::NO_GEN, i->first),
 	sinfo.logical_to_prev_chunk_offset(
-	  offset);
+	  offset),
 	enc_bl.length(),
 	enc_bl);
     }

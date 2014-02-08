@@ -29,7 +29,7 @@ const uint64_t CHUNK_INFO = 8;
 const uint64_t CHUNK_PADDING = 8;
 const uint64_t CHUNK_OVERHEAD = 16; // INFO + PADDING
 
-uint64_t determine_chunk_size(
+static uint64_t determine_chunk_size(
   uint64_t stripe_size,
   uint64_t stripe_width) {
   uint64_t unpadded = ((stripe_width / stripe_size) + CHUNK_OVERHEAD);

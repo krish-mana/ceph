@@ -1355,7 +1355,7 @@ struct CallClientContexts :
 	 i != to_read.end();
 	 to_read.erase(i++)) {
       pair<uint64_t, uint64_t> adjusted =
-	sinfo.offset_len_to_stripe_bounds(i->first);
+	ec->sinfo.offset_len_to_stripe_bounds(i->first);
       assert(res.returned.front().get<0>() == adjusted.first &&
 	     res.returned.front().get<1>() == adjusted.second);
       map<int, bufferlist> to_decode;
@@ -1367,7 +1367,7 @@ struct CallClientContexts :
 	to_decode[j->first.shard].claim(j->second);
       }
       ECUtil::decode(
-	sinfo,
+	ec->sinfo,
 	ec->ec_impl,
 	to_decode,
 	&bl);

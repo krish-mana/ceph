@@ -22,6 +22,7 @@
 #include "ErasureCodeInterface.h"
 #include "ECTransaction.h"
 #include "ECMsgTypes.h"
+#include "ECUtil.h"
 #include "messages/MOSDECSubOpWrite.h"
 #include "messages/MOSDECSubOpWriteReply.h"
 #include "messages/MOSDECSubOpRead.h"
@@ -300,7 +301,7 @@ public:
   }
 
 
-  const stripe_info_t sinfo;
+  const ECUtil::stripe_info_t sinfo;
 
   friend struct ReadCB;
   void check_op(Op *op);
