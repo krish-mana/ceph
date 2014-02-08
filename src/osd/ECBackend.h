@@ -328,6 +328,14 @@ public:
     list<pair<pg_shard_t, Message*> > to_send;
     list<Context*> to_run;
   };
+
+  bool scrub_supported() { return true; }
+
+  void be_deep_scrub(
+    const hobject_t &obj,
+    ScrubMap::object &o,
+    ThreadPool::TPHandle &handle);
+  uint64_t be_get_ondisk_size(uint64_t logical_size) { return logical_size; }
 };
 
 #endif

@@ -1454,3 +1454,57 @@ void ECBackend::rollback_append(
     sinfo.aligned_logical_offset_to_chunk_offset(
       old_size));
 }
+
+void ECBackend::be_deep_scrub(
+  const hobject_t &poid,
+  ScrubMap::object &o,
+  ThreadPool::TPHandle &handle) {
+  bufferhash h;
+  bufferlist bl, hdrbl;
+  int r;
+  uint64_t stride = cct->_conf->osd_deep_scrub_stride;
+  if (stride % sinfo.get_chunk_size())
+    stride += sinfo.get_chunk_size() - (stride % sinfo.get_chunk_size());
+  uint64_t pos = 0;
+  while (true) {
+    handle.reset_tp_timeout();
+    r = store->read(
+      coll,
+      ghobject_t(
+	poid, ghobject_t::NO_GEN, get_parent()->whoami_shard().shard),
+      pos,
+      stride, bl,
+      true);
+    if (r < 0)
+      break;
+    if (bl.length() % sinfo.get_chunk_size()) {
+      r = -EIO;
+      break;
+    }
+    pos += r;
+    bufferlist hashbl;
+    for (uint64_t pos = 0; pos < bl.length(); pos += sinfo.get_chunk_size()) {
+      uint32_t objhash;
+      bufferlist unpacked_chunk, packed_chunk;
+      packed_chunk.substr_of(bl, pos, sinfo.get_chunk_size());
+      r = ECUtil::unpack_verify_chunk(
+	sinfo, packed_chunk, &unpacked_chunk, &objhash);
+      if (r < 0)
+	break;
+      ::encode(objhash, hashbl);
+    }
+    if (r < 0)
+      break;
+    h << hashbl;
+  }
+  if (r == -EIO) {
+    dout(25) << "_scan_list  " << poid << " got "
+	     << r << " on read, read_error" << dendl;
+    o.read_error = true;
+  }
+  o.digest = h.digest();
+  o.digest_present = true;
+
+  o.omap_digest = 0;
+  o.omap_digest_present = true;
+}
