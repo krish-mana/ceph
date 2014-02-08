@@ -758,7 +758,7 @@ void PG::build_prior(std::auto_ptr<PriorSet> &prior_set)
   prior_set.reset(
     new PriorSet(
       pool.info.ec_pool(),
-      get_pgbackend()->get_peering_continue_decider(),
+      get_pgbackend()->get_is_recoverable_predicate(),
       *get_osdmap(),
       past_intervals,
       up,
@@ -1258,10 +1258,14 @@ bool PG::choose_acting(pg_shard_t &auth_log_shard_id)
   }
 
   /* Check whether we have enough acting shards to perform reads */
-  boost::scoped_ptr<PGBackend::PeeringContinueDecider> readable_dec(
-    get_pgbackend()->get_peering_continue_decider());
-  set<int> have;
-  for (int i = 0; i < (int)want.size(); ++i) have.insert(i);
+  boost::scoped_ptr<PGBackend::IsRecoverablePredicate> readable_dec(
+    get_pgbackend()->get_is_recoverable_predicate());
+  set<pg_shard_t> have;
+  for (int i = 0; i < (int)want.size(); ++i)
+    have.insert(
+      pg_shard_t(
+	want[i],
+	pool.info.ec_pool() ? i : ghobject_t::NO_SHARD));
   if (!(*readable_dec)(have)) {
     want_acting.clear();
     return false;
@@ -7166,7 +7170,7 @@ void PG::RecoveryState::RecoveryMachine::log_exit(const char *state_name, utime_
 #define dout_prefix (*_dout << (debug_pg ? debug_pg->gen_prefix() : string()) << " PriorSet: ")
 
 PG::PriorSet::PriorSet(bool ec_pool,
-		       PGBackend::PeeringContinueDecider *c,
+		       PGBackend::IsRecoverablePredicate *c,
 		       const OSDMap &osdmap,
 		       const map<epoch_t, pg_interval_t> &past_intervals,
 		       const vector<int> &up,
@@ -7247,7 +7251,7 @@ PG::PriorSet::PriorSet(bool ec_pool,
     // look at candidate osds during this interval.  each falls into
     // one of three categories: up, down (but potentially
     // interesting), or lost (down, but we won't wait for it).
-    set<int> up_now;
+    set<pg_shard_t> up_now;
     bool any_down_now = false;  // any candidates down now (that might have useful data)
 
     // consider ACTING osds
@@ -7262,7 +7266,7 @@ PG::PriorSet::PriorSet(bool ec_pool,
       if (osdmap.is_up(o)) {
 	// include past acting osds if they are up.
 	probe.insert(so);
-	up_now.insert(i);
+	up_now.insert(so);
       } else if (!pinfo) {
 	dout(10) << "build_prior  prior osd." << o << " no longer exists" << dendl;
 	down.insert(o);

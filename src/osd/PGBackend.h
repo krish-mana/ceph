@@ -305,15 +305,15 @@
 
    virtual void on_flushed() = 0;
 
-   class PeeringContinueDecider {
+   class IsRecoverablePredicate {
    public:
      /**
       * have encodes the shards available
       */
-     virtual bool operator()(const set<int> &have) const = 0;
-     virtual ~PeeringContinueDecider() {}
+     virtual bool operator()(const set<pg_shard_t> &have) const = 0;
+     virtual ~IsRecoverablePredicate() {}
    };
-   virtual PeeringContinueDecider *get_peering_continue_decider() = 0;
+   virtual IsRecoverablePredicate *get_is_recoverable_predicate() = 0;
 
    class IsReadablePredicate {
    public:

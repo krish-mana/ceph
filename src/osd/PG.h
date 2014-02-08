@@ -306,13 +306,13 @@ public:
     map<hobject_t, set<pg_shard_t> > missing_loc;
     set<pg_shard_t> missing_loc_sources;
     PG *pg;
-    boost::scoped_ptr<PGBackend::IsReadablePredicate> is_readable;
+    boost::scoped_ptr<PGBackend::IsRecoverablePredicate> is_readable;
     set<pg_shard_t> empty_set;
   public:
     MissingLoc(PG *pg)
       : pg(pg) {}
-    void set_is_readable_predicate(
-      PGBackend::IsReadablePredicate *_is_readable) {
+    void set_is_recoverable_predicate(
+      PGBackend::IsRecoverablePredicate *_is_readable) {
       is_readable.reset(_is_readable);
     }
     string gen_prefix() const { return pg->gen_prefix(); }
@@ -449,9 +449,9 @@ public:
     map<int, epoch_t> blocked_by;  /// current lost_at values for any OSDs in cur set for which (re)marking them lost would affect cur set
 
     bool pg_down;   /// some down osds are included in @a cur; the DOWN pg state bit should be set.
-    boost::scoped_ptr<PGBackend::PeeringContinueDecider> pcontdec;
+    boost::scoped_ptr<PGBackend::IsRecoverablePredicate> pcontdec;
     PriorSet(bool ec_pool,
-	     PGBackend::PeeringContinueDecider *c,
+	     PGBackend::IsRecoverablePredicate *c,
 	     const OSDMap &osdmap,
 	     const map<epoch_t, pg_interval_t> &past_intervals,
 	     const vector<int> &up,

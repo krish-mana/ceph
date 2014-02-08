@@ -1019,8 +1019,8 @@ ReplicatedPG::ReplicatedPG(OSDService *o, OSDMapRef curmap,
   temp_seq(0),
   snap_trimmer_machine(this)
 { 
-  missing_loc.set_is_readable_predicate(
-    pgbackend->get_is_readable_predicate());
+  missing_loc.set_is_recoverable_predicate(
+    pgbackend->get_is_recoverable_predicate());
   snap_trimmer_machine.initiate();
 }
 

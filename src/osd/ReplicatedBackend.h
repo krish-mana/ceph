@@ -73,14 +73,14 @@ public:
   void clear_state();
   void on_flushed();
 
-  class RPCDec : public PeeringContinueDecider {
+  class RPCRecPred : public IsRecoverablePredicate {
   public:
-    bool operator()(const set<int> &have) const {
+    bool operator()(const set<pg_shard_t> &have) const {
       return have.size() >= 1;
     }
   };
-  PeeringContinueDecider *get_peering_continue_decider() {
-    return new RPCDec;
+  IsRecoverablePredicate *get_is_recoverable_predicate() {
+    return new RPCRecPred;
   }
 
   class RPCReadPred : public IsReadablePredicate {
