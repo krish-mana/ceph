@@ -1241,11 +1241,10 @@ bool PG::choose_acting(pg_shard_t &auth_log_shard_id)
   }
 
   /* Check whether we have enough acting shards to perform reads */
-  boost::scoped_ptr<PGBackend::IsReadablePredicate> readable_dec(
-    get_pgbackend()->get_is_readable_predicate());
-  set<pg_shard_t> have;
-  for (int i = 0; i < (int)want.size(); ++i)
-    have.insert(pg_shard_t(acting[i], i));
+  boost::scoped_ptr<PGBackend::PeeringContinueDecider> readable_dec(
+    get_pgbackend()->get_peering_continue_decider());
+  set<int> have;
+  for (int i = 0; i < (int)want.size(); ++i) have.insert(i);
   if (!(*readable_dec)(have)) {
     want_acting.clear();
     return false;
