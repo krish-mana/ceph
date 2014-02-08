@@ -327,7 +327,11 @@ public:
 	*v = i->second.need;
       return true;
     }
-    bool is_unfound(const hobject_t &hoid) const;
+    bool is_unfound(const hobject_t &hoid) const {
+      return needs_recovery(hoid) && (
+	!missing_loc.count(hoid) ||
+	!(*is_readable)(missing_loc.find(hoid)->second));
+    }
     bool readable_with_acting(
       const hobject_t &hoid,
       const set<pg_shard_t> &acting) const {

@@ -401,14 +401,6 @@ bool PG::search_for_missing(
   return found_missing;
 }
 
-bool PG::MissingLoc::is_unfound(const hobject_t &hoid)
-{
-  if (!needs_recovery(hoid)) return false;
-  if (!missing_loc.count(hoid)) return true;
-  dout(10) << __func__ << ": " << missing_loc.find(hoid)->second << dendl;
-  return !(*is_readable)(missing_loc.find(hoid)->second));
-}
-
 bool PG::MissingLoc::add_source_info(
   pg_shard_t fromosd,
   const pg_info_t &oinfo,
