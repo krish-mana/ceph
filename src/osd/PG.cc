@@ -401,6 +401,23 @@ bool PG::search_for_missing(
   return found_missing;
 }
 
+bool PG::MissingLoc::readable_with_acting(
+  const hobject_t &hoid,
+  const set<pg_shard_t> &acting) const {
+  if (!needs_recovery(hoid)) return true;
+  if (!missing_loc.count(hoid)) return false;
+  const set<pg_shard_t> &locs = missing_loc.find(hoid)->second;
+  dout(10) << __func__ << ": locs:" << locs << dendl;
+  set<pg_shard_t> have_acting;
+  for (set<pg_shard_t>::const_iterator i = locs.begin();
+       i != locs.end();
+       ++i) {
+    if (acting.count(*i))
+      have_acting.insert(*i);
+  }
+  return (*is_readable)(have_acting);
+}
+
 bool PG::MissingLoc::add_source_info(
   pg_shard_t fromosd,
   const pg_info_t &oinfo,

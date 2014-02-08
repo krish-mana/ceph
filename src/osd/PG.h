@@ -334,19 +334,7 @@ public:
     }
     bool readable_with_acting(
       const hobject_t &hoid,
-      const set<pg_shard_t> &acting) const {
-      if (!needs_recovery(hoid)) return true;
-      if (!missing_loc.count(hoid)) return false;
-      const set<pg_shard_t> &locs = missing_loc.find(hoid)->second;
-      set<pg_shard_t> have_acting;
-      for (set<pg_shard_t>::const_iterator i = locs.begin();
-	   i != locs.end();
-	   ++i) {
-	if (acting.count(*i))
-	  have_acting.insert(*i);
-      }
-      return (*is_readable)(have_acting);
-    }
+      const set<pg_shard_t> &acting) const;
     uint64_t num_unfound() const {
       uint64_t ret = 0;
       for (map<hobject_t, pg_missing_t::item>::const_iterator i =
