@@ -2651,11 +2651,10 @@ public:
     void dec(list<OpRequestRef> *requeue) {
       assert(count > 0);
       assert(requeue);
-      assert(requeue->empty());
       count--;
       if (count == 0) {
 	state = RWNONE;
-	requeue->swap(waiters);
+	requeue->splice(requeue->end(), waiters, waiters.begin(), waiters.end());
       }
     }
     void put_read(list<OpRequestRef> *requeue) {
