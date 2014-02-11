@@ -1359,9 +1359,15 @@ void OSDMap::_raw_to_up_osds(pg_t pg, const vector<int>& raw,
 {
   up->clear();
   for (unsigned i=0; i<raw.size(); i++) {
-    if (!exists(raw[i]) || is_down(raw[i]))
-      continue;
-    up->push_back(raw[i]);
+    if (!exists(raw[i]) || is_down(raw[i])) {
+      if (pool.can_shift_osds()) {
+	continue;
+      } else {
+	up->push_back(CRUSH_ITEM_NONE);
+      }
+    } else {
+      up->push_back(raw[i]);
+    }
   }
   *primary = (up->empty() ? -1 : up->front());
 }
@@ -1374,9 +1380,15 @@ void OSDMap::_get_temp_osds(const pg_pool_t& pool, pg_t pg,
   temp_pg->clear();
   if (p != pg_temp->end()) {
     for (unsigned i=0; i<p->second.size(); i++) {
-      if (!exists(p->second[i]) || is_down(p->second[i]))
-	continue;
-      temp_pg->push_back(p->second[i]);
+      if (!exists(p->second[i]) || is_down(p->second[i])) {
+	if (pool.can_shift_osds()) {
+	  continue;
+	} else {
+	  up->push_back(CRUSH_ITEM_NONE);
+	}
+      } else {
+	temp_pg->push_back(p->second[i]);
+      }
     }
   }
   map<pg_t,int>::const_iterator pp = primary_temp->find(pg);
