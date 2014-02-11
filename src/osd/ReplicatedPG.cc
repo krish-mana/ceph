@@ -303,6 +303,14 @@ void ReplicatedPG::on_global_recover(
     requeue_ops(waiting_for_degraded_object[soid]);
     waiting_for_degraded_object.erase(soid);
   }
+  if (backfills_in_flight.count(soid)) {
+    map<hobject_t, ObjectContextRef>::iterator i = recovering.find(soid);
+    assert(i != recovering.end());
+    list<OpRequestRef> requeue_list;
+    i->second->drop_backfill_read(&requeue_list);
+    requeue_ops(requeue_list);
+    backfills_in_flight.erase(soid);
+  }
   finish_degraded_object(soid);
 }
 
@@ -316,14 +324,6 @@ void ReplicatedPG::on_peer_recover(
   publish_stats_to_osd();
   // done!
   peer_missing[peer].got(soid, recovery_info.version);
-  if (is_backfill_targets(peer) && backfills_in_flight.count(soid)) {
-    map<hobject_t, ObjectContextRef>::iterator i = recovering.find(soid);
-    assert(i != recovering.end());
-    list<OpRequestRef> requeue_list;
-    i->second->drop_backfill_read(&requeue_list);
-    requeue_ops(requeue_list);
-    backfills_in_flight.erase(soid);
-  }
 }
 
 void ReplicatedPG::begin_peer_recover(
