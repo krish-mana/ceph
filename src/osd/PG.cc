@@ -983,12 +983,11 @@ void PG::calc_ec_acting(
       acting_backfill->insert(pg_shard_t(want[i], i));
       if (!found_primary) {
 	*want_primary = pg_shard_t(want[i], i);
+	found_primary = true;
       }
     }
   }
   acting_backfill->insert(backfill->begin(), backfill->end());
-  while (!want.empty() && *(want.rbegin()) == CRUSH_ITEM_NONE)
-    want.resize(want.size() - 1);
   _want->swap(want);
 }
 
