@@ -1900,7 +1900,7 @@ public:
     actingset.clear();
     acting = newacting;
     for (shard_id_t i = 0; i < acting.size(); ++i) {
-      if (acting[i] != -1)
+      if (acting[i] != CRUSH_ITEM_NONE)
 	actingset.insert(
 	  pg_shard_t(
 	    acting[i],
