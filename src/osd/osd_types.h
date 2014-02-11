@@ -2654,7 +2654,7 @@ public:
       count--;
       if (count == 0) {
 	state = RWNONE;
-	requeue->splice(requeue->end(), waiters, waiters.begin(), waiters.end());
+	requeue->splice(requeue->end(), waiters);
       }
     }
     void put_read(list<OpRequestRef> *requeue) {
