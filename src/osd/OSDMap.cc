@@ -1350,8 +1350,10 @@ int OSDMap::_pg_to_osds(const pg_pool_t& pool, pg_t pg,
 
   *primary = -1;
   for (unsigned i = 0; i < osds->size(); ++i) {
-    if ((*osds)[i] != CRUSH_ITEM_NONE)
+    if ((*osds)[i] != CRUSH_ITEM_NONE) {
       *primary = (*osds)[i];
+      break;
+    }
   }
 
   return osds->size();
@@ -1376,8 +1378,10 @@ void OSDMap::_raw_to_up_osds(const pg_pool_t &pool,
   }
   *primary = -1;
   for (unsigned i = 0; i < up->size(); ++i) {
-    if ((*up)[i] != CRUSH_ITEM_NONE)
+    if ((*up)[i] != CRUSH_ITEM_NONE) {
       *primary = (*up)[i];
+      break;
+    }
   }
 }
   
@@ -1408,8 +1412,10 @@ void OSDMap::_get_temp_osds(const pg_pool_t& pool, pg_t pg,
     *temp_primary = temp_pg->front();
   } else {
     for (unsigned i = 0; i < temp_pg->size(); ++i) {
-      if ((*temp_pg)[i] != CRUSH_ITEM_NONE)
+      if ((*temp_pg)[i] != CRUSH_ITEM_NONE) {
 	*temp_primary = (*temp_pg)[i];
+	break;
+      }
     }
   }
 }
