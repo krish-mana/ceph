@@ -1348,7 +1348,11 @@ int OSDMap::_pg_to_osds(const pg_pool_t& pool, pg_t pg,
 
   _remove_nonexistent_osds(pool, *osds);
 
-  *primary = (osds->empty() ? -1 : osds->front());
+  *primary = -1;
+  for (unsigned i = 0; i < osds->size(); ++i) {
+    if ((*osds)[i] != CRUSH_ITEM_NONE)
+      *primary = (*osds)[i];
+  }
 
   return osds->size();
 }
@@ -1370,7 +1374,11 @@ void OSDMap::_raw_to_up_osds(const pg_pool_t &pool,
       up->push_back(raw[i]);
     }
   }
-  *primary = (up->empty() ? -1 : up->front());
+  *primary = -1;
+  for (unsigned i = 0; i < up->size(); ++i) {
+    if ((*up)[i] != CRUSH_ITEM_NONE)
+      *primary = (*up)[i];
+  }
 }
   
 void OSDMap::_get_temp_osds(const pg_pool_t& pool, pg_t pg,
@@ -1394,10 +1402,16 @@ void OSDMap::_get_temp_osds(const pg_pool_t& pool, pg_t pg,
   }
   map<pg_t,int>::const_iterator pp = primary_temp->find(pg);
   *temp_primary = -1;
-  if (pp != primary_temp->end())
+  if (pp != primary_temp->end()) {
     *temp_primary = pp->second;
-  else if (!temp_pg->empty()) // apply pg_temp's primary
+  } else if (!temp_pg->empty()) { // apply pg_temp's primary
     *temp_primary = temp_pg->front();
+  } else {
+    for (unsigned i = 0; i < temp_pg->size(); ++i) {
+      if ((*temp_pg)[i] != CRUSH_ITEM_NONE)
+	*temp_primary = (*temp_pg)[i];
+    }
+  }
 }
 
 int OSDMap::pg_to_osds(pg_t pg, vector<int> *raw, int *primary) const
