@@ -291,6 +291,12 @@ void ReplicatedPG::on_global_recover(
   dout(10) << "pushed " << soid << " to all replicas" << dendl;
   map<hobject_t, ObjectContextRef>::iterator i = recovering.find(soid);
   assert(i != recovering.end());
+  if (backfills_in_flight.count(soid)) {
+    list<OpRequestRef> requeue_list;
+    i->second->drop_backfill_read(&requeue_list);
+    requeue_ops(requeue_list);
+    backfills_in_flight.erase(soid);
+  }
   recovering.erase(i);
   finish_recovery_op(soid);
   if (waiting_for_unreadable_object.count(soid)) {
@@ -302,14 +308,6 @@ void ReplicatedPG::on_global_recover(
     dout(20) << " kicking degraded waiters on " << soid << dendl;
     requeue_ops(waiting_for_degraded_object[soid]);
     waiting_for_degraded_object.erase(soid);
-  }
-  if (backfills_in_flight.count(soid)) {
-    map<hobject_t, ObjectContextRef>::iterator i = recovering.find(soid);
-    assert(i != recovering.end());
-    list<OpRequestRef> requeue_list;
-    i->second->drop_backfill_read(&requeue_list);
-    requeue_ops(requeue_list);
-    backfills_in_flight.erase(soid);
   }
   finish_degraded_object(soid);
 }
