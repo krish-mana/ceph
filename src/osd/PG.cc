@@ -926,7 +926,7 @@ void PG::calc_ec_acting(
   set<pg_shard_t> *acting_backfill,
   pg_shard_t *want_primary,
   ostream &ss) {
-  vector<int> want(size, -1);
+  vector<int> want(size, CRUSH_ITEM_NONE);
   map<shard_id_t, set<pg_shard_t> > all_info_by_shard;
   unsigned usable = 0;
   for(map<pg_shard_t, pg_info_t>::const_iterator i = all_info.begin();
@@ -936,7 +936,7 @@ void PG::calc_ec_acting(
   }
   for (shard_id_t i = 0; i < want.size(); ++i) {
     ss << "For position " << (unsigned)i << ": ";
-    if (up.size() > (unsigned)i && up[i] != -1 &&
+    if (up.size() > (unsigned)i && up[i] != CRUSH_ITEM_NONE &&
 	!all_info.find(pg_shard_t(up[i], i))->second.is_incomplete() &&
 	all_info.find(pg_shard_t(up[i], i))->second.last_update >=
 	auth_log_shard->second.log_tail) {
@@ -945,13 +945,13 @@ void PG::calc_ec_acting(
       ++usable;
       continue;
     }
-    if (up.size() > (unsigned)i && up[i] != -1) {
+    if (up.size() > (unsigned)i && up[i] != CRUSH_ITEM_NONE) {
       ss << " backfilling up[i]: " << pg_shard_t(up[i], i)
 	 << " and ";
       backfill->insert(pg_shard_t(up[i], i));
     }
 
-    if (acting.size() > (unsigned)i && acting[i] != -1 &&
+    if (acting.size() > (unsigned)i && acting[i] != CRUSH_ITEM_NONE &&
 	!all_info.find(pg_shard_t(acting[i], i))->second.is_incomplete() &&
 	all_info.find(pg_shard_t(acting[i], i))->second.last_update >=
 	auth_log_shard->second.log_tail) {
@@ -972,14 +972,14 @@ void PG::calc_ec_acting(
 	  break;
 	}
       }
-      if (want[i] == -1)
+      if (want[i] == CRUSH_ITEM_NONE)
 	ss << " failed to fill position " << i << std::endl;
     }
   }
 
   bool found_primary = false;
   for (shard_id_t i = 0; i < want.size(); ++i) {
-    if (want[i] != -1) {
+    if (want[i] != CRUSH_ITEM_NONE) {
       acting_backfill->insert(pg_shard_t(want[i], i));
       if (!found_primary) {
 	*want_primary = pg_shard_t(want[i], i);
@@ -987,7 +987,8 @@ void PG::calc_ec_acting(
     }
   }
   acting_backfill->insert(backfill->begin(), backfill->end());
-  while (!want.empty() && *(want.rbegin()) == -1) want.resize(want.size() - 1);
+  while (!want.empty() && *(want.rbegin()) == CRUSH_ITEM_NONE)
+    want.resize(want.size() - 1);
   _want->swap(want);
 }
 
