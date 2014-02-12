@@ -508,7 +508,7 @@ public:
     OpContext(const OpContext& other);
     const OpContext& operator=(const OpContext& other);
 
-    bool unlock_snapset_obc;
+    bool release_snapset_obc;
 
     OpContext(OpRequestRef _op, osd_reqid_t _reqid, vector<OSDOp>& _ops,
 	      ObjectState *_obs, SnapSetContext *_ssc,
@@ -526,7 +526,7 @@ public:
       async_read_result(0),
       inflightreads(0),
       lock_to_release(NONE),
-      unlock_snapset_obc(false) {
+      release_snapset_obc(false) {
       if (_ssc) {
 	new_snapset = _ssc->snapset;
 	snapset = &_ssc->snapset;
@@ -662,9 +662,9 @@ protected:
     bool requeue_recovery = false;
     bool requeue_recovery_clone = false;
     bool requeue_recovery_snapset = false;
-    if (ctx->snapset_obc && ctx->unlock_snapset_obc) {
+    if (ctx->snapset_obc && ctx->release_snapset_obc) {
       ctx->snapset_obc->put_write(&to_req, &requeue_recovery_snapset);
-      ctx->unlock_snapset_obc = false;
+      ctx->release_snapset_obc = false;
     }
     switch (ctx->lock_to_release) {
     case OpContext::W_LOCK:
