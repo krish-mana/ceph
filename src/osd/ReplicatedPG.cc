@@ -4926,8 +4926,10 @@ void ReplicatedPG::finish_ctx(OpContext *ctx, int log_op_type)
 			  info.pgid.pool(), soid.get_namespace());
 
 	ctx->snapset_obc = get_object_context(snapoid, false);
-	bool got = ctx->snapset_obc->get_write(ctx->op);
-	assert(got);
+	if (ctx->snapset_obc) {
+	  bool got = ctx->snapset_obc->get_write(ctx->op);
+	  assert(got);
+	}
 	if (ctx->snapset_obc && ctx->snapset_obc->obs.exists) {
 	  ctx->log.push_back(pg_log_entry_t(pg_log_entry_t::DELETE, snapoid,
 	      ctx->at_version,
