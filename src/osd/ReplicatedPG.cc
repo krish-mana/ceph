@@ -2338,6 +2338,8 @@ ReplicatedPG::RepGather *ReplicatedPG::trim_object(const hobject_t &coid)
     snapset.head_exists ? CEPH_NOSNAP:CEPH_SNAPDIR, coid.hash,
     info.pgid.pool(), coid.get_namespace());
   ctx->snapset_obc = get_object_context(snapoid, false);
+  bool got = ctx->snapset_obc->get_write(ctx->op);
+  assert(got);
 
   if (snapset.clones.empty() && !snapset.head_exists) {
     dout(10) << coid << " removing " << snapoid << dendl;
@@ -4924,6 +4926,8 @@ void ReplicatedPG::finish_ctx(OpContext *ctx, int log_op_type)
 			  info.pgid.pool(), soid.get_namespace());
 
 	ctx->snapset_obc = get_object_context(snapoid, false);
+	bool got = ctx->snapset_obc->get_write(ctx->op);
+	assert(got);
 	if (ctx->snapset_obc && ctx->snapset_obc->obs.exists) {
 	  ctx->log.push_back(pg_log_entry_t(pg_log_entry_t::DELETE, snapoid,
 	      ctx->at_version,
@@ -4958,6 +4962,8 @@ void ReplicatedPG::finish_ctx(OpContext *ctx, int log_op_type)
 					0, osd_reqid_t(), ctx->mtime));
 
       ctx->snapset_obc = get_object_context(snapoid, true);
+      bool got = ctx->snapset_obc->get_write(ctx->op);
+      assert(got);
       if (pool.info.require_rollback() && !ctx->snapset_obc->obs.exists) {
 	ctx->log.back().mod_desc.create();
       } else if (!pool.info.require_rollback()) {
