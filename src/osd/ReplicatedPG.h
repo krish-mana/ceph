@@ -508,6 +508,8 @@ public:
     OpContext(const OpContext& other);
     const OpContext& operator=(const OpContext& other);
 
+    bool unlock_snapset_obc;
+
     OpContext(OpRequestRef _op, osd_reqid_t _reqid, vector<OSDOp>& _ops,
 	      ObjectState *_obs, SnapSetContext *_ssc,
 	      ReplicatedPG *_pg) :
@@ -523,7 +525,8 @@ public:
       copy_cb(NULL),
       async_read_result(0),
       inflightreads(0),
-      lock_to_release(NONE) {
+      lock_to_release(NONE),
+      unlock_snapset_obc(false) {
       if (_ssc) {
 	new_snapset = _ssc->snapset;
 	snapset = &_ssc->snapset;
@@ -664,15 +667,17 @@ protected:
       ctx->obc->put_write(&to_req, &requeue_recovery);
       if (ctx->clone_obc)
 	ctx->clone_obc->put_write(&to_req, &requeue_recovery_clone);
-      if (ctx->snapset_obc)
+      if (ctx->snapset_obc && ctx->unlock_snapset_obc)
 	ctx->snapset_obc->put_write(&to_req, &requeue_recovery_snapset);
       if (requeue_recovery || requeue_recovery_clone || requeue_recovery_snapset)
 	osd->recovery_wq.queue(this);
       break;
     case OpContext::R_LOCK:
+      assert(!ctx->unlock_snapset_obc);
       ctx->obc->put_read(&to_req);
       break;
     case OpContext::NONE:
+      assert(!ctx->unlock_snapset_obc);
       break;
     default:
       assert(0);
