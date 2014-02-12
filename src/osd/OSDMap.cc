@@ -1409,8 +1409,6 @@ void OSDMap::_get_temp_osds(const pg_pool_t& pool, pg_t pg,
   if (pp != primary_temp->end()) {
     *temp_primary = pp->second;
   } else if (!temp_pg->empty()) { // apply pg_temp's primary
-    *temp_primary = temp_pg->front();
-  } else {
     for (unsigned i = 0; i < temp_pg->size(); ++i) {
       if ((*temp_pg)[i] != CRUSH_ITEM_NONE) {
 	*temp_primary = (*temp_pg)[i];
