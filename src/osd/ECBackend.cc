@@ -1297,8 +1297,7 @@ void ECBackend::start_write(Op *op) {
 	 get_parent()->get_actingbackfill_shards().begin();
        i != get_parent()->get_actingbackfill_shards().end();
        ++i) {
-    if (get_parent()->should_send_op(*i, op->hoid))
-      trans[i->shard];
+    trans[i->shard];
   }
   op->t->generate_transactions(
     ec_impl,
