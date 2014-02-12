@@ -1612,8 +1612,9 @@ struct pg_interval_t {
   vector<int> up, acting;
   epoch_t first, last;
   bool maybe_went_rw;
+  int primary;
 
-  pg_interval_t() : first(0), last(0), maybe_went_rw(false) {}
+  pg_interval_t() : first(0), last(0), maybe_went_rw(false), primary(-1) {}
 
   void encode(bufferlist& bl) const;
   void decode(bufferlist::iterator& bl);
@@ -1625,6 +1626,8 @@ struct pg_interval_t {
    * if an interval was closed out.
    */
   static bool check_new_interval(
+    int old_primary,                            ///< [in] primary as of lastmap
+    int new_primary,                            ///< [in] primary as of lastmap
     const vector<int> &old_acting,              ///< [in] acting as of lastmap
     const vector<int> &new_acting,              ///< [in] acting as of osdmap
     const vector<int> &old_up,                  ///< [in] up as of lastmap

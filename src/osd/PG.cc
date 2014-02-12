@@ -624,10 +624,13 @@ void PG::generate_past_intervals()
   }
 
   OSDMapRef last_map, cur_map;
+  int primary = -1;
+  int old_primary = -1;
   vector<int> acting, up, old_acting, old_up;
 
   cur_map = osd->get_map(cur_epoch);
-  cur_map->pg_to_up_acting_osds(get_pgid().pgid, up, acting);
+  cur_map->pg_to_up_acting_osds(
+    get_pgid().pgid, &up, 0, &acting, &primary);
   epoch_t same_interval_since = cur_epoch;
   dout(10) << __func__ << " over epochs " << cur_epoch << "-"
 	   << end_epoch << dendl;
@@ -636,12 +639,16 @@ void PG::generate_past_intervals()
     last_map.swap(cur_map);
     old_up.swap(up);
     old_acting.swap(acting);
+    old_primary = primary;
 
     cur_map = osd->get_map(cur_epoch);
-    cur_map->pg_to_up_acting_osds(get_pgid().pgid, up, acting);
+    cur_map->pg_to_up_acting_osds(
+      get_pgid().pgid, &up, 0, &acting, &primary);
 
     std::stringstream debug;
     bool new_interval = pg_interval_t::check_new_interval(
+      old_primary,
+      primary,
       old_acting,
       acting,
       old_up,
@@ -4633,6 +4640,8 @@ void PG::start_peering_interval(
   } else {
     std::stringstream debug;
     bool new_interval = pg_interval_t::check_new_interval(
+      oldprimary.osd,
+      new_acting_primary,
       oldacting, newacting,
       oldup, newup,
       info.history.same_interval_since,
