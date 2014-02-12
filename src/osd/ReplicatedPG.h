@@ -662,8 +662,10 @@ protected:
     bool requeue_recovery = false;
     bool requeue_recovery_clone = false;
     bool requeue_recovery_snapset = false;
-    if (ctx->snapset_obc && ctx->unlock_snapset_obc)
+    if (ctx->snapset_obc && ctx->unlock_snapset_obc) {
       ctx->snapset_obc->put_write(&to_req, &requeue_recovery_snapset);
+      ctx->unlock_snapset_obc = false;
+    }
     switch (ctx->lock_to_release) {
     case OpContext::W_LOCK:
       ctx->obc->put_write(&to_req, &requeue_recovery);
