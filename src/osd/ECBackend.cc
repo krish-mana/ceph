@@ -361,11 +361,21 @@ void ECBackend::handle_recovery_read_complete(
   ECUtil::decode(sinfo, ec_impl, from, target);
   if (attrs) {
     op.xattrs.swap(*attrs);
+
     if (!op.obc) {
       op.obc = get_parent()->get_obc(hoid, op.xattrs);
       op.recovery_info.size = op.obc->obs.oi.size;
       op.recovery_info.oi = op.obc->obs.oi;
     }
+
+    ECUtil::HashInfo hinfo(ec_impl->get_chunk_count());
+    if (op.obc->obs.oi.size > 0) {
+      assert(op.xattrs.count(ECUtil::get_hinfo_key()));
+      bufferlist::iterator bp = op.xattrs[ECUtil::get_hinfo_key()].begin();
+      ::decode(hinfo, bp);
+    }
+    assert(!unstable_hashinfo_registry.lookup(hoid));
+    op.hinfo = unstable_hashinfo_registry.lookup_or_create(hoid, hinfo);
   }
   assert(op.xattrs.size());
   assert(op.obc);

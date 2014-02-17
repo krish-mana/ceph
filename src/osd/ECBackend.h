@@ -218,6 +218,7 @@ private:
     // must be filled if state == WRITING
     map<shard_id_t, bufferlist> returned_data;
     map<string, bufferlist> xattrs;
+    ECUtil::HashInfoRef hinfo;
     ObjectContextRef obc;
     set<pg_shard_t> waiting_on_pushes;
 
