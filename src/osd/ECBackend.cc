@@ -372,17 +372,6 @@ void ECBackend::handle_recovery_read_complete(
   continue_recovery_op(op, m);
 }
 
-void ECBackend::handle_recovery_read_cancel(
-  const hobject_t &hoid)
-{
-  assert(recovery_ops.count(hoid));
-  RecoveryOp &op = recovery_ops[hoid];
-  dout(10) << __func__ << ": cancelling " << op << dendl;
-  op.state = RecoveryOp::COMPLETE;
-  recovery_ops.erase(op.hoid);
-  get_parent()->cancel_pull(op.hoid);
-}
-
 struct SendPushReplies : public Context {
   PGBackend::Listener *l;
   epoch_t epoch;
@@ -1019,6 +1008,7 @@ void ECBackend::filter_read_op(
       delete req.cb;
       req.cb = NULL;
 
+      op.to_read.erase(*j);
       op.complete.erase(*j);
       op.obj_to_source.erase(*j);
       op.in_progress.erase(i->first);

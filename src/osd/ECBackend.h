@@ -356,8 +356,6 @@ public:
 
   void dispatch_recovery_messages(RecoveryMessages &m, int priority);
   friend struct OnRecoveryReadComplete;
-  void handle_recovery_read_cancel(
-    const hobject_t &hoid);
   void handle_recovery_read_complete(
     const hobject_t &hoid,
     boost::tuple<uint64_t, uint64_t, map<pg_shard_t, bufferlist> > &to_read,
