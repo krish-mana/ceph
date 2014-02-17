@@ -1145,8 +1145,20 @@ void ECBackend::submit_transaction(
   op->tid = tid;
   op->reqid = reqid;
   op->client_op = client_op;
-
+  
   op->t = static_cast<ECTransaction*>(_t);
+
+  set<hobject_t> need_hinfos;
+  op->t->get_append_objects(&need_hinfos);
+  for (set<hobject_t>::iterator i = need_hinfos.begin();
+       i != need_hinfos.end();
+       ++i) {
+    op->unstable_hash_infos.insert(
+      make_pair(
+	*i,
+	get_hash_info(*i)));
+  }
+
   dout(10) << __func__ << ": op " << *op << " starting" << dendl;
   start_write(op);
   writing.push_back(op);
@@ -1307,6 +1319,39 @@ void ECBackend::start_read_op(
   dout(10) << __func__ << ": started " << op << dendl;
 }
 
+ECUtil::HashInfoRef ECBackend::get_hash_info(
+  const hobject_t &hoid)
+{
+  dout(10) << __func__ << ": Getting attr on " << hoid << dendl;
+  ECUtil::HashInfoRef ref = unstable_hashinfo_registry.lookup(hoid);
+  if (!ref) {
+    dout(10) << __func__ << ": not in cache " << hoid << dendl;
+    struct stat st;
+    int r = store->stat(
+      coll,
+      ghobject_t(hoid, ghobject_t::NO_GEN, get_parent()->whoami_shard().shard),
+      &st);
+    ECUtil::HashInfo hinfo(ec_impl->get_chunk_count());
+    if (r >= 0 && st.st_size > 0) {
+      dout(10) << __func__ << ": found on disk, size " << st.st_size << dendl;
+      bufferlist bl;
+      r = store->getattr(
+	coll,
+	ghobject_t(hoid, ghobject_t::NO_GEN, get_parent()->whoami_shard().shard),
+	ECUtil::HINFO_KEY,
+	bl);
+      if (r >= 0) {
+	bufferlist::iterator bp = bl.begin();
+	::decode(hinfo, bp);
+      } else {
+	assert(0 == "missing hash attr");
+      }
+    }
+    ref = unstable_hashinfo_registry.lookup_or_create(hoid, hinfo);
+  }
+  return ref;
+}
+
 void ECBackend::check_op(Op *op)
 {
   if (op->pending_apply.empty() && op->on_all_applied) {
@@ -1342,6 +1387,7 @@ void ECBackend::start_write(Op *op) {
     trans[i->shard];
   }
   op->t->generate_transactions(
+    op->unstable_hash_infos,
     ec_impl,
     get_parent()->get_info().pgid.pgid,
     sinfo,
@@ -1523,9 +1569,33 @@ void ECBackend::objects_read_async(
   return;
 }
 
+
+int ECBackend::objects_get_attrs(
+  const hobject_t &hoid,
+  map<string, bufferlist> *out)
+{
+  int r = store->getattrs(
+    coll,
+    ghobject_t(hoid, ghobject_t::NO_GEN, get_parent()->whoami_shard().shard),
+    *out);
+  if (r < 0)
+    return r;
+
+  for (map<string, bufferlist>::iterator i = out->begin();
+       i != out->end();
+       ) {
+    if (ECUtil::is_hinfo_key_string(i->first))
+      out->erase(i++);
+    else
+      ++i;
+  }
+  return r;
+}
+
 void ECBackend::rollback_append(
   const hobject_t &hoid,
   uint64_t old_size,
+  uint64_t len,
   ObjectStore::Transaction *t)
 {
   assert(old_size % sinfo.get_stripe_width() == 0);
@@ -1540,14 +1610,14 @@ void ECBackend::be_deep_scrub(
   const hobject_t &poid,
   ScrubMap::object &o,
   ThreadPool::TPHandle &handle) {
-  bufferhash h;
-  bufferlist bl, hdrbl;
+  bufferhash h(-1);
   int r;
   uint64_t stride = cct->_conf->osd_deep_scrub_stride;
   if (stride % sinfo.get_chunk_size())
     stride += sinfo.get_chunk_size() - (stride % sinfo.get_chunk_size());
   uint64_t pos = 0;
   while (true) {
+    bufferlist bl;
     handle.reset_tp_timeout();
     r = store->read(
       coll,
@@ -1563,27 +1633,35 @@ void ECBackend::be_deep_scrub(
       break;
     }
     pos += r;
-    bufferlist hashbl;
-    for (uint64_t pos = 0; pos < bl.length(); pos += sinfo.get_chunk_size()) {
-      uint32_t objhash;
-      bufferlist unpacked_chunk, packed_chunk;
-      packed_chunk.substr_of(bl, pos, sinfo.get_chunk_size());
-      r = ECUtil::unpack_verify_chunk(
-	sinfo, packed_chunk, &unpacked_chunk, &objhash);
-      if (r < 0)
-	break;
-      ::encode(objhash, hashbl);
-    }
-    if (r < 0)
+    h << bl;
+    if ((unsigned)r < stride)
       break;
-    h << hashbl;
   }
+
+  ECUtil::HashInfoRef hinfo = get_hash_info(poid);
   if (r == -EIO) {
-    dout(25) << "_scan_list  " << poid << " got "
-	     << r << " on read, read_error" << dendl;
+    dout(0) << "_scan_list  " << poid << " got "
+	    << r << " on read, read_error" << dendl;
     o.read_error = true;
   }
-  o.digest = h.digest();
+
+  if (hinfo->get_chunk_hash(get_parent()->whoami_shard().shard) != h.digest()) {
+    dout(0) << "_scan_list  " << poid << " got incorrect hash on read" << dendl;
+    o.read_error = true;
+  }
+
+  if (hinfo->get_total_chunk_size() != pos) {
+    dout(0) << "_scan_list  " << poid << " got incorrect size on read" << dendl;
+    o.read_error = true;
+  }
+
+  /* We checked above that we match our own stored hash.  We cannot
+   * send a hash of the actual object, so instead we simply send
+   * our locally stored hash of shard 0 on the assumption that if
+   * we match our chunk hash and our recollection of the hash for
+   * chunk 0 matches that of our peers, there is likely no corruption.
+   */
+  o.digest = hinfo->get_chunk_hash(0);
   o.digest_present = true;
 
   o.omap_digest = 0;
