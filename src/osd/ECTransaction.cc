@@ -156,7 +156,7 @@ struct TransGenerator : public boost::static_visitor<void> {
       i->second.setattr(
 	get_coll_ct(i->first, op.oid),
 	ghobject_t(op.oid, ghobject_t::NO_GEN, i->first),
-	ECUtil::HINFO_KEY,
+	ECUtil::get_hinfo_key(),
 	hbuf);
     }
   }

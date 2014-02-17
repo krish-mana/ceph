@@ -189,3 +189,8 @@ bool ECUtil::is_hinfo_key_string(const string &key)
 {
   return key == HINFO_KEY;
 }
+
+const string &ECUtil::get_hinfo_key()
+{
+  return HINFO_KEY;
+}

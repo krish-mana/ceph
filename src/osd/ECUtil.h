@@ -147,6 +147,7 @@ public:
 typedef std::tr1::shared_ptr<HashInfo> HashInfoRef;
 
 bool is_hinfo_key_string(const string &key);
+const string &get_hinfo_key();
 
 };
 WRITE_CLASS_ENCODER(ECUtil::HashInfo)

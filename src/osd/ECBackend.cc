@@ -1338,7 +1338,7 @@ ECUtil::HashInfoRef ECBackend::get_hash_info(
       r = store->getattr(
 	coll,
 	ghobject_t(hoid, ghobject_t::NO_GEN, get_parent()->whoami_shard().shard),
-	ECUtil::HINFO_KEY,
+	ECUtil::get_hinfo_key(),
 	bl);
       if (r >= 0) {
 	bufferlist::iterator bp = bl.begin();
