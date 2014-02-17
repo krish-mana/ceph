@@ -1119,6 +1119,27 @@ PGBackend::PGTransaction *ECBackend::get_transaction()
   return new ECTransaction;
 }
 
+struct MustPrependHashInfo : public ObjectModDesc::Visitor {
+  enum { EMPTY, FOUND_APPEND, FOUND_CREATE_STASH } state;
+  MustPrependHashInfo() : state(EMPTY) {}
+  void append(uint64_t) {
+    if (state == EMPTY) {
+      state = FOUND_APPEND;
+    }
+  }
+  void rmobject(version_t) {
+    if (state == EMPTY) {
+      state = FOUND_CREATE_STASH;
+    }
+  }
+  void create() {
+    if (state == EMPTY) {
+      state = FOUND_CREATE_STASH;
+    }
+  }
+  bool must_prepend_hash_info() const { return state == FOUND_APPEND; }
+};
+
 void ECBackend::submit_transaction(
   const hobject_t &hoid,
   const eversion_t &at_version,
@@ -1157,6 +1178,27 @@ void ECBackend::submit_transaction(
       make_pair(
 	*i,
 	get_hash_info(*i)));
+  }
+
+  for (vector<pg_log_entry_t>::iterator i = log_entries.begin();
+       i != log_entries.end();
+       ++i) {
+    MustPrependHashInfo vis;
+    i->mod_desc.visit(&vis);
+    if (vis.must_prepend_hash_info()) {
+      dout(10) << __func__ << ": stashing HashInfo for "
+	       << i->soid << " for entry " << *i << dendl;
+      assert(op->unstable_hash_infos.count(i->soid));
+      ObjectModDesc desc;
+      map<string, boost::optional<bufferlist> > old_attrs;
+      bufferlist old_hinfo;
+      ::encode(op->unstable_hash_infos[i->soid], old_hinfo);
+      old_attrs[ECUtil::get_hinfo_key()] = old_hinfo;
+      desc.setattrs(old_attrs);
+      i->mod_desc.swap(desc);
+      i->mod_desc.claim_append(desc);
+      assert(i->mod_desc.can_rollback());
+    }
   }
 
   dout(10) << __func__ << ": op " << *op << " starting" << dendl;
@@ -1343,6 +1385,7 @@ ECUtil::HashInfoRef ECBackend::get_hash_info(
       if (r >= 0) {
 	bufferlist::iterator bp = bl.begin();
 	::decode(hinfo, bp);
+	assert(hinfo.get_total_chunk_size() == (unsigned)st.st_size);
       } else {
 	assert(0 == "missing hash attr");
       }
