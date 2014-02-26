@@ -7186,6 +7186,23 @@ void OSDService::handle_misdirected_op(PG *pg, OpRequestRef op)
     return;
   }
 
+  OSDMapRef opmap = try_get_map(m->get_map_epoch());
+  if (!opmap) {
+    dout(7) << __func__ << ": " << *pg << " no longer have map for "
+	    << m->get_map_epoch() << ", dropping" << dendl;
+    return;
+  }
+  pg_t _pgid = m->get_pg();
+  spg_t pgid;
+  if ((m->get_flags() & CEPH_OSD_FLAG_PGOP) == 0)
+    _pgid = opmap->raw_pg_to_pg(_pgid);
+  if (opmap->get_primary_shard(_pgid, &pgid) &&
+      pgid.shard != pg->info.pgid.shard) {
+    dout(7) << __func__ << ": " << *pg << " primary changed since "
+	    << m->get_map_epoch() << ", dropping" << dendl;
+    return;
+  }
+
   dout(7) << *pg << " misdirected op in " << m->get_map_epoch() << dendl;
   clog.warn() << m->get_source_inst() << " misdirected " << m->get_reqid()
 	      << " pg " << m->get_pg()
