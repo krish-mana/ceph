@@ -1053,6 +1053,8 @@ bool OSD::asok_command(string command, cmdmap_t& cmdmap, string format,
     }
 
     f->close_section(); //watches
+  } else if (command == "dump_ptr") {
+    buffer::dump_live_buffer_ptrs(f);
   } else {
     assert(0 == "broken asok registration");
   }
@@ -1276,6 +1278,10 @@ void OSD::final_init()
   r = admin_socket->register_command("dump_ops_in_flight",
 				     "dump_ops_in_flight", asok_hook,
 				     "show the ops currently in flight");
+  assert(r == 0);
+  r = admin_socket->register_command("dump_ptr",
+				     "dump_ptr", asok_hook,
+				     "show live ptrs");
   assert(r == 0);
   r = admin_socket->register_command("dump_historic_ops", "dump_historic_ops",
 				     asok_hook,

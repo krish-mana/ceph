@@ -94,6 +94,7 @@ public:
     int code;
   };
 
+  static void dump_live_buffer_ptrs(void *f);
 
   /// total bytes allocated
   static int get_total_alloc();
@@ -153,11 +154,13 @@ public:
   class ptr {
     raw *_raw;
     unsigned _off, _len;
+    uint64_t _id;
 
+    void reg(raw *r);
     void release();
 
   public:
-    ptr() : _raw(0), _off(0), _len(0) {}
+    ptr() : _raw(0), _off(0), _len(0), _id(0) {}
     ptr(raw *r);
     ptr(unsigned l);
     ptr(const char *d, unsigned l);

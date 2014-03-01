@@ -23,6 +23,9 @@
 #include "include/types.h"
 #include "include/compat.h"
 #include "include/Spinlock.h"
+#include "common/BackTrace.h"
+#include "common/Formatter.h"
+#include "common/Mutex.h"
 
 #include <errno.h>
 #include <fstream>
@@ -41,8 +44,44 @@ static uint32_t simple_spinlock_t buffer_debug_lock = SIMPLE_SPINLOCK_INITIALIZE
 # define bendl std::endl; }
 #endif
 
+  static Mutex buffer_map_lock("buffer_map_lock");
+  std::map<void*, std::pair<uint64_t, std::map<uint64_t, std::string> > > live_refs;
+  uint64_t next_ref_id(1);
+
+
   atomic_t buffer_total_alloc;
   bool buffer_track_alloc = get_env_bool("CEPH_BUFFER_TRACK");
+
+  void buffer::dump_live_buffer_ptrs(void *_f) {
+    Formatter *f = static_cast<Formatter *>(_f);
+    std::map<void*, pair<uint64_t, std::map<uint64_t, std::string> > > refs;
+    {
+      Mutex::Locker l(buffer_map_lock);
+      refs = live_refs;
+    }
+    f->open_array_section("ptrs");
+    for (std::map<void*, pair<uint64_t, std::map<uint64_t, std::string> > >::iterator i =
+	   refs.begin();
+	 i != refs.end();
+	 ++i) {
+      f->open_object_section("ptr");
+      f->dump_stream("raw") << i->first;
+      f->dump_unsigned("size", i->second.first);
+      f->open_array_section("refs");
+      for (std::map<uint64_t, std::string>::iterator j =
+	     i->second.second.begin();
+	   j != i->second.second.end();
+	   ++j) {
+	f->open_object_section("ref");
+	f->dump_stream("id") << j->first;
+	f->dump_stream("bt") << j->second;
+	f->close_section();
+      }
+      f->close_section();
+      f->close_section();
+    }
+    f->close_section();
+  }
 
   void buffer::inc_total_alloc(unsigned len) {
     if (buffer_track_alloc)
@@ -539,48 +578,42 @@ static uint32_t simple_spinlock_t buffer_debug_lock = SIMPLE_SPINLOCK_INITIALIZE
 #endif
   }
 
-  buffer::ptr::ptr(raw *r) : _raw(r), _off(0), _len(r->len)   // no lock needed; this is an unref raw.
+  buffer::ptr::ptr(raw *r) : _raw(0), _off(0), _len(r->len)   // no lock needed; this is an unref raw.
   {
-    r->nref.inc();
+    reg(r);
     bdout << "ptr " << this << " get " << _raw << bendl;
   }
-  buffer::ptr::ptr(unsigned l) : _off(0), _len(l)
+  buffer::ptr::ptr(unsigned l) : _raw(0), _off(0), _len(l)
   {
-    _raw = create(l);
-    _raw->nref.inc();
+    reg(create(l));
     bdout << "ptr " << this << " get " << _raw << bendl;
   }
-  buffer::ptr::ptr(const char *d, unsigned l) : _off(0), _len(l)    // ditto.
+  buffer::ptr::ptr(const char *d, unsigned l) : _raw(0), _off(0), _len(l)    // ditto.
   {
-    _raw = copy(d, l);
-    _raw->nref.inc();
+    reg(copy(d, l));
     bdout << "ptr " << this << " get " << _raw << bendl;
   }
-  buffer::ptr::ptr(const ptr& p) : _raw(p._raw), _off(p._off), _len(p._len)
+  buffer::ptr::ptr(const ptr& p) : _raw(0), _off(p._off), _len(p._len)
   {
-    if (_raw) {
-      _raw->nref.inc();
+    if (p._raw) {
+      reg(p._raw);
       bdout << "ptr " << this << " get " << _raw << bendl;
     }
   }
   buffer::ptr::ptr(const ptr& p, unsigned o, unsigned l)
-    : _raw(p._raw), _off(p._off + o), _len(l)
+    : _raw(0), _off(p._off + o), _len(l)
   {
     assert(o+l <= p._len);
-    assert(_raw);
-    _raw->nref.inc();
+    assert(p._raw);
+    reg(p._raw);
     bdout << "ptr " << this << " get " << _raw << bendl;
   }
   buffer::ptr& buffer::ptr::operator= (const ptr& p)
   {
-    if (p._raw) {
-      p._raw->nref.inc();
-      bdout << "ptr " << this << " get " << _raw << bendl;
-    }
-    buffer::raw *raw = p._raw; 
     release();
-    if (raw) {
-      _raw = raw;
+    if (p._raw) {
+      reg(p._raw);
+      bdout << "ptr " << this << " get " << _raw << bendl;
       _off = p._off;
       _len = p._len;
     } else {
@@ -596,15 +629,31 @@ static uint32_t simple_spinlock_t buffer_debug_lock = SIMPLE_SPINLOCK_INITIALIZE
 
   void buffer::ptr::swap(ptr& other)
   {
-    raw *r = _raw;
-    unsigned o = _off;
-    unsigned l = _len;
-    _raw = other._raw;
-    _off = other._off;
-    _len = other._len;
-    other._raw = r;
-    other._off = o;
-    other._len = l;
+    buffer::ptr o(*this);
+    *this = other;
+    other = o;
+  }
+
+  
+  void buffer::ptr::reg(raw *r)
+  {
+    assert(!_raw);
+    _raw = r;
+    r->nref.inc();
+
+    stringstream ss;
+    if (r->len >= 1<<20) {
+      BackTrace bt(3);
+      bt.print(ss);
+    }
+    {
+      Mutex::Locker l(buffer_map_lock);
+      _id = next_ref_id++;
+
+      if (!live_refs.count(r))
+	live_refs[r].first = r->len;
+      live_refs[r].second[_id] = ss.str();
+    }
   }
 
   void buffer::ptr::release()
@@ -615,7 +664,19 @@ static uint32_t simple_spinlock_t buffer_debug_lock = SIMPLE_SPINLOCK_INITIALIZE
 	//cout << "hosing raw " << (void*)_raw << " len " << _raw->len << std::endl;
 	delete _raw;  // dealloc old (if any)
       }
+
+      {
+	assert(_id > 0);
+	Mutex::Locker l(buffer_map_lock);
+	assert(live_refs.count(_raw));
+	assert(live_refs[_raw].second.count(_id));
+	live_refs[_raw].second.erase(_id);
+	if (live_refs[_raw].second.empty()) {
+	  live_refs.erase(_raw);
+	}
+      }
       _raw = 0;
+      _id = 0;
     }
   }
 
@@ -946,6 +1007,10 @@ static uint32_t simple_spinlock_t buffer_debug_lock = SIMPLE_SPINLOCK_INITIALIZE
 
   void buffer::list::swap(list& other)
   {
+    buffer::list o = *this;
+    *this = other;
+    other = o;
+    return;
     std::swap(_len, other._len);
     _buffers.swap(other._buffers);
     append_buffer.swap(other.append_buffer);
@@ -1145,6 +1210,9 @@ void buffer::list::rebuild_page_aligned()
 
   void buffer::list::claim_append(list& bl)
   {
+    append(bl);
+    bl.clear();
+    return;
     // steal the other guy's buffers
     _len += bl._len;
     _buffers.splice( _buffers.end(), bl._buffers );
