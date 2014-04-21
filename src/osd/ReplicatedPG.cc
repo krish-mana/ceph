@@ -7623,18 +7623,16 @@ void ReplicatedBackend::prepare_pull(
 
   assert(peer_missing.count(fromshard));
   const pg_missing_t &pmissing = peer_missing.find(fromshard)->second;
-  if (pmissing.is_missing(soid, v)) {
-    assert(pmissing.missing.find(soid)->second.have != v);
+  assert(!pmissing.is_missing(soid, v));
+  if (get_parent()->get_log().get_log().objects.count(soid) &&
+      (get_parent()->get_log().get_log().objects.find(soid)->second->op ==
+       pg_log_entry_t::LOST_REVERT)) {
+    eversion_t reverting_to = get_parent()->get_log().get_log().objects.find(
+      soid)->second->reverting_to;
     dout(10) << "pulling soid " << soid << " from osd " << fromshard
-	     << " at version " << pmissing.missing.find(soid)->second.have
+	     << " at version " << reverting_to
 	     << " rather than at version " << v << dendl;
-    v = pmissing.missing.find(soid)->second.have;
-    assert(get_parent()->get_log().get_log().objects.count(soid) &&
-	   (get_parent()->get_log().get_log().objects.find(soid)->second->op ==
-	    pg_log_entry_t::LOST_REVERT) &&
-	   (get_parent()->get_log().get_log().objects.find(
-	     soid)->second->reverting_to ==
-	    v));
+    v = reverting_to;
   }
   
   ObjectRecoveryInfo recovery_info;
