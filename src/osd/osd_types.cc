@@ -2871,7 +2871,10 @@ eversion_t pg_missing_t::have_old(const hobject_t& oid) const
  */
 void pg_missing_t::add_next_event(const pg_log_entry_t& e)
 {
-  if (e.is_update()) {
+  if (e.is_lost_revert() && have_old(e.soid) == e.reverting_to) {
+    // got the version to which we are reverting
+    got(e.soid, e.version);
+  } else if (e.is_update()) {
     if (e.prior_version == eversion_t() || e.is_clone()) {
       // new object.
       //assert(missing.count(e.soid) == 0);  // might already be missing divergent item.
