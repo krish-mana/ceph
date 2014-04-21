@@ -4396,6 +4396,12 @@ void PG::share_pg_log()
 	 i != m->log.log.end();
 	 ++i) {
       pmissing.add_next_event(*i);
+      if (missing_loc.needs_recovery(i->soid)) {
+	if (pmissing.is_missing(i->soid))
+	  missing_loc.remove_location(i->soid, peer);
+	else
+	  missing_loc.add_location(i->soid, peer);
+      }
     }
     pinfo.last_update = m->log.head;
 
