@@ -842,7 +842,8 @@ bool PGLog::read_log(ObjectStore *store, coll_t coll, hobject_t log_oid,
 	bv);
       if (r >= 0) {
 	object_info_t oi(bv);
-	if (oi.version < i->version) {
+	eversion_t should_have = i->is_lost_revert() ? i->reverting_to : i->version;
+	if (oi.version < should_have) {
 	  dout(15) << "read_log  missing " << *i << " (have " << oi.version << ")" << dendl;
 	  missing.add(i->soid, i->version, oi.version);
 	}
