@@ -8575,6 +8575,15 @@ void ReplicatedPG::_applied_recovered_object_replica()
 void ReplicatedPG::recover_got(hobject_t oid, eversion_t v)
 {
   dout(10) << "got missing " << oid << " v " << v << dendl;
+  if (pg_log.get_log().objects.count(oid) &&
+    pg_log.get_log().objects.find(oid)->second->op ==
+    pg_log_entry_t::LOST_REVERT &&
+    pg_log.get_log().objects.find(oid)->second->reverting_to ==
+    v) {
+    v = pg_log.get_log().objects.find(oid)->second->version;
+    dout(10) << "got missing adjusting v to " << v
+	     << " due to lost revert" << dendl;
+  }
   pg_log.recover_got(oid, v, info);
   if (pg_log.get_log().complete_to != pg_log.get_log().log.end()) {
     dout(10) << "last_complete now " << info.last_complete
