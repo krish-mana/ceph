@@ -217,26 +217,6 @@ void ReplicatedPG::on_local_recover(
       &_t);
   }
 
-  if (pg_log.get_missing().is_missing(recovery_info.soid) &&
-      pg_log.get_missing().missing.find(recovery_info.soid)->second.need > recovery_info.version) {
-    assert(is_primary());
-    const pg_log_entry_t *latest = pg_log.get_log().objects.find(recovery_info.soid)->second;
-    if (latest->op == pg_log_entry_t::LOST_REVERT &&
-	latest->reverting_to == recovery_info.version) {
-      dout(10) << " got old revert version " << recovery_info.version
-	       << " for " << *latest << dendl;
-      recovery_info.version = latest->version;
-      // update the attr to the revert event version
-      recovery_info.oi.prior_version = recovery_info.oi.version;
-      recovery_info.oi.version = latest->version;
-      bufferlist bl;
-      ::encode(recovery_info.oi, bl);
-      t->setattr(coll, recovery_info.soid, OI_ATTR, bl);
-      if (obc)
-	obc->attr_cache[OI_ATTR] = bl;
-    }
-  }
-
   // keep track of active pushes for scrub
   ++active_pushes;
 
@@ -9537,66 +9517,27 @@ int ReplicatedPG::recover_primary(int max, ThreadPool::TPHandle &handle)
 
       case pg_log_entry_t::LOST_REVERT:
 	{
-	  if (item.have == latest->reverting_to) {
-	    ObjectContextRef obc = get_object_context(soid, true);
-	    
-	    if (obc->obs.oi.version == latest->version) {
-	      // I'm already reverting
-	      dout(10) << " already reverting " << soid << dendl;
-	    } else {
-	      dout(10) << " reverting " << soid << " to " << latest->prior_version << dendl;
-	      obc->ondisk_write_lock();
-	      obc->obs.oi.version = latest->version;
-
-	      ObjectStore::Transaction *t = new ObjectStore::Transaction;
-	      t->register_on_applied(new ObjectStore::C_DeleteTransaction(t));
-	      bufferlist b2;
-	      obc->obs.oi.encode(b2);
-	      t->setattr(coll, soid, OI_ATTR, b2);
-
-	      recover_got(soid, latest->version);
-	      missing_loc.add_location(soid, pg_whoami);
-
-	      ++active_pushes;
-
-	      osd->store->queue_transaction(osr.get(), t,
-					    new C_OSD_AppliedRecoveredObject(this, obc),
-					    new C_OSD_CommittedPushedObject(
-					      this,
-					      get_osdmap()->get_epoch(),
-					      info.last_complete),
-					    new C_OSD_OndiskWriteUnlock(obc));
-	      continue;
-	    }
-	  } else {
-	    /*
-	     * Pull the old version of the object.  Update missing_loc here to have the location
-	     * of the version we want.
-	     *
-	     * This doesn't use the usual missing_loc paths, but that's okay:
-	     *  - if we have it locally, we hit the case above, and go from there.
-	     *  - if we don't, we always pass through this case during recovery and set up the location
-	     *    properly.
-	     *  - this way we don't need to mangle the missing code to be general about needing an old
-	     *    version...
-	     */
-	    eversion_t alternate_need = latest->reverting_to;
-	    dout(10) << " need to pull prior_version " << alternate_need << " for revert " << item << dendl;
-
-	    for (map<pg_shard_t, pg_missing_t>::iterator p = peer_missing.begin();
-		 p != peer_missing.end();
-		 ++p)
-	      if (p->second.is_missing(soid, need) &&
-		  p->second.missing[soid].have == alternate_need) {
-		missing_loc.add_location(soid, p->first);
-	      }
-	    dout(10) << " will pull " << alternate_need << " or " << need
-		     << " from one of " << missing_loc.get_locations(soid)
-		     << dendl;
-	    unfound = false;
-	  }
+	  assert(item.have != latest->reverting_to);
+	  /*
+	   * Pull the old version of the object.  Update missing_loc here to have the location
+	   * of the version we want.
+	   *
+	   * This doesn't use the usual missing_loc paths, but that's okay:
+	   *  - if we have it locally, we hit the case above, and go from there.
+	   *  - if we don't, we always pass through this case during recovery and set up the location
+	   *    properly.
+	   *  - this way we don't need to mangle the missing code to be general about needing an old
+	   *    version...
+	   */
+	  eversion_t alternate_need = latest->reverting_to;
+	  dout(10) << " need to pull reverting_to " << alternate_need
+		   << " for revert " << item
+		   << " will pull " << alternate_need << " or " << need
+		   << " from one of " << missing_loc.get_locations(soid)
+		   << dendl;
+	  unfound = false;
+	  break;
 	}
-	break;
       }
     }
    
