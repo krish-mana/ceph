@@ -151,6 +151,9 @@ protected:
   /// called when the last non-OpTracker reference is dropped
   virtual void _unregistered() {};
 
+  virtual const string &get_op_class() const = 0;
+  virtual const string &get_op_descriptor() const = 0;
+
 public:
   virtual ~TrackedOp() {}
 

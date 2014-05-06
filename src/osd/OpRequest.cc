@@ -12,12 +12,18 @@
 #include "include/assert.h"
 #include "osd/osd_types.h"
 
-
+static string build_op_desc_string(Message *req) {
+  stringstream ss;
+  req->print(ss);
+  return ss.str();
+}
 
 OpRequest::OpRequest(Message *req, OpTracker *tracker) :
   TrackedOp(tracker, req->get_recv_stamp()),
   rmw_flags(0), request(req),
   hit_flag_points(0), latest_flag_point(0),
+  op_class(req ? req->get_type_name() : ""),
+  op_desc(build_op_desc_string(req)),
   send_map_update(false), sent_epoch(0) {
   if (req->get_priority() < tracker->cct->_conf->osd_client_op_priority) {
     // don't warn as quickly for low priority ops

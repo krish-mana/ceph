@@ -22,7 +22,7 @@
 #include "include/xlist.h"
 #include "msg/Message.h"
 #include "include/memory.h"
-#include "common/TrackedOp.h"
+#include "optracker/TrackedOp.h"
 
 /**
  * osd request identifier
@@ -87,6 +87,10 @@ private:
   static const uint8_t flag_sub_op_sent = 1 << 4;
   static const uint8_t flag_commit_sent = 1 << 5;
 
+  const string op_class;
+  const string op_desc;
+  const string &get_op_class() const { return op_class; }
+  const string &get_op_descriptor() const { return op_desc; }
   OpRequest(Message *req, OpTracker *tracker);
 
 protected:
