@@ -12,7 +12,7 @@
  *
  */
 
-#ifdef CEPH_TRACKED_RESOURCE_H
+#ifndef CEPH_TRACKED_RESOURCE_H
 #define CEPH_TRACKED_RESOURCE_H
 
 #include "TrackedOp.h"
