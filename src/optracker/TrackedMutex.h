@@ -15,6 +15,7 @@
 #ifndef CEPH_TRACKED_MUTEX_H
 #define CEPH_TRACKED_MUTEX_H
 
+#include "TrackedResource.h"
 #include "common/Formatter.h"
 #include "common/Mutex.h"
 
@@ -41,7 +42,8 @@ public:
   void Lock(
     TrackedOpRef op,
     bool no_lockdep=false);
-  void Unlock() { return lock.Unlock(); }
+  void Unlock(
+    TrackedOpRef op);
 
   void status(Formatter *f) const {}
 
@@ -50,13 +52,14 @@ public:
   }
 
   class Locker {
+    TrackedOpRef &op;
     TrackedMutex &mutex;
   public:
-    Locker(Mutex& m) : mutex(m) {
-      mutex.Lock();
+    Locker(TrackedOpRef &op, TrackedMutex& m) : op(op), mutex(m) {
+      mutex.Lock(op);
     }
     ~Locker() {
-      mutex.Unlock();
+      mutex.Unlock(op);
     }
   };
 };

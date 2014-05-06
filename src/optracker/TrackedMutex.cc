@@ -18,6 +18,11 @@
 #include "optracker_probes.h"
 #endif
 
+void TrackedMutex::Unlock(
+  TrackedOpRef op) {
+  return lock.Unlock();
+}
+
 void TrackedMutex::Lock(
   TrackedOpRef op,
   bool no_lockdep) {
