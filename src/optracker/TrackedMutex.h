@@ -18,10 +18,6 @@
 #include "common/Formatter.h"
 #include "common/Mutex.h"
 
-#ifdef ENABLE_SYSTEMTAP
-#include "optracker_probes.h"
-#endif
-
 class TrackedMutex : public TrackedResource {
   const string class_id;
   const string inst_id;

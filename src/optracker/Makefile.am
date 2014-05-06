@@ -10,6 +10,8 @@ OPTRACKERPROBELDADD =
 endif
 
 liboptracker_la_SOURCES = \
+	optracker/TrackedResource.cc \
+	optracker/TrackedMutex.cc \
 	optracker/TrackedOp.cc
 
 if ENABLE_SYSTEMTAP
@@ -23,5 +25,6 @@ liboptracker_la_LIBADD = $(LIBCOMMON)
 
 noinst_HEADERS += \
 	optracker/TrackedMutex.h \
+	optracker/TrackedResource.h \
 	optracker/TrackedOp.h
 
