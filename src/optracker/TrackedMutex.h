@@ -37,7 +37,7 @@ public:
     CephContext *cct=0)
     : class_id(_class_id),
       inst_id(_inst_id),
-      res_id({"mutex", class_id.c_str(), inst_id.c_str()}),
+      res_id("mutex", class_id.c_str(), inst_id.c_str()),
       lock(string(class_id + "/" + inst_id).c_str(), r, ld, bt, cct) {}
 
   bool is_locked() const { return lock.is_locked(); }
@@ -50,7 +50,7 @@ public:
   void status(Formatter *f) const {}
 
   const tracked_res_t *get_res_id() {
-    
+    return &res_id;
   }
 
   class Locker {

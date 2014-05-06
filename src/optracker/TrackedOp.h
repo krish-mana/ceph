@@ -115,6 +115,13 @@ public:
   }
 };
 
+struct tracked_op_t {
+  const char *class_id;
+  const char *inst_id;
+  tracked_op_t(const char *ci, const char *ii)
+    : class_id(ci), inst_id(ii) {}
+};
+
 class TrackedOp {
 private:
   friend class OpHistory;
@@ -153,6 +160,7 @@ protected:
 
   virtual const string &get_op_class() const = 0;
   virtual const string &get_op_descriptor() const = 0;
+  virtual const tracked_op_t *get_op_id() const = 0;
 
 public:
   virtual ~TrackedOp() {}

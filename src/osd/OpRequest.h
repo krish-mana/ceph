@@ -89,8 +89,10 @@ private:
 
   const string op_class;
   const string op_desc;
+  const tracked_op_t op_id;
   const string &get_op_class() const { return op_class; }
   const string &get_op_descriptor() const { return op_desc; }
+  const tracked_op_t *get_op_id() const { return &op_id; }
   OpRequest(Message *req, OpTracker *tracker);
 
 protected:
