@@ -12,7 +12,7 @@
  *
  */
 
-#ifdef CEPH_TRACKED_MUTEX_H
+#ifndef CEPH_TRACKED_MUTEX_H
 #define CEPH_TRACKED_MUTEX_H
 
 #include "common/Formatter.h"
