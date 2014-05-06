@@ -15,24 +15,43 @@
 #ifdef CEPH_TRACKED_MUTEX_H
 #define CEPH_TRACKED_MUTEX_H
 
+#include "common/Formatter.h"
 #include "common/Mutex.h"
 
 #ifdef ENABLE_SYSTEMTAP
 #include "optracker_probes.h"
 #endif
 
-class TrackedMutex {
+class TrackedMutex : public TrackedResource {
+  const string class_id;
+  const string inst_id;
+
+  const tracked_res_t res_id; 
+
   Mutex lock;
 public:
   TrackedMutex(
-    const char *n, bool r=false, bool ld=true, bool bt=false,
+    const string &_class_id,
+    const string &_inst_id,
+    bool r=false, bool ld=true, bool bt=false,
     CephContext *cct=0)
-    : lock(n, r, ld, bt, cct) {}
+    : class_id(_class_id),
+      inst_id(_inst_id),
+      res_id({"mutex", class_id.c_str(), inst_id.c_str()}),
+      lock(string(class_id + "/" + inst_id).c_str(), r, ld, bt, cct) {}
 
   bool is_locked() const { return lock.is_locked(); }
   bool is_locked_by_me() const { return lock.is_locked_by_me(); }
-  void Lock(bool no_lockdep=false) { return lock.lock(no_lockdep); }
+  void Lock(
+    TrackedOpRef op,
+    bool no_lockdep=false);
   void Unlock() { return lock.Unlock(); }
+
+  void status(Formatter *f) const {}
+
+  const tracked_res_t *get_res_id() {
+    
+  }
 
   class Locker {
     TrackedMutex &mutex;
