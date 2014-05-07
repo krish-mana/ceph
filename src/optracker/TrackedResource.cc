@@ -29,7 +29,9 @@ void TrackedResource::log_event(
 #ifdef HAVE_SYSTEMTAP
   if (CEPH_OPTRACKER_RES_EVENT_ENABLED()) {
     JSONFormatter f;
+    f.open_object_section("status");
     get_status(&f);
+    f.close_section();
     stringstream ss;
     f.flush(ss);
     string status = ss.str();
