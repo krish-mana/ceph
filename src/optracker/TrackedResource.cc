@@ -33,7 +33,7 @@ void TrackedResource::log_event(
     stringstream ss;
     f.flush(ss);
     string status = ss.str();
-    CEPH_OP_TRACKER_RES_EVENT(
+    CEPH_OPTRACKER_RES_EVENT(
       get_res_id(),
       op ? op->get_op_id() : &nullop,
       evt.c_str(),
