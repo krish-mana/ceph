@@ -14,7 +14,7 @@
 
 #include "TrackedResource.h"
 
-#ifdef ENABLE_SYSTEMTAP
+#ifdef HAVE_SYSTEMTAP
 #include "optracker_probes.h"
 #endif
 
@@ -26,7 +26,7 @@ void TrackedResource::log_event(
   TrackedOpRef op,
   const string &evt)
 {
-#ifdef ENABLE_SYSTEMTAP
+#ifdef HAVE_SYSTEMTAP
   if (CEPH_OPTRACKER_RES_EVENT_ENABLED()) {
     JSONFormatter f;
     get_status(&f);

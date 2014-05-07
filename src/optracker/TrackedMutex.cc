@@ -14,10 +14,6 @@
 
 #include "TrackedMutex.h"
 
-#ifdef ENABLE_SYSTEMTAP
-#include "optracker_probes.h"
-#endif
-
 static const string UNCONTENDED_LOCKED("uncontended-lock");
 static const string CONTENDED_WAITING("contended-waiting");
 static const string CONTENDED_LOCKED("contended-locked");
