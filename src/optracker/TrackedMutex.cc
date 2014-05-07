@@ -18,6 +18,10 @@
 #include "optracker_probes.h"
 #endif
 
+static const string UNCONTENDED_LOCKED("uncontended-lock");
+static const string CONTENDED_WAITING("contended-waiting");
+static const string CONTENDED_LOCKED("contended-locked");
+
 void TrackedMutex::Unlock(
   TrackedOpRef op) {
   return lock.Unlock();
@@ -26,5 +30,12 @@ void TrackedMutex::Unlock(
 void TrackedMutex::Lock(
   TrackedOpRef op,
   bool no_lockdep) {
-  return lock.Lock(no_lockdep);
+  if (lock.TryLock()) {
+    log_event(op, UNCONTENDED_LOCKED);
+  } else {
+    log_event(op, CONTENDED_WAITING);
+    lock.Lock(no_lockdep);
+    log_event(op, CONTENDED_LOCKED);
+  }
+  return;
 }
