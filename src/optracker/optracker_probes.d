@@ -1,13 +1,14 @@
-struct res_t {
-   string type_id;
-   string class_id;
-   string inst_id;
-};
-struct op_t {
-   string class_id;
-   string inst_id;
-};
 provider ceph_optracker {
-  probe op_event(string, string, string);
-  probe res_event(struct res_t res, struct op_t op, string event, string status);
+  probe op_event(
+    string class_id,
+    string inst_id,
+    string event);
+  probe res_event(
+    string res_type_id,
+    string res_class_id,
+    string res_inst_id,
+    string op_class_id,
+    string op_inst_id,
+    string event,
+    string state);
 }
