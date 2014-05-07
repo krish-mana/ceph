@@ -250,9 +250,13 @@ public:
   bool deleting;  // true while in removing or OSD is shutting down
 
 
-  void lock_suspend_timeout(TrackedOpRef op, ThreadPool::TPHandle &handle);
-  void lock(TrackedOpRef op, bool no_lockdep = false);
-  void unlock(TrackedOpRef op) {
+  void lock_suspend_timeout(ThreadPool::TPHandle &handle,
+			    TrackedOpRef op = TrackedOpRef());
+  void lock(bool no_lockdep = false, TrackedOpRef op = TrackedOpRef());
+  void lock(TrackedOpRef op) {
+    return lock(false, op);
+  }
+  void unlock(TrackedOpRef op = TrackedOpRef()) {
     //generic_dout(0) << this << " " << info.pgid << " unlock" << dendl;
     assert(!dirty_info);
     assert(!dirty_big_info);

@@ -152,6 +152,13 @@ void PGPool::update(OSDMapRef map)
     << dendl;
 }
 
+static string print_spg_t(spg_t pgid)
+{
+  stringstream ss;
+  ss << pgid;
+  return ss.str();
+}
+
 PG::PG(OSDService *o, OSDMapRef curmap,
        const PGPool &_pool, spg_t p, const hobject_t& loid,
        const hobject_t& ioid) :
@@ -209,8 +216,8 @@ PG::~PG()
 }
 
 void PG::lock_suspend_timeout(
-  TrackedOpRef op,
-  ThreadPool::TPHandle &handle)
+  ThreadPool::TPHandle &handle,
+  TrackedOpRef op)
 {
   handle.suspend_tp_timeout();
   lock(op);
@@ -218,8 +225,8 @@ void PG::lock_suspend_timeout(
 }
 
 void PG::lock(
-  TrackedOpRef op,
-  bool no_lockdep)
+  bool no_lockdep,
+  TrackedOpRef op)
 {
   _lock.Lock(op, no_lockdep);
   // if we have unrecorded dirty state with the lock dropped, there is a bug
@@ -1754,7 +1761,7 @@ void PG::replay_queued_ops()
 
 void PG::_activate_committed(epoch_t e)
 {
-  lock(());
+  lock();
   if (pg_has_reset_since(e)) {
     dout(10) << "_activate_committed " << e << ", that was an old interval" << dendl;
   } else if (is_primary()) {
