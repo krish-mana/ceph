@@ -1,0 +1,7 @@
+probe ceph_osd.op_event =
+			process("ceph-osd").provider("ceph_optracker").mark("op_event")
+{
+			class = user_string($0)
+			inst = user_string($1)
+			event = user_string($2)
+}
