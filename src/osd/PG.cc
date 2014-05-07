@@ -166,7 +166,7 @@ PG::PG(OSDService *o, OSDMapRef curmap,
     p.shard),
   map_lock("PG::map_lock"),
   osdmap_ref(curmap), last_persisted_osdmap_ref(curmap), pool(_pool),
-  _lock("PG::_lock"),
+  _lock(string("PGLock"), print_spg_t(p)),
   ref(0),
   #ifdef PG_DEBUG_REFS
   _ref_id_lock("PG::_ref_id_lock"), _ref_id(0),
@@ -208,16 +208,20 @@ PG::~PG()
 #endif
 }
 
-void PG::lock_suspend_timeout(ThreadPool::TPHandle &handle)
+void PG::lock_suspend_timeout(
+  TrackedOpRef op,
+  ThreadPool::TPHandle &handle)
 {
   handle.suspend_tp_timeout();
-  lock();
+  lock(op);
   handle.reset_tp_timeout();
 }
 
-void PG::lock(bool no_lockdep)
+void PG::lock(
+  TrackedOpRef op,
+  bool no_lockdep)
 {
-  _lock.Lock(no_lockdep);
+  _lock.Lock(op, no_lockdep);
   // if we have unrecorded dirty state with the lock dropped, there is a bug
   assert(!dirty_info);
   assert(!dirty_big_info);
@@ -1750,7 +1754,7 @@ void PG::replay_queued_ops()
 
 void PG::_activate_committed(epoch_t e)
 {
-  lock();
+  lock(());
   if (pg_has_reset_since(e)) {
     dout(10) << "_activate_committed " << e << ", that was an old interval" << dendl;
   } else if (is_primary()) {

@@ -37,6 +37,7 @@
 #include "SnapMapper.h"
 
 #include "PGLog.h"
+#include "optracker/TrackedMutex.h"
 #include "OpRequest.h"
 #include "OSDMap.h"
 #include "os/ObjectStore.h"
@@ -235,7 +236,7 @@ protected:
    * put() should be called on destruction of some previously copied pointer.
    * put_unlock() when done with the current pointer (_most common_).
    */  
-  Mutex _lock;
+  TrackedMutex _lock;
   atomic_t ref;
 
 #ifdef PG_DEBUG_REFS
@@ -249,13 +250,13 @@ public:
   bool deleting;  // true while in removing or OSD is shutting down
 
 
-  void lock_suspend_timeout(ThreadPool::TPHandle &handle);
-  void lock(bool no_lockdep = false);
-  void unlock() {
+  void lock_suspend_timeout(TrackedOpRef op, ThreadPool::TPHandle &handle);
+  void lock(TrackedOpRef op, bool no_lockdep = false);
+  void unlock(TrackedOpRef op) {
     //generic_dout(0) << this << " " << info.pgid << " unlock" << dendl;
     assert(!dirty_info);
     assert(!dirty_big_info);
-    _lock.Unlock();
+    _lock.Unlock(op);
   }
 
   void assert_locked() {

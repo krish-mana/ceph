@@ -45,9 +45,9 @@ public:
   void Unlock(
     TrackedOpRef op);
 
-  void status(Formatter *f) const {}
+  void get_status(Formatter *f) const {}
 
-  const tracked_res_t *get_res_id() {
+  const tracked_res_t *get_res_id() const {
     return &res_id;
   }
 
