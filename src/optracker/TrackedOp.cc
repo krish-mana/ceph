@@ -268,8 +268,8 @@ void TrackedOp::mark_event(const string &event)
 
 #if HAVE_SYSTEMTAP
   CEPH_OPTRACKER_OP_EVENT(
-    get_op_class().c_str(),
-    get_op_descriptor().c_str(),
+    op_id.class_id,
+    op_id.inst_id,
     event.c_str());
 #endif
 }

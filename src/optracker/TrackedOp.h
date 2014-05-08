@@ -128,6 +128,8 @@ private:
   friend class OpTracker;
   xlist<TrackedOp*>::item xitem;
 protected:
+  const string inst_id;
+  const tracked_op_t op_id;
   OpTracker *tracker; /// the tracker we are associated with
 
   utime_t initiated_at;
@@ -138,8 +140,14 @@ protected:
 
   uint32_t warn_interval_multiplier; // limits output of a given op warning
 
-  TrackedOp(OpTracker *_tracker, const utime_t& initiated) :
+  TrackedOp(
+    const char *class_id,
+    const string &inst_id,
+    OpTracker *_tracker,
+    const utime_t& initiated) :
     xitem(this),
+    inst_id(inst_id),
+    op_id(class_id, inst_id.c_str()),
     tracker(_tracker),
     initiated_at(initiated),
     lock("TrackedOp::lock"),
@@ -159,9 +167,9 @@ protected:
   virtual void _unregistered() {};
 
 public:
-  virtual const string &get_op_class() const = 0;
-  virtual const string &get_op_descriptor() const = 0;
-  virtual const tracked_op_t *get_op_id() const = 0;
+  virtual const tracked_op_t *get_op_id() const {
+    return &op_id;
+  }
 
   virtual ~TrackedOp() {}
 

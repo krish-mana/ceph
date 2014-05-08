@@ -87,12 +87,6 @@ private:
   static const uint8_t flag_sub_op_sent = 1 << 4;
   static const uint8_t flag_commit_sent = 1 << 5;
 
-  const string op_class;
-  const string op_desc;
-  const tracked_op_t op_id;
-  const string &get_op_class() const { return op_class; }
-  const string &get_op_descriptor() const { return op_desc; }
-  const tracked_op_t *get_op_id() const { return &op_id; }
   OpRequest(Message *req, OpTracker *tracker);
 
 protected:
