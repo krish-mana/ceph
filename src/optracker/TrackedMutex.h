@@ -20,11 +20,6 @@
 #include "common/Mutex.h"
 
 class TrackedMutex : public TrackedResource {
-  const string class_id;
-  const string inst_id;
-
-  const tracked_res_t res_id; 
-
   Mutex lock;
 public:
   TrackedMutex(
@@ -32,10 +27,8 @@ public:
     const string &_inst_id,
     bool r=false, bool ld=true, bool bt=false,
     CephContext *cct=0)
-    : class_id(_class_id),
-      inst_id(_inst_id),
-      res_id("mutex", class_id.c_str(), inst_id.c_str()),
-      lock(string(class_id + "/" + inst_id).c_str(), r, ld, bt, cct) {}
+    : TrackedResource("mutex", _class_id, _inst_id),
+      lock(string(_class_id + "/" + _inst_id).c_str(), r, ld, bt, cct) {}
 
   bool is_locked() const { return lock.is_locked(); }
   bool is_locked_by_me() const { return lock.is_locked_by_me(); }
@@ -46,10 +39,6 @@ public:
     const TrackedOp *op);
 
   void get_status(Formatter *f) const {}
-
-  const tracked_res_t *get_res_id() const {
-    return &res_id;
-  }
 
   class Locker {
     const TrackedOp *op;

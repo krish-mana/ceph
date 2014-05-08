@@ -30,9 +30,21 @@ struct tracked_res_t {
 };
 
 class TrackedResource {
+  const string class_id;
+  const string inst_id;
+
+  const tracked_res_t res_id; 
 public:
+  TrackedResource(
+    const char *_type_id,
+    const string &_class_id,
+    const string &_inst_id)
+    : class_id(_class_id), inst_id(_inst_id),
+      res_id(_type_id, class_id.c_str(), inst_id.c_str()) {}
   virtual void get_status(Formatter *f) const = 0;
-  virtual const tracked_res_t *get_res_id() const = 0;
+  const tracked_res_t *get_res_id() const {
+    return &res_id;
+  }
 
   void log_event(const TrackedOp *op, const string &evt);
   virtual ~TrackedResource() {}

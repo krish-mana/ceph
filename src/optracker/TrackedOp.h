@@ -142,12 +142,12 @@ protected:
 
   TrackedOp(
     const char *class_id,
-    const string &inst_id,
+    const string &_inst_id,
     OpTracker *_tracker,
     const utime_t& initiated) :
     xitem(this),
-    inst_id(inst_id),
-    op_id(class_id, inst_id.c_str()),
+    inst_id(_inst_id),
+    op_id(class_id, _inst_id.c_str()),
     tracker(_tracker),
     initiated_at(initiated),
     lock("TrackedOp::lock"),
