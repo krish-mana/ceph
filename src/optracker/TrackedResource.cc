@@ -23,7 +23,7 @@ static tracked_op_t nullop(
   "null");
 
 void TrackedResource::log_event(
-  TrackedOpRef op,
+  const TrackedOp *op,
   const string &evt)
 {
 #ifdef HAVE_SYSTEMTAP

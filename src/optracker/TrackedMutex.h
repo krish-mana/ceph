@@ -40,10 +40,10 @@ public:
   bool is_locked() const { return lock.is_locked(); }
   bool is_locked_by_me() const { return lock.is_locked_by_me(); }
   void Lock(
-    TrackedOpRef op,
+    const TrackedOp *op,
     bool no_lockdep=false);
   void Unlock(
-    TrackedOpRef op);
+    const TrackedOp *op);
 
   void get_status(Formatter *f) const {}
 
@@ -52,10 +52,10 @@ public:
   }
 
   class Locker {
-    TrackedOpRef &op;
+    const TrackedOp *op;
     TrackedMutex &mutex;
   public:
-    Locker(TrackedOpRef &op, TrackedMutex& m) : op(op), mutex(m) {
+    Locker(const TrackedOp *op, TrackedMutex& m) : op(op), mutex(m) {
       mutex.Lock(op);
     }
     ~Locker() {

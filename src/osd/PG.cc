@@ -217,7 +217,7 @@ PG::~PG()
 
 void PG::lock_suspend_timeout(
   ThreadPool::TPHandle &handle,
-  TrackedOpRef op)
+  const TrackedOp *op)
 {
   handle.suspend_tp_timeout();
   lock(op);
@@ -226,7 +226,7 @@ void PG::lock_suspend_timeout(
 
 void PG::lock(
   bool no_lockdep,
-  TrackedOpRef op)
+  const TrackedOp *op)
 {
   _lock.Lock(op, no_lockdep);
   // if we have unrecorded dirty state with the lock dropped, there is a bug

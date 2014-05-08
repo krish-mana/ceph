@@ -251,12 +251,12 @@ public:
 
 
   void lock_suspend_timeout(ThreadPool::TPHandle &handle,
-			    TrackedOpRef op = TrackedOpRef());
-  void lock(bool no_lockdep = false, TrackedOpRef op = TrackedOpRef());
-  void lock(TrackedOpRef op) {
+			    const TrackedOp *op = NULL);
+  void lock(bool no_lockdep = false, const TrackedOp *op = NULL);
+  void lock(const TrackedOp *op) {
     return lock(false, op);
   }
-  void unlock(TrackedOpRef op = TrackedOpRef()) {
+  void unlock(const TrackedOp *op = NULL) {
     //generic_dout(0) << this << " " << info.pgid << " unlock" << dendl;
     assert(!dirty_info);
     assert(!dirty_big_info);

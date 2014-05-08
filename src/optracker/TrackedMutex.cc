@@ -17,14 +17,16 @@
 static const string UNCONTENDED_LOCKED("uncontended-lock");
 static const string CONTENDED_WAITING("contended-waiting");
 static const string CONTENDED_LOCKED("contended-locked");
+static const string UNLOCK("unlock");
 
 void TrackedMutex::Unlock(
-  TrackedOpRef op) {
+  const TrackedOp *op) {
+  log_event(op, UNLOCK);
   return lock.Unlock();
 }
 
 void TrackedMutex::Lock(
-  TrackedOpRef op,
+  const TrackedOp *op,
   bool no_lockdep) {
   if (lock.TryLock()) {
     log_event(op, UNCONTENDED_LOCKED);
