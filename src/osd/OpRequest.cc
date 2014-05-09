@@ -68,11 +68,6 @@ void OpRequest::_dump(utime_t now, Formatter *f) const
   }
 }
 
-void OpRequest::_dump_op_descriptor(ostream& stream) const
-{
-  get_req()->print(stream);
-}
-
 void OpRequest::_unregistered() {
   request->clear_data();
   request->clear_payload();

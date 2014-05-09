@@ -147,7 +147,7 @@ protected:
     const utime_t& initiated) :
     xitem(this),
     inst_id(_inst_id),
-    op_id(class_id, _inst_id.c_str()),
+    op_id(class_id, inst_id.c_str()),
     tracker(_tracker),
     initiated_at(initiated),
     lock("TrackedOp::lock"),
@@ -157,14 +157,29 @@ protected:
     tracker->register_inflight_op(&xitem);
   }
 
+  TrackedOp(
+    const char *class_id,
+    const string &_inst_id)
+    : xitem(this),
+      inst_id(_inst_id),
+      op_id(class_id, inst_id.c_str()),
+      tracker(0),
+      lock("TrackedOp::lock"),
+      seq(0),
+      warn_interval_multiplier(1) {}
+
   /// output any type-specific data you want to get when dump() is called
   virtual void _dump(utime_t now, Formatter *f) const {}
   /// if you want something else to happen when events are marked, implement
   virtual void _event_marked() {}
-  /// return a unique descriptor of the Op; eg the message it's attached to
-  virtual void _dump_op_descriptor(ostream& stream) const = 0;
-  /// called when the last non-OpTracker reference is dropped
   virtual void _unregistered() {};
+
+  /// return a unique descriptor of the Op; eg the message it's attached to
+  void _dump_op_descriptor(ostream& stream) const {
+    stream << op_id.inst_id;
+  }
+
+  /// called when the last non-OpTracker reference is dropped
 
 public:
   virtual const tracked_op_t *get_op_id() const {

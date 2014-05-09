@@ -263,7 +263,10 @@ void TrackedOp::mark_event(const string &event)
     Mutex::Locker l(lock);
     events.push_back(make_pair(now, event));
   }
-  tracker->mark_event(this, event);
+
+  if (tracker) {
+    tracker->mark_event(this, event);
+  }
   _event_marked();
 
 #if HAVE_SYSTEMTAP

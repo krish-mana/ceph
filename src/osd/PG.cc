@@ -152,13 +152,6 @@ void PGPool::update(OSDMapRef map)
     << dendl;
 }
 
-static string print_spg_t(spg_t pgid)
-{
-  stringstream ss;
-  ss << pgid;
-  return ss.str();
-}
-
 PG::PG(OSDService *o, OSDMapRef curmap,
        const PGPool &_pool, spg_t p, const hobject_t& loid,
        const hobject_t& ioid) :
@@ -199,6 +192,7 @@ PG::PG(OSDService *o, OSDMapRef curmap,
   pg_stats_publish_valid(false),
   osr(osd->osr_registry.lookup_or_create(p, (stringify(p)))),
   finish_sync_event(NULL),
+  scrubber(p),
   scrub_after_recovery(false),
   active_pushes(0),
   recovery_state(this)
