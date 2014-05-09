@@ -1291,6 +1291,7 @@ private:
   struct OpWQ: public ThreadPool::WorkQueueVal<pair<PGRef, OpRequestRef>,
 					       PGRef > {
     Mutex qlock;
+    Mutex process_lock;
     map<PG*, list<OpRequestRef> > pg_for_processing;
     OSD *osd;
     PrioritizedQueue<pair<PGRef, OpRequestRef>, entity_inst_t > pqueue;
@@ -1298,6 +1299,7 @@ private:
       : ThreadPool::WorkQueueVal<pair<PGRef, OpRequestRef>, PGRef >(
 	"OSD::OpWQ", ti, ti*10, tp),
 	qlock("OpWQ::qlock"),
+	process_lock("OpWQ::process_lock"),
 	osd(o),
 	pqueue(o->cct->_conf->osd_op_pq_max_tokens_per_priority,
 	       o->cct->_conf->osd_op_pq_min_cost)
