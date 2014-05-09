@@ -3582,7 +3582,7 @@ void PG::replica_scrub(
  */
 void PG::scrub(ThreadPool::TPHandle &handle)
 {
-  lock();
+  lock_suspend_timeout(handle, &scrubber);
   if (deleting) {
     unlock();
     return;
@@ -3635,7 +3635,7 @@ void PG::scrub(ThreadPool::TPHandle &handle)
     classic_scrub(handle);
   }
 
-  unlock();
+  unlock(&scrubber);
 }
 
 /*
