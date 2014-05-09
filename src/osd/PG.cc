@@ -3381,7 +3381,7 @@ void PG::build_scrub_map(ScrubMap &map, ThreadPool::TPHandle &handle)
   map.valid_through = info.last_update;
   epoch_t epoch = get_osdmap()->get_epoch();
 
-  unlock();
+  unlock(&scrubber);
 
   // wait for any writes on our pg to flush to disk first.  this avoids races
   // with scrub starting immediately after trim or recovery completion.
@@ -3392,7 +3392,7 @@ void PG::build_scrub_map(ScrubMap &map, ThreadPool::TPHandle &handle)
   osd->store->collection_list(coll, ls);
 
   get_pgbackend()->be_scan_list(map, ls, false, handle);
-  lock();
+  lock(&scrubber);
   _scan_snaps(map);
 
   if (pg_has_reset_since(epoch)) {
@@ -3584,7 +3584,7 @@ void PG::scrub(ThreadPool::TPHandle &handle)
 {
   lock_suspend_timeout(handle, &scrubber);
   if (deleting) {
-    unlock();
+    unlock(&scrubber);
     return;
   }
 
@@ -3594,7 +3594,7 @@ void PG::scrub(ThreadPool::TPHandle &handle)
     state_clear(PG_STATE_REPAIR);
     state_clear(PG_STATE_DEEP_SCRUB);
     publish_stats_to_osd();
-    unlock();
+    unlock(&scrubber);
     return;
   }
 
@@ -4227,9 +4227,8 @@ void PG::scrub_process_inconsistent()
 
 void PG::scrub_finalize()
 {
-  lock();
+  TrackedMutex::Locker l(&scrubber, _lock);
   if (deleting) {
-    unlock();
     return;
   }
 
@@ -4239,13 +4238,11 @@ void PG::scrub_finalize()
     dout(10) << "scrub  pg changed, aborting" << dendl;
     scrub_clear_state();
     scrub_unreserve_replicas();
-    unlock();
     return;
   }
 
   if (!scrub_gather_replica_maps()) {
     dout(10) << "maps not yet up to date, sent out new requests" << dendl;
-    unlock();
     return;
   }
 
@@ -4254,7 +4251,6 @@ void PG::scrub_finalize()
   scrub_finish();
 
   dout(10) << "scrub done" << dendl;
-  unlock();
 }
 
 // the part that actually finalizes a scrub
