@@ -411,8 +411,12 @@ unittest_bit_vector_CXXFLAGS = $(UNITTEST_CXXFLAGS)
 unittest_bit_vector_LDADD = $(UNITTEST_LDADD) $(CEPH_GLOBAL)
 check_PROGRAMS += unittest_bit_vector
 
+ceph_test_osd_stale_read_SOURCES = test/osd/ceph_test_osd_stale_read.cc
+ceph_test_osd_stale_read_LDADD = $(LIBRBD) $(LIBRADOS) $(UNITTEST_LDADD) $(CEPH_GLOBAL) $(RADOS_TEST_LDADD)
+ceph_test_osd_stale_read_CXXFLAGS = $(UNITTEST_CXXFLAGS)
+bin_DEBUGPROGRAMS += ceph_test_osd_stale_read
+
 check_SCRIPTS += test/pybind/test_ceph_argparse.py
-check_SCRIPTS += test/pybind/test_ceph_daemon.py
 
 ceph_test_objectcacher_stress_SOURCES = \
 	test/osdc/object_cacher_stress.cc \
