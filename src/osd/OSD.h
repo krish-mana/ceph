@@ -1510,7 +1510,6 @@ protected:
     pg_history_t history,
     pg_interval_map_t& pi,
     ObjectStore::Transaction& t);
-  PG   *_lookup_qlock_pg(spg_t pgid);
 
   PG* _make_pg(OSDMapRef createmap, spg_t pgid);
   void add_newly_split_pg(PG *pg,
