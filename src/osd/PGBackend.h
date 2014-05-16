@@ -100,8 +100,13 @@
       * Wraps a context in whatever outer layers the parent usually
       * uses to call into the PGBackend
       */
-     virtual Context *bless_context(Context *c) = 0;
+     virtual Context *bless_context(const char *desc, Context *c) = 0;
+     virtual Context *bless_context(TrackedOp *op, Context *c) = 0;
      virtual GenContext<ThreadPool::TPHandle&> *bless_gencontext(
+       const char *desc,
+       GenContext<ThreadPool::TPHandle&> *c) = 0;
+     virtual GenContext<ThreadPool::TPHandle&> *bless_gencontext(
+       TrackedOp *op,
        GenContext<ThreadPool::TPHandle&> *c) = 0;
 
      virtual void send_message(int to_osd, Message *m) = 0;

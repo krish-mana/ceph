@@ -251,41 +251,61 @@ public:
     ReplicatedPGRef pg;
     GenContext<T> *c;
     epoch_t e;
+    TrackedOp _op;
+    TrackedOp *op;
   public:
-    BlessedGenContext(ReplicatedPG *pg, GenContext<T> *c, epoch_t e)
-      : pg(pg), c(c), e(e) {}
+    BlessedGenContext(
+      ReplicatedPG *pg, GenContext<T> *c, epoch_t e, const char *desc)
+      : pg(pg), c(c), e(e), _op(desc, pg->pgstr), op(&_op) {}
+    BlessedGenContext(
+      ReplicatedPG *pg, GenContext<T> *c, epoch_t e, TrackedOp *in_op)
+      : pg(pg), c(c), e(e), _op("", ""), op(in_op) {}
     void finish(T t) {
-      pg->lock();
+      pg->lock(op);
       if (pg->pg_has_reset_since(e))
 	delete c;
       else
 	c->complete(t);
-      pg->unlock();
+      pg->unlock(op);
     }
   };
   class BlessedContext : public Context {
     ReplicatedPGRef pg;
     Context *c;
     epoch_t e;
+    TrackedOp _op;
+    TrackedOp *op;
   public:
-    BlessedContext(ReplicatedPG *pg, Context *c, epoch_t e)
-      : pg(pg), c(c), e(e) {}
+    BlessedContext(ReplicatedPG *pg, Context *c, epoch_t e, const char *desc)
+      : pg(pg), c(c), e(e), _op(desc, pg->pgstr), op(&_op) {}
+    BlessedContext(ReplicatedPG *pg, Context *c, epoch_t e, TrackedOp *in_op)
+      : pg(pg), c(c), e(e), _op("", ""), op(in_op) {}
     void finish(int r) {
-      pg->lock();
+      pg->lock(op);
       if (pg->pg_has_reset_since(e))
 	delete c;
       else
 	c->complete(r);
-      pg->unlock();
+      pg->unlock(op);
     }
   };
-  Context *bless_context(Context *c) {
-    return new BlessedContext(this, c, get_osdmap()->get_epoch());
+  Context *bless_context(const char *desc, Context *c) {
+    return new BlessedContext(this, c, get_osdmap()->get_epoch(), desc);
+  }
+  Context *bless_context(TrackedOp *op, Context *c) {
+    return new BlessedContext(this, c, get_osdmap()->get_epoch(), op);
   }
   GenContext<ThreadPool::TPHandle&> *bless_gencontext(
+    const char *desc,
     GenContext<ThreadPool::TPHandle&> *c) {
     return new BlessedGenContext<ThreadPool::TPHandle&>(
-      this, c, get_osdmap()->get_epoch());
+      this, c, get_osdmap()->get_epoch(), desc);
+  }
+  GenContext<ThreadPool::TPHandle&> *bless_gencontext(
+    TrackedOp *op,
+    GenContext<ThreadPool::TPHandle&> *c) {
+    return new BlessedGenContext<ThreadPool::TPHandle&>(
+      this, c, get_osdmap()->get_epoch(), op);
   }
     
   void send_message(int to_osd, Message *m) {

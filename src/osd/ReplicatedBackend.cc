@@ -256,6 +256,7 @@ void ReplicatedBackend::objects_read_async(
     if (i->second.second) {
       get_parent()->schedule_recovery_work(
 	get_parent()->bless_gencontext(
+	  __func__,
 	  new AsyncReadCallback(_r, i->second.second)));
     }
     if (_r < 0)
@@ -263,6 +264,7 @@ void ReplicatedBackend::objects_read_async(
   }
   get_parent()->schedule_recovery_work(
     get_parent()->bless_gencontext(
+      __func__,
       new AsyncReadCallback(r, on_complete)));
 }
 
@@ -555,11 +557,13 @@ void ReplicatedBackend::submit_transaction(
   op_t->register_on_applied_sync(on_local_applied_sync);
   op_t->register_on_applied(
     parent->bless_context(
+      orig_op.get(),
       new C_OSD_OnOpApplied(this, &op)));
   op_t->register_on_applied(
     new ObjectStore::C_DeleteTransaction(op_t));
   op_t->register_on_commit(
     parent->bless_context(
+      orig_op.get(),
       new C_OSD_OnOpCommit(this, &op)));
       
   parent->queue_transaction(op_t, op.op);

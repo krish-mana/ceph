@@ -441,6 +441,7 @@ void ECBackend::dispatch_recovery_messages(RecoveryMessages &m, int priority)
   }
   m.t->register_on_complete(
     get_parent()->bless_context(
+      __func__,
       new SendPushReplies(
 	get_parent(),
 	get_parent()->get_epoch(),
@@ -838,12 +839,14 @@ void ECBackend::handle_sub_write(
   }
   localt->register_on_commit(
     get_parent()->bless_context(
+      msg.get(),
       new SubWriteCommitted(
 	this, msg, op.tid,
 	op.at_version,
 	get_parent()->get_info().last_complete)));
   localt->register_on_applied(
     get_parent()->bless_context(
+      msg.get(),
       new SubWriteApplied(this, msg, op.tid, op.at_version)));
   localt->register_on_applied(
     new ObjectStore::C_DeleteTransaction(localt));
@@ -1093,6 +1096,7 @@ void ECBackend::filter_read_op(
   if (op.in_progress.empty()) {
     get_parent()->schedule_recovery_work(
       get_parent()->bless_gencontext(
+	__func__,
 	new FinishReadOp(this, op.tid)));
   }
 }

@@ -2156,7 +2156,7 @@ void ReplicatedBackend::_do_pull_response(OpRequestRef op)
     t->register_on_complete(
       new PG_RecoveryQueueAsync(
 	get_parent(),
-	get_parent()->bless_gencontext(c)));
+	get_parent()->bless_gencontext(op.get(), c)));
   }
   replies.erase(replies.end() - 1);
 
@@ -7615,9 +7615,11 @@ void ReplicatedBackend::sub_op_modify(OpRequestRef op)
   rm->localt.append(rm->opt);
   rm->localt.register_on_commit(
     parent->bless_context(
+      op.get(),
       new C_OSD_RepModifyCommit(this, rm)));
   rm->localt.register_on_applied(
     parent->bless_context(
+      op.get(),
       new C_OSD_RepModifyApply(this, rm)));
   parent->queue_transaction(&(rm->localt), op);
   // op is cleaned up by oncommit/onapply when both are executed
@@ -8932,7 +8934,7 @@ void ReplicatedBackend::sub_op_push(OpRequestRef op)
       t->register_on_complete(
 	new PG_RecoveryQueueAsync(
 	  get_parent(),
-	  get_parent()->bless_gencontext(c)));
+	  get_parent()->bless_gencontext(op.get(), c)));
     }
     run_recovery_op(h, op->get_req()->get_priority());
   } else {
