@@ -1336,8 +1336,7 @@ private:
     snapid_t snap_to_trim;
     bool need_share_pg_info;
     bool requeue;
-    int num_trimmed;
-    SnapTrimmer(ReplicatedPG *pg) : pg(pg), need_share_pg_info(false), requeue(false), num_trimmed(0) {}
+    SnapTrimmer(ReplicatedPG *pg) : pg(pg), need_share_pg_info(false), requeue(false) {}
     ~SnapTrimmer();
     void log_enter(const char *state_name);
     void log_exit(const char *state_name, utime_t duration);
