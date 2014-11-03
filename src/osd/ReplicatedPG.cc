@@ -2279,14 +2279,24 @@ void ReplicatedPG::do_backfill(OpRequestRef op)
   }
 }
 
-ReplicatedPG::RepGather *ReplicatedPG::trim_object(const hobject_t &coid)
+ReplicatedPG::RepGather *ReplicatedPG::trim_object(
+  const hobject_t &coid, bool *skip)
 {
   // load clone info
   bufferlist bl;
   ObjectContextRef obc = get_object_context(coid, false, NULL);
   if (!obc) {
-    derr << __func__ << "could not find coid " << coid << dendl;
-    assert(0);
+    derr << __func__ << ": could not find coid " << coid << dendl;
+    osd->clog.error() << "osd." << osd->whoami
+                     << ": could not find object " << coid
+                     << " to trim, removing snap_mapper entry";
+    ObjectStore::Transaction *t = new ObjectStore::Transaction;
+    OSDriver::OSTransaction os_t(osdriver.get_transaction(t));
+    snap_mapper.remove_oid(coid, &os_t);
+    osd->store->queue_transaction(osr.get(), t);
+    if (skip)
+      *skip = true;
+    return NULL;
   }
   assert(obc->ssc);
 
@@ -11991,8 +12001,14 @@ boost::statechart::result ReplicatedPG::TrimmingObjects::react(const SnapTrim&)
   }
 
   dout(10) << "TrimmingObjects react trimming " << pos << dendl;
-  RepGather *repop = pg->trim_object(pos);
-  if (!repop) {
+
+  bool skip = false;
+  RepGather *repop = pg->trim_object(pos, &skip);
+  if (skip) {
+    assert(!repop);
+    post_event(SnapTrim());
+    return discard_event();
+  } else if (!repop) {
     dout(10) << __func__ << " could not get write lock on obj "
 	     << pos << dendl;
     pos = old_pos;
