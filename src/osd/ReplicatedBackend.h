@@ -245,7 +245,10 @@ private:
 			       bufferlist data_received,
 			       interval_set<uint64_t> *intervals_usable,
 			       bufferlist *data_usable);
-  void _failed_push(pg_shard_t from, const hobject_t &soid);
+  void _failed_push(
+    pg_shard_t from,
+    const hobject_t &soid,
+    const eversion_t &version);
 
   void send_pushes(int prio, map<pg_shard_t, vector<PushOp> > &pushes);
   void prep_push_op_blank(const hobject_t& soid, PushOp *op);

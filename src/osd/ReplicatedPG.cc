@@ -8545,7 +8545,10 @@ bool ReplicatedBackend::handle_pull_response(
 	   << dendl;
   if (pop.version == eversion_t()) {
     // replica doesn't have it!
-    _failed_push(from, pop.soid);
+    _failed_push(
+      from,
+      pop.soid,
+      pop.recovery_info.version);
     return false;
   }
 
@@ -9240,7 +9243,10 @@ void ReplicatedBackend::sub_op_push(OpRequestRef op)
   return;
 }
 
-void ReplicatedPG::failed_push(pg_shard_t from, const hobject_t &soid)
+void ReplicatedPG::failed_push(
+  pg_shard_t from,
+  const hobject_t &soid,
+  const eversion_t &version)
 {
   assert(recovering.count(soid));
   recovering.erase(soid);
@@ -9248,12 +9254,19 @@ void ReplicatedPG::failed_push(pg_shard_t from, const hobject_t &soid)
   dout(0) << "_failed_push " << soid << " from shard " << from
 	  << ", reps on " << missing_loc.get_locations(soid)
 	  << " unfound? " << missing_loc.is_unfound(soid) << dendl;
+  peer_missing[from].add(
+    soid,
+    version,
+    eversion_t());
   finish_recovery_op(soid);  // close out this attempt,
 }
 
-void ReplicatedBackend::_failed_push(pg_shard_t from, const hobject_t &soid)
+void ReplicatedBackend::_failed_push(
+  pg_shard_t from,
+  const hobject_t &soid,
+  const eversion_t &version)
 {
-  get_parent()->failed_push(from, soid);
+  get_parent()->failed_push(from, soid, version);
   pull_from_peer[from].erase(soid);
   if (pull_from_peer[from].empty())
     pull_from_peer.erase(from);
