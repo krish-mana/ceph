@@ -30,6 +30,11 @@ ceph_test_msgr_SOURCES = test/testmsgr.cc
 ceph_test_msgr_LDADD = $(CEPH_GLOBAL)
 bin_DEBUGPROGRAMS += ceph_test_msgr
 
+ceph_test_async_driver_SOURCES = test/msgr/test_async_driver.cc
+ceph_test_async_driver_LDADD = $(LIBOS) $(UNITTEST_LDADD) $(CEPH_GLOBAL)
+ceph_test_async_driver_CXXFLAGS = $(UNITTEST_CXXFLAGS)
+bin_DEBUGPROGRAMS += ceph_test_async_driver
+
 ceph_streamtest_SOURCES = test/streamtest.cc
 ceph_streamtest_LDADD = $(LIBOS) $(CEPH_GLOBAL)
 bin_DEBUGPROGRAMS += ceph_streamtest
@@ -232,6 +237,9 @@ bin_DEBUGPROGRAMS += ceph_bench_log
 ## Unit tests
 
 check_SCRIPTS += \
+	test/cephtool-test-osd.sh \
+	test/cephtool-test-mon.sh \
+	test/cephtool-test-mds.sh \
 	unittest_bufferlist.sh \
 	test/encoding/check-generated.sh \
 	test/mon/osd-pool-create.sh \
@@ -242,8 +250,7 @@ check_SCRIPTS += \
 	test/osd/osd-config.sh \
 	test/osd/osd-bench.sh \
 	test/ceph-disk.sh \
-	test/mon/mon-handle-forward.sh \
-	test/vstart_wrapped_tests.sh
+	test/mon/mon-handle-forward.sh
 
 EXTRA_DIST += \
 	$(srcdir)/test/mon/mon-test-helpers.sh \
@@ -367,6 +374,11 @@ unittest_ceph_compatset_SOURCES = test/ceph_compatset.cc
 unittest_ceph_compatset_LDADD = $(UNITTEST_LDADD) $(CEPH_GLOBAL)
 unittest_ceph_compatset_CXXFLAGS = $(UNITTEST_CXXFLAGS)
 check_PROGRAMS += unittest_ceph_compatset
+
+unittest_mds_types_SOURCES = test/fs/mds_types.cc
+unittest_mds_types_CXXFLAGS = $(UNITTEST_CXXFLAGS)
+unittest_mds_types_LDADD = $(UNITTEST_LDADD) $(CEPH_GLOBAL)
+check_PROGRAMS += unittest_mds_types
 
 unittest_osd_types_SOURCES = test/osd/types.cc
 unittest_osd_types_CXXFLAGS = $(UNITTEST_CXXFLAGS)
@@ -555,6 +567,11 @@ unittest_osd_osdcap_LDADD = $(LIBOSD) $(UNITTEST_LDADD) $(CEPH_GLOBAL)
 unittest_osd_osdcap_CXXFLAGS = $(UNITTEST_CXXFLAGS)
 check_PROGRAMS += unittest_osd_osdcap
 
+unittest_mds_authcap_SOURCES = test/mds/TestMDSAuthCaps.cc 
+unittest_mds_authcap_LDADD = $(LIBMDS) $(UNITTEST_LDADD) $(CEPH_GLOBAL)
+unittest_mds_authcap_CXXFLAGS = $(UNITTEST_CXXFLAGS)
+check_PROGRAMS += unittest_mds_authcap
+
 unittest_mon_moncap_SOURCES = test/mon/moncap.cc
 unittest_mon_moncap_LDADD = $(LIBMON) $(UNITTEST_LDADD) $(CEPH_GLOBAL)
 unittest_mon_moncap_CXXFLAGS = $(UNITTEST_CXXFLAGS)
@@ -596,6 +613,11 @@ unittest_rbd_replay_LDADD = $(LIBRBD) \
 	$(UNITTEST_LDADD)
 unittest_rbd_replay_CXXFLAGS = $(UNITTEST_CXXFLAGS)
 check_PROGRAMS += unittest_rbd_replay
+
+unittest_readahead_SOURCES = test/common/Readahead.cc
+unittest_readahead_LDADD = $(UNITTEST_LDADD) $(CEPH_GLOBAL)
+unittest_readahead_CXXFLAGS = $(UNITTEST_CXXFLAGS) -O2
+check_PROGRAMS += unittest_readahead
 
 
 check_SCRIPTS += test/pybind/test_ceph_argparse.py
@@ -774,6 +796,11 @@ ceph_test_rados_api_list_LDADD = $(LIBRADOS) $(UNITTEST_LDADD) $(RADOS_TEST_LDAD
 ceph_test_rados_api_list_CXXFLAGS = $(UNITTEST_CXXFLAGS)
 bin_DEBUGPROGRAMS += ceph_test_rados_api_list
 
+ceph_test_rados_api_nlist_SOURCES = test/librados/nlist.cc
+ceph_test_rados_api_nlist_LDADD = $(LIBRADOS) $(UNITTEST_LDADD) $(RADOS_TEST_LDADD)
+ceph_test_rados_api_nlist_CXXFLAGS = $(UNITTEST_CXXFLAGS)
+bin_DEBUGPROGRAMS += ceph_test_rados_api_nlist
+
 ceph_test_rados_api_pool_SOURCES = test/librados/pool.cc
 ceph_test_rados_api_pool_LDADD = $(LIBRADOS) $(UNITTEST_LDADD) $(RADOS_TEST_LDADD)
 ceph_test_rados_api_pool_CXXFLAGS = $(UNITTEST_CXXFLAGS)
@@ -923,6 +950,25 @@ bin_DEBUGPROGRAMS += ceph_test_cfuse_cache_invalidate
 
 ceph_test_c_headers_SOURCES = test/test_c_headers.c
 ceph_test_c_headers_LDADD = $(LIBRADOS) $(LIBCEPHFS)
+ceph_test_c_headers_CFLAGS = $(AM_CFLAGS) \
+	-Werror \
+	-Wstrict-prototypes \
+	-Wredundant-decls \
+	-Wall \
+	-Wundef \
+	-Wwrite-strings \
+	-Wmissing-prototypes \
+	-Wendif-labels \
+	-Wmissing-include-dirs \
+	-Wempty-body \
+	-Wnested-externs \
+	-Wformat-security \
+	-Wformat-y2k \
+	-Winit-self \
+	-Wignored-qualifiers \
+	-Wold-style-declaration \
+	-Wold-style-definition \
+	-Wtype-limits
 bin_DEBUGPROGRAMS += ceph_test_c_headers
 
 ceph_test_get_blkdev_size_SOURCES = test/test_get_blkdev_size.cc

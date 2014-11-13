@@ -340,6 +340,8 @@ enum {
 	// internal op
 	CEPH_MDS_OP_FRAGMENTDIR= 0x01500,
 	CEPH_MDS_OP_EXPORTDIR  = 0x01501,
+	CEPH_MDS_OP_VALIDATE   = 0x01502,
+	CEPH_MDS_OP_FLUSH      = 0x01503
 };
 
 extern const char *ceph_mds_op_name(int op);
@@ -505,8 +507,10 @@ struct ceph_mds_reply_dirfrag {
 	__le32 dist[];
 } __attribute__ ((packed));
 
-#define CEPH_LOCK_FCNTL    1
-#define CEPH_LOCK_FLOCK    2
+#define CEPH_LOCK_FCNTL		1
+#define CEPH_LOCK_FLOCK		2
+#define CEPH_LOCK_FCNTL_INTR	3
+#define CEPH_LOCK_FLOCK_INTR	4
 
 #define CEPH_LOCK_SHARED   1
 #define CEPH_LOCK_EXCL     2

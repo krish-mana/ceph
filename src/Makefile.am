@@ -191,6 +191,7 @@ EXTRA_DIST += \
 	ceph-rest-api \
 	ceph-crush-location \
 	mount.fuse.ceph \
+	rbd-replay-many \
 	rbdmap \
 	yasm-wrapper
 
@@ -623,7 +624,8 @@ bin_SCRIPTS += \
 	ceph-debugpack \
 	ceph-rbdnamer \
 	ceph-post-file \
-	ceph-crush-location
+	ceph-crush-location \
+	rbd-replay-many
 
 BUILT_SOURCES += init-ceph
 
@@ -642,6 +644,7 @@ TESTS = \
 	$(check_SCRIPTS)
 
 check-local:
+	$(top_srcdir)/qa/workunits/erasure-code/encode-decode-non-regression.sh 
 	$(srcdir)/test/encoding/readable.sh ../ceph-object-corpus
 
 if WITH_LTTNG
@@ -658,7 +661,8 @@ admin-tools: monmaptool osdmaptool crushtool ceph-authtool
 base: core-daemons admin-tools \
 	cephfs ceph-syn ceph-conf \
 	rados librados-config \
-	init-ceph ceph_mon_store_converter ceph-post-file
+	init-ceph ceph_mon_store_converter ceph-post-file \
+	ceph
 
 
 # version stuff
@@ -712,7 +716,7 @@ ceph: ceph.in ./ceph_ver.h Makefile
 
 clean-local:
 	rm -f *.so 
-	find . -name '*.gcno' -o -name '*.gcda' -o -name '*.lcov' | xargs rm -f
+	find . -name '*.gcno' -o -name '*.gcda' -o -name '*.lcov' -o -name "*.o" -o -name "*.lo" | xargs rm -f
 	rm -f ceph java/java/com/ceph/crush/Bucket.class
 
 

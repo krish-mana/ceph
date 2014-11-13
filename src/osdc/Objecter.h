@@ -24,7 +24,6 @@
 #include "common/admin_socket.h"
 #include "common/Timer.h"
 #include "common/RWLock.h"
-#include "include/rados/rados_types.h"
 #include "include/rados/rados_types.hpp"
 
 #include <list>
@@ -213,6 +212,14 @@ struct ObjectOperation {
       add_pgls(CEPH_OSD_OP_PGLS, count, cookie, start_epoch);
     else
       add_pgls_filter(CEPH_OSD_OP_PGLS_FILTER, count, filter, cookie, start_epoch);
+    flags |= CEPH_OSD_FLAG_PGOP;
+  }
+
+  void pg_nls(uint64_t count, bufferlist& filter, collection_list_handle_t cookie, epoch_t start_epoch) {
+    if (filter.length() == 0)
+      add_pgls(CEPH_OSD_OP_PGNLS, count, cookie, start_epoch);
+    else
+      add_pgls_filter(CEPH_OSD_OP_PGNLS_FILTER, count, filter, cookie, start_epoch);
     flags |= CEPH_OSD_FLAG_PGOP;
   }
 
@@ -1249,6 +1256,71 @@ public:
 
 
   // Pools and statistics 
+  struct NListContext {
+    int current_pg;
+    collection_list_handle_t cookie;
+    epoch_t current_pg_epoch;
+    int starting_pg_num;
+    bool at_end_of_pool;
+    bool at_end_of_pg;
+
+    int64_t pool_id;
+    int pool_snap_seq;
+    int max_entries;
+    string nspace;
+
+    bufferlist bl;   // raw data read to here
+    std::list<librados::ListObjectImpl> list;
+
+    bufferlist filter;
+
+    bufferlist extra_info;
+
+    // The budget associated with this context, once it is set (>= 0),
+    // the budget is not get/released on OP basis, instead the budget
+    // is acquired before sending the first OP and released upon receiving
+    // the last op reply.
+    int ctx_budget;
+
+    NListContext() : current_pg(0), current_pg_epoch(0), starting_pg_num(0),
+		    at_end_of_pool(false),
+		    at_end_of_pg(false),
+		    pool_id(0),
+		    pool_snap_seq(0),
+                    max_entries(0),
+                    nspace(),
+                    bl(),
+                    list(),
+                    filter(),
+                    extra_info(),
+                    ctx_budget(-1) {}
+
+    bool at_end() const {
+      return at_end_of_pool;
+    }
+
+    uint32_t get_pg_hash_position() const {
+      return current_pg;
+    }
+  };
+
+  struct C_NList : public Context {
+    NListContext *list_context;
+    Context *final_finish;
+    Objecter *objecter;
+    epoch_t epoch;
+    C_NList(NListContext *lc, Context * finish, Objecter *ob) :
+      list_context(lc), final_finish(finish), objecter(ob), epoch(0) {}
+    void finish(int r) {
+      if (r >= 0) {
+        objecter->_nlist_reply(list_context, r, final_finish, epoch);
+      } else {
+        final_finish->complete(r);
+      }
+    }
+  };
+
+  // Old pgls context we still use for talking to older OSDs
   struct ListContext {
     int current_pg;
     collection_list_handle_t cookie;
@@ -1581,6 +1653,8 @@ public:
   void _reopen_session(OSDSession *session);
   void close_session(OSDSession *session);
   
+  void _nlist_reply(NListContext *list_context, int r, Context *final_finish,
+		   epoch_t reply_epoch);
   void _list_reply(ListContext *list_context, int r, Context *final_finish,
 		   epoch_t reply_epoch);
 
@@ -1617,6 +1691,7 @@ public:
     put_op_budget_bytes(op_budget);
   }
   void put_list_context_budget(ListContext *list_context);
+  void put_nlist_context_budget(NListContext *list_context);
   Throttle op_throttle_bytes, op_throttle_ops;
 
  public:
@@ -1627,7 +1702,7 @@ public:
     messenger(m), monc(mc),
     osdmap(new OSDMap),
     cct(cct_),
-    initialized(false),
+    initialized(0),
     last_tid(0), client_inc(-1), max_linger_id(0),
     num_unacked(0), num_uncommitted(0),
     global_op_flags(0),
@@ -1687,14 +1762,12 @@ public:
  public:
   bool ms_dispatch(Message *m);
   bool ms_can_fast_dispatch_any() const {
-    return false;
+    return true;
   }
   bool ms_can_fast_dispatch(Message *m) const {
     switch (m->get_type()) {
     case CEPH_MSG_OSD_OPREPLY:
-      /* sadly, we need to solve a deadlock before reenabling.
-       * See tracker issue #9462 */
-      return false;
+      return true;
     default:
       return false;
     }
@@ -2199,6 +2272,8 @@ public:
     return op_submit(o);
   }
 
+  void list_nobjects(NListContext *p, Context *onfinish);
+  uint32_t list_nobjects_seek(NListContext *p, uint32_t pos);
   void list_objects(ListContext *p, Context *onfinish);
   uint32_t list_objects_seek(ListContext *p, uint32_t pos);
 

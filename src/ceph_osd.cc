@@ -107,6 +107,7 @@ int main(int argc, const char **argv)
   bool get_journal_fsid = false;
   bool get_osd_fsid = false;
   bool get_cluster_fsid = false;
+  bool check_need_journal = false;
   std::string dump_pg_log;
 
   std::string val;
@@ -136,6 +137,8 @@ int main(int argc, const char **argv)
       get_osd_fsid = true;
     } else if (ceph_argparse_flag(args, i, "--get-journal-fsid", "--get-journal-uuid", (char*)NULL)) {
       get_journal_fsid = true;
+    } else if (ceph_argparse_flag(args, i, "--check-needs-journal", (char*)NULL)) {
+      check_need_journal = true;
     } else {
       ++i;
     }
@@ -291,7 +294,14 @@ int main(int argc, const char **argv)
 
 
   if (convertfilestore) {
-    int err = OSD::do_convertfs(store);
+    int err = store->mount();
+    if (err < 0) {
+      derr << TEXT_RED << " ** ERROR: error mounting store " << g_conf->osd_data
+	   << ": " << cpp_strerror(-err) << TEXT_NORMAL << dendl;
+      exit(1);
+    }
+    err = store->upgrade();
+    store->umount();
     if (err < 0) {
       derr << TEXT_RED << " ** ERROR: error converting store " << g_conf->osd_data
 	   << ": " << cpp_strerror(-err) << TEXT_NORMAL << dendl;
@@ -306,6 +316,14 @@ int main(int argc, const char **argv)
     if (r == 0)
       cout << fsid << std::endl;
     exit(r);
+  }
+
+  if (check_need_journal) {
+    if (store->need_journal())
+      cout << "yes" << std::endl;
+    else
+      cout << "no" << std::endl;
+    exit(0);
   }
 
   string magic;
@@ -453,20 +471,9 @@ int main(int argc, const char **argv)
   if (r < 0)
     exit(1);
 
-  ms_objecter->bind(g_conf->public_addr);
-
   // Set up crypto, daemonize, etc.
   global_init_daemonize(g_ceph_context, 0);
   common_init_finish(g_ceph_context);
-
-  if (g_conf->filestore_update_to >= (int)store->get_target_version()) {
-    int err = OSD::do_convertfs(store);
-    if (err < 0) {
-      derr << TEXT_RED << " ** ERROR: error converting store " << g_conf->osd_data
-	   << ": " << cpp_strerror(-err) << TEXT_NORMAL << dendl;
-      exit(1);
-    }
-  }
 
   MonClient mc(g_ceph_context);
   if (mc.build_initial_monmap() < 0)

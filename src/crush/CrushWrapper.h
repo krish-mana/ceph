@@ -59,16 +59,16 @@ public:
 private:
   struct crush_map *crush;
   /* reverse maps */
-  bool have_rmaps;
-  std::map<string, int> type_rmap, name_rmap, rule_name_rmap;
-  void build_rmaps() {
+  mutable bool have_rmaps;
+  mutable std::map<string, int> type_rmap, name_rmap, rule_name_rmap;
+  void build_rmaps() const {
     if (have_rmaps) return;
     build_rmap(type_map, type_rmap);
     build_rmap(name_map, name_rmap);
     build_rmap(rule_name_map, rule_name_rmap);
     have_rmaps = true;
   }
-  void build_rmap(const map<int, string> &f, std::map<string, int> &r) {
+  void build_rmap(const map<int, string> &f, std::map<string, int> &r) const {
     r.clear();
     for (std::map<int, string>::const_iterator p = f.begin(); p != f.end(); ++p)
       r[p->second] = p->first;
@@ -222,7 +222,7 @@ public:
   int get_num_type_names() const {
     return type_map.size();
   }
-  int get_type_id(const string& name) {
+  int get_type_id(const string& name) const {
     build_rmaps();
     if (type_rmap.count(name))
       return type_rmap[name];
@@ -241,14 +241,14 @@ public:
   }
 
   // item/bucket names
-  bool name_exists(const string& name) {
+  bool name_exists(const string& name) const {
     build_rmaps();
     return name_rmap.count(name);
   }
   bool item_exists(int i) {
     return name_map.count(i);
   }
-  int get_item_id(const string& name) {
+  int get_item_id(const string& name) const {
     build_rmaps();
     if (name_rmap.count(name))
       return name_rmap[name];
@@ -269,12 +269,25 @@ public:
     return 0;
   }
 
+  int can_rename_item(const string& srcname,
+		      const string& dstname,
+		      ostream *ss) const;
+  int rename_item(const string& srcname,
+		  const string& dstname,
+		  ostream *ss);
+  int can_rename_bucket(const string& srcname,
+			const string& dstname,
+			ostream *ss) const;
+  int rename_bucket(const string& srcname,
+		    const string& dstname,
+		    ostream *ss);
+
   // rule names
-  bool rule_exists(string name) {
+  bool rule_exists(string name) const {
     build_rmaps();
     return rule_name_rmap.count(name);
   }
-  int get_rule_id(string name) {
+  int get_rule_id(string name) const {
     build_rmaps();
     if (rule_name_rmap.count(name))
       return rule_name_rmap[name];
@@ -541,14 +554,22 @@ public:
    * @param id item id to check
    * @return weight of item
    */
-  int get_item_weight(int id);
-  float get_item_weightf(int id) {
+  int get_item_weight(int id) const;
+  float get_item_weightf(int id) const {
     return (float)get_item_weight(id) / (float)0x10000;
+  }
+  int get_item_weight_in_loc(int id, const map<string,string> &loc);
+  float get_item_weightf_in_loc(int id, const map<string,string> &loc) {
+    return (float)get_item_weight_in_loc(id, loc) / (float)0x10000;
   }
 
   int adjust_item_weight(CephContext *cct, int id, int weight);
   int adjust_item_weightf(CephContext *cct, int id, float weight) {
     return adjust_item_weight(cct, id, (int)(weight * (float)0x10000));
+  }
+  int adjust_item_weight_in_loc(CephContext *cct, int id, int weight, const map<string,string>& loc);
+  int adjust_item_weightf_in_loc(CephContext *cct, int id, float weight, const map<string,string>& loc) {
+    return adjust_item_weight_in_loc(cct, id, (int)(weight * (float)0x10000), loc);
   }
   void reweight(CephContext *cct);
 
@@ -558,7 +579,7 @@ public:
   }
 
   /// check if item id is present in the map hierarchy
-  bool check_item_present(int id);
+  bool check_item_present(int id) const;
 
 
   /*** devices ***/
@@ -749,9 +770,6 @@ private:
     crush_bucket *b = get_bucket(item);
     unsigned bucket_weight = b->weight;
 
-    // zero out the bucket weight
-    adjust_item_weight(cct, item, 0);
-
     // get where the bucket is located
     pair<string, string> bucket_location = get_immediate_parent(item);
 
@@ -762,6 +780,10 @@ private:
     crush_bucket *parent_bucket = get_bucket(parent_id);
 
     if (!IS_ERR(parent_bucket)) {
+      // zero out the bucket weight
+      crush_bucket_adjust_item_weight(parent_bucket, item, 0);
+      adjust_item_weight(cct, parent_bucket->id, parent_bucket->weight);
+
       // remove the bucket from the parent
       crush_bucket_remove_item(parent_bucket, item);
     } else if (PTR_ERR(parent_bucket) != -ENOENT) {

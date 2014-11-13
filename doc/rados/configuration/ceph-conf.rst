@@ -339,7 +339,7 @@ and  `Cephx Authentication`_ for details.
 OSDs
 ====
 
-Ceph production clusters typically deploy :term:Ceph OSD Daemons` where one node
+Ceph production clusters typically deploy :term:`Ceph OSD Daemons` where one node
 has one OSD daemon running a filestore on one storage drive. A typical
 deployment specifies a journal size. For example:
 
@@ -380,8 +380,8 @@ use with Ceph, and mount it to the directory you just created::
 	sudo mkfs -t {fstype} /dev/{disk}
 	sudo mount -o user_xattr /dev/{hdd} /var/lib/ceph/osd/ceph-{osd-number}
 
-We recommend using the ``xfs`` file system or the ``btrfs`` file system when 
-running :command:mkfs. 
+We recommend using the ``xfs`` file system or the ``btrfs`` file system when
+running :command:`mkfs`.
 
 See the `OSD Config Reference`_ for additional configuration details.
 
@@ -426,19 +426,19 @@ useful for increasing/decreasing logging output, enabling/disabling debug
 settings, and even for runtime optimization. The following reflects runtime
 configuration usage::
 
-	ceph {daemon-type} tell {id or *} injectargs '--{name} {value} [--{name} {value}]'
+	ceph tell {daemon-type}.{id or *} injectargs --{name} {value} [--{name} {value}]
 	
 Replace ``{daemon-type}`` with one of ``osd``, ``mon`` or ``mds``. You may apply
 the  runtime setting to all daemons of a particular type with ``*``, or specify
 a specific  daemon's ID (i.e., its number or letter). For example, to increase
 debug logging for a ``ceph-osd`` daemon named ``osd.0``, execute the following::
 
-	ceph osd tell 0 injectargs '--debug-osd 20 --debug-ms 1'
+	ceph tell osd.0 injectargs --debug-osd 20 --debug-ms 1
 
 In your ``ceph.conf`` file, you may use spaces when specifying a
 setting name.  When specifying a setting name on the command line,
 ensure that you use an underscore or hyphen (``_`` or ``-``) between
-terms (e.g., ``debug osd`` becomes ``debug-osd``).
+terms (e.g., ``debug osd`` becomes ``--debug-osd``).
 
 
 Viewing a Configuration at Runtime

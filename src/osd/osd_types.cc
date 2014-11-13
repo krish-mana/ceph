@@ -2316,9 +2316,9 @@ void pg_interval_t::dump(Formatter *f) const
   f->open_array_section("acting");
   for (vector<int>::const_iterator p = acting.begin(); p != acting.end(); ++p)
     f->dump_int("osd", *p);
+  f->close_section();
   f->dump_int("primary", primary);
   f->dump_int("up_primary", up_primary);
-  f->close_section();
 }
 
 void pg_interval_t::generate_test_instances(list<pg_interval_t*>& o)
@@ -4614,6 +4614,8 @@ ostream& operator<<(ostream& out, const OSDOp& op)
     switch (op.op.op) {
     case CEPH_OSD_OP_PGLS:
     case CEPH_OSD_OP_PGLS_FILTER:
+    case CEPH_OSD_OP_PGNLS:
+    case CEPH_OSD_OP_PGNLS_FILTER:
       out << " start_epoch " << op.op.pgls.start_epoch;
       break;
     case CEPH_OSD_OP_PG_HITSET_LS:

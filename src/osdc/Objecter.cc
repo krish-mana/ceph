@@ -590,8 +590,12 @@ bool Objecter::ms_dispatch(Message *m)
     return true;
 
   case MSG_COMMAND_REPLY:
-    handle_command_reply(static_cast<MCommandReply*>(m));
-    return true;
+    if (m->get_source().type() == CEPH_ENTITY_TYPE_OSD) {
+      handle_command_reply(static_cast<MCommandReply*>(m));
+      return true;
+    } else {
+      return false;
+    }
 
   case MSG_GETPOOLSTATSREPLY:
     handle_get_pool_stats_reply(static_cast<MGetPoolStatsReply*>(m));
@@ -721,9 +725,9 @@ void Objecter::_scan_requests(OSDSession *s,
 
 void Objecter::handle_osd_map(MOSDMap *m)
 {
-  assert(initialized.read());
-
   RWLock::WLocker wl(rwlock);
+  if (!initialized.read())
+    return;
 
   assert(osdmap); 
 
@@ -772,7 +776,7 @@ void Objecter::handle_osd_map(MOSDMap *m)
 	  logger->inc(l_osdc_map_full);
 	}
 	else {
-	  if (e && e > m->get_oldest()) {
+	  if (e >= m->get_oldest()) {
 	    ldout(cct, 3) << "handle_osd_map requesting missing epoch "
 			  << osdmap->get_epoch()+1 << dendl;
 	    int r = _maybe_request_map();
@@ -2014,9 +2018,14 @@ int Objecter::_calc_target(op_target_t *t, bool any_change)
   bool is_write = t->flags & CEPH_OSD_FLAG_WRITE;
 
   const pg_pool_t *pi = osdmap->get_pg_pool(t->base_oloc.pool);
+  if (!pi) {
+    t->osd = -1;
+    return RECALC_OP_TARGET_POOL_DNE;
+  }
+
   bool force_resend = false;
   bool need_check_tiering = false;
-  if (pi && osdmap->get_epoch() == pi->last_force_op_resend) {
+  if (osdmap->get_epoch() == pi->last_force_op_resend) {
     force_resend = true;
   }
   if (t->target_oid.name.empty() || force_resend) {
@@ -2030,12 +2039,10 @@ int Objecter::_calc_target(op_target_t *t, bool any_change)
   
   if (need_check_tiering &&
       (t->flags & CEPH_OSD_FLAG_IGNORE_OVERLAY) == 0) {
-    if (pi) {
-      if (is_read && pi->has_read_tier())
-	t->target_oloc.pool = pi->read_tier;
-      if (is_write && pi->has_write_tier())
-	t->target_oloc.pool = pi->write_tier;
-    }
+    if (is_read && pi->has_read_tier())
+      t->target_oloc.pool = pi->read_tier;
+    if (is_write && pi->has_write_tier())
+      t->target_oloc.pool = pi->write_tier;
   }
 
   pg_t pgid;
@@ -2043,8 +2050,10 @@ int Objecter::_calc_target(op_target_t *t, bool any_change)
     assert(t->base_oid.name.empty()); // make sure this is a listing op
     ldout(cct, 10) << __func__ << " have " << t->base_pgid << " pool "
 		   << osdmap->have_pg_pool(t->base_pgid.pool()) << dendl;
-    if (!osdmap->have_pg_pool(t->base_pgid.pool()))
+    if (!osdmap->have_pg_pool(t->base_pgid.pool())) {
+      t->osd = -1;
       return RECALC_OP_TARGET_POOL_DNE;
+    }
     pgid = osdmap->raw_pg_to_pg(t->base_pgid);
   } else {
     int ret = osdmap->object_locator_to_pg(t->target_oid, t->target_oloc,
@@ -2504,7 +2513,6 @@ void Objecter::unregister_op(Op *op)
 /* This function DOES put the passed message before returning */
 void Objecter::handle_osd_op_reply(MOSDOpReply *m)
 {
-  assert(initialized.read());
   ldout(cct, 10) << "in handle_osd_op_reply" << dendl;
 
   // get pio
@@ -2513,6 +2521,11 @@ void Objecter::handle_osd_op_reply(MOSDOpReply *m)
   int osd_num = (int)m->get_source().num();
 
   RWLock::RLocker l(rwlock);
+  if (!initialized.read()) {
+    m->put();
+    return;
+  }
+
   RWLock::Context lc(rwlock, RWLock::Context::TakenForRead);
 
   map<int, OSDSession *>::iterator siter = osd_sessions.find(osd_num);
@@ -2704,6 +2717,145 @@ void Objecter::handle_osd_op_reply(MOSDOpReply *m)
   put_session(s);
 }
 
+
+uint32_t Objecter::list_nobjects_seek(NListContext *list_context,
+				     uint32_t pos)
+{
+  RWLock::RLocker rl(rwlock);
+  pg_t actual = osdmap->raw_pg_to_pg(pg_t(pos, list_context->pool_id));
+  ldout(cct, 10) << "list_objects_seek " << list_context
+		 << " pos " << pos << " -> " << actual << dendl;
+  list_context->current_pg = actual.ps();
+  list_context->cookie = collection_list_handle_t();
+  list_context->at_end_of_pg = false;
+  list_context->at_end_of_pool = false;
+  list_context->current_pg_epoch = 0;
+  return list_context->current_pg;
+}
+
+void Objecter::list_nobjects(NListContext *list_context, Context *onfinish)
+{
+  ldout(cct, 10) << "list_objects" << dendl;
+  ldout(cct, 20) << " pool_id " << list_context->pool_id
+	   << " pool_snap_seq " << list_context->pool_snap_seq
+	   << " max_entries " << list_context->max_entries
+	   << " list_context " << list_context
+	   << " onfinish " << onfinish
+	   << " list_context->current_pg " << list_context->current_pg
+	   << " list_context->cookie " << list_context->cookie << dendl;
+
+  if (list_context->at_end_of_pg) {
+    list_context->at_end_of_pg = false;
+    ++list_context->current_pg;
+    list_context->current_pg_epoch = 0;
+    list_context->cookie = collection_list_handle_t();
+    if (list_context->current_pg >= list_context->starting_pg_num) {
+      list_context->at_end_of_pool = true;
+      ldout(cct, 20) << " no more pgs; reached end of pool" << dendl;
+    } else {
+      ldout(cct, 20) << " move to next pg " << list_context->current_pg << dendl;
+    }
+  }
+  if (list_context->at_end_of_pool) {
+    // release the listing context's budget once all
+    // OPs (in the session) are finished
+    put_nlist_context_budget(list_context);
+
+    onfinish->complete(0);
+    return;
+  }
+
+  rwlock.get_read();
+  const pg_pool_t *pool = osdmap->get_pg_pool(list_context->pool_id);
+  int pg_num = pool->get_pg_num();
+  rwlock.unlock();
+
+  if (list_context->starting_pg_num == 0) {     // there can't be zero pgs!
+    list_context->starting_pg_num = pg_num;
+    ldout(cct, 20) << pg_num << " placement groups" << dendl;
+  }
+  if (list_context->starting_pg_num != pg_num) {
+    // start reading from the beginning; the pgs have changed
+    ldout(cct, 10) << " pg_num changed; restarting with " << pg_num << dendl;
+    list_context->current_pg = 0;
+    list_context->cookie = collection_list_handle_t();
+    list_context->current_pg_epoch = 0;
+    list_context->starting_pg_num = pg_num;
+  }
+  assert(list_context->current_pg <= pg_num);
+
+  ObjectOperation op;
+  op.pg_nls(list_context->max_entries, list_context->filter, list_context->cookie,
+	     list_context->current_pg_epoch);
+  list_context->bl.clear();
+  C_NList *onack = new C_NList(list_context, onfinish, this);
+  object_locator_t oloc(list_context->pool_id, list_context->nspace);
+
+  pg_read(list_context->current_pg, oloc, op,
+	  &list_context->bl, 0, onack, &onack->epoch, &list_context->ctx_budget);
+}
+
+void Objecter::_nlist_reply(NListContext *list_context, int r,
+			   Context *final_finish, epoch_t reply_epoch)
+{
+  ldout(cct, 10) << "_list_reply" << dendl;
+
+  bufferlist::iterator iter = list_context->bl.begin();
+  pg_nls_response_t response;
+  bufferlist extra_info;
+  ::decode(response, iter);
+  if (!iter.end()) {
+    ::decode(extra_info, iter);
+  }
+  list_context->cookie = response.handle;
+  if (!list_context->current_pg_epoch) {
+    // first pgls result, set epoch marker
+    ldout(cct, 20) << " first pgls piece, reply_epoch is "
+		   << reply_epoch << dendl;
+    list_context->current_pg_epoch = reply_epoch;
+  }
+
+  int response_size = response.entries.size();
+  ldout(cct, 20) << " response.entries.size " << response_size
+		 << ", response.entries " << response.entries << dendl;
+  list_context->extra_info.append(extra_info);
+  if (response_size) {
+    list_context->list.merge(response.entries);
+  }
+
+  // if the osd returns 1 (newer code), or no entries, it means we
+  // hit the end of the pg.
+  if (response_size == 0 || r == 1) {
+    ldout(cct, 20) << " at end of pg" << dendl;
+    list_context->at_end_of_pg = true;
+  } else {
+    // there is more for this pg; get it?
+    if (response_size < list_context->max_entries) {
+      list_context->max_entries -= response_size;
+      list_nobjects(list_context, final_finish);
+      return;
+    }
+  }
+  if (!list_context->list.empty()) {
+    ldout(cct, 20) << " returning results so far" << dendl;
+    // release the listing context's budget once all
+    // OPs (in the session) are finished
+    put_nlist_context_budget(list_context);
+    final_finish->complete(0);
+    return;
+  }
+
+  // continue!
+  list_nobjects(list_context, final_finish);
+}
+
+void Objecter::put_nlist_context_budget(NListContext *list_context) {
+    if (list_context->ctx_budget >= 0) {
+      ldout(cct, 10) << " release listing context's budget " << list_context->ctx_budget << dendl;
+      put_op_budget_bytes(list_context->ctx_budget);
+      list_context->ctx_budget = -1;
+    }
+  }
 
 uint32_t Objecter::list_objects_seek(ListContext *list_context,
 				     uint32_t pos)
@@ -3089,9 +3241,12 @@ void Objecter::_pool_op_submit(PoolOp *op)
  */
 void Objecter::handle_pool_op_reply(MPoolOpReply *m)
 {
-  assert(initialized.read());
-
   rwlock.get_read();
+  if (!initialized.read()) {
+    rwlock.put_read();
+    m->put();
+    return;
+  }
 
   ldout(cct, 10) << "handle_pool_op_reply " << *m << dendl;
   ceph_tid_t tid = m->get_tid();
@@ -3220,11 +3375,15 @@ void Objecter::_poolstat_submit(PoolStatOp *op)
 
 void Objecter::handle_get_pool_stats_reply(MGetPoolStatsReply *m)
 {
-  assert(initialized.read());
   ldout(cct, 10) << "handle_get_pool_stats_reply " << *m << dendl;
   ceph_tid_t tid = m->get_tid();
 
   RWLock::WLocker wl(rwlock);
+  if (!initialized.read()) {
+    m->put();
+    return;
+  }
+
   map<ceph_tid_t, PoolStatOp *>::iterator iter = poolstat_ops.find(tid);
   if (iter != poolstat_ops.end()) {
     PoolStatOp *op = poolstat_ops[tid];
@@ -3325,9 +3484,11 @@ void Objecter::_fs_stats_submit(StatfsOp *op)
 
 void Objecter::handle_fs_stats_reply(MStatfsReply *m)
 {
-  assert(initialized.read());
-
   RWLock::WLocker wl(rwlock);
+  if (!initialized.read()) {
+    m->put();
+    return;
+  }
 
   ldout(cct, 10) << "handle_fs_stats_reply " << *m << dendl;
   ceph_tid_t tid = m->get_tid();
@@ -3436,6 +3597,10 @@ bool Objecter::ms_handle_reset(Connection *con)
     if (osd >= 0) {
       ldout(cct, 1) << "ms_handle_reset on osd." << osd << dendl;
       rwlock.get_write();
+      if (!initialized.read()) {
+	rwlock.put_write();
+	return false;
+      }
       map<int,OSDSession*>::iterator p = osd_sessions.find(osd);
       if (p != osd_sessions.end()) {
 	OSDSession *session = p->second;
@@ -3747,6 +3912,10 @@ void Objecter::handle_command_reply(MCommandReply *m)
   int osd_num = (int)m->get_source().num();
 
   RWLock::WLocker wl(rwlock);
+  if (!initialized.read()) {
+    m->put();
+    return;
+  }
 
   map<int, OSDSession *>::iterator siter = osd_sessions.find(osd_num);
   if (siter == osd_sessions.end()) {

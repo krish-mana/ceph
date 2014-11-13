@@ -72,7 +72,8 @@ libcommon_la_SOURCES = \
 	common/hobject.cc \
 	common/bloom_filter.cc \
 	common/linux_version.c \
-	common/module.c
+	common/module.c \
+	common/Readahead.cc
 
 # these should go out of libcommon
 libcommon_la_SOURCES += \
@@ -85,7 +86,8 @@ libcommon_la_SOURCES += \
 	osd/HitSet.cc \
 	mds/MDSMap.cc \
 	mds/inode_backtrace.cc \
-	mds/mdstypes.cc 
+	mds/mdstypes.cc \
+	mds/flock.cc
 
 # inject crc in common
 libcommon_crc_la_SOURCES = \
@@ -203,7 +205,9 @@ noinst_HEADERS += \
 	common/cmdparse.h \
 	common/hobject.h \
 	common/linux_version.h \
-	common/module.h
+	common/module.h \
+	common/Continuation.h \
+	common/Readahead.h
 
 noinst_LTLIBRARIES += libcommon.la
 

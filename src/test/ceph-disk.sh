@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # Copyright (C) 2014 Cloudwatt <libre.licensing@cloudwatt.com>
+# Copyright (C) 2014 Red Hat <contact@redhat.com>
 #
 # Author: Loic Dachary <loic@dachary.org>
 #
@@ -15,6 +16,9 @@
 # GNU Library Public License for more details.
 #
 set -xe
+
+source test/test_btrfs_common.sh
+
 PS4='${FUNCNAME[0]}: $LINENO: '
 
 export PATH=:$PATH # make sure program from sources are prefered
@@ -27,6 +31,7 @@ export CEPH_CONF=/dev/null
 export CEPH_ARGS="--fsid $FSID"
 CEPH_ARGS+=" --chdir="
 CEPH_ARGS+=" --run-dir=$DIR"
+CEPH_ARGS+=" --osd-failsafe-full-ratio=.99"
 CEPH_ARGS+=" --mon-host=$MONA"
 CEPH_ARGS+=" --log-file=$DIR/\$name.log"
 CEPH_ARGS+=" --pid-file=$DIR/\$name.pidfile"
@@ -51,6 +56,10 @@ function setup() {
 
 function teardown() {
     kill_daemons
+    if [ $(stat -f -c '%T' .) == "btrfs" ]; then
+        rm -fr $DIR/*/*db
+        teardown_btrfs $DIR
+    fi
     rm -fr $DIR
 }
 
@@ -67,6 +76,8 @@ function run_mon() {
     ./ceph-mon \
         --id $MON_ID \
         --mon-data=$mon_dir \
+        --mon-osd-full-ratio=.99 \
+        --mon-data-avail-crit=1 \
         --mon-cluster-log-file=$mon_dir/log \
         --public-addr $MONA \
         "$@"
@@ -85,7 +96,7 @@ function kill_daemons() {
 function command_fixture() {
     local command=$1
 
-    [ $(which $command) = ./$command ] || [ $(which $command) = $(pwd)/$command ] || return 1
+    [ $(which $command) = ./$command ] || [ $(which $command) = `readlink -f $(pwd)/$command` ] || return 1
 
     cat > $DIR/$command <<EOF
 #!/bin/bash

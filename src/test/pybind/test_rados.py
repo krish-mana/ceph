@@ -1,6 +1,6 @@
 from nose.tools import eq_ as eq, assert_raises
 from rados import (Rados, Error, Object, ObjectExists, ObjectNotFound,
-                   ANONYMOUS_AUID, ADMIN_AUID)
+                   ANONYMOUS_AUID, ADMIN_AUID, LIBRADOS_ALL_NSPACES)
 import threading
 import json
 import errno
@@ -88,6 +88,36 @@ class TestRados(object):
         eq(set(['a' * 500]), self.list_non_default_pools())
         self.rados.delete_pool('a' * 500)
 
+    def test_get_pool_base_tier(self):
+        self.rados.create_pool('foo')
+        try:
+            self.rados.create_pool('foo-cache')
+            try:
+                pool_id = self.rados.pool_lookup('foo')
+                tier_pool_id = self.rados.pool_lookup('foo-cache')
+
+                cmd = {"prefix":"osd tier add", "pool":"foo", "tierpool":"foo-cache", "force_nonempty":""}
+                ret, buf, errs = self.rados.mon_command(json.dumps(cmd), '', timeout=30)
+                eq(ret, 0)
+
+                try:
+                    cmd = {"prefix":"osd tier cache-mode", "pool":"foo-cache", "tierpool":"foo-cache", "mode":"readonly"}
+                    ret, buf, errs = self.rados.mon_command(json.dumps(cmd), '', timeout=30)
+                    eq(ret, 0)
+
+                    eq(self.rados.wait_for_latest_osdmap(), 0)
+
+                    eq(pool_id, self.rados.get_pool_base_tier(pool_id))
+                    eq(pool_id, self.rados.get_pool_base_tier(tier_pool_id))
+                finally:
+                    cmd = {"prefix":"osd tier remove", "pool":"foo", "tierpool":"foo-cache"}
+                    ret, buf, errs = self.rados.mon_command(json.dumps(cmd), '', timeout=30)
+                    eq(ret, 0)
+            finally:
+                self.rados.delete_pool('foo-cache')
+        finally:
+            self.rados.delete_pool('foo')
+
     def test_get_fsid(self):
         fsid = self.rados.get_fsid()
         eq(len(fsid), 36)
@@ -147,6 +177,23 @@ class TestIoctx(object):
         self.ioctx.append('d', 'jazz')
         object_names = [obj.key for obj in self.ioctx.list_objects()]
         eq(sorted(object_names), ['a', 'b', 'c', 'd'])
+
+    def test_list_ns_objects(self):
+        self.ioctx.write('a', '')
+        self.ioctx.write('b', 'foo')
+        self.ioctx.write_full('c', 'bar')
+        self.ioctx.append('d', 'jazz')
+        self.ioctx.set_namespace("ns1")
+        self.ioctx.write('ns1-a', '')
+        self.ioctx.write('ns1-b', 'foo')
+        self.ioctx.write_full('ns1-c', 'bar')
+        self.ioctx.append('ns1-d', 'jazz')
+        self.ioctx.append('d', 'jazz')
+        self.ioctx.set_namespace(LIBRADOS_ALL_NSPACES)
+        object_names = [(obj.nspace, obj.key) for obj in self.ioctx.list_objects()]
+        eq(sorted(object_names), [('', 'a'), ('','b'), ('','c'), ('','d'),\
+                ('ns1', 'd'), ('ns1', 'ns1-a'), ('ns1', 'ns1-b'),\
+                ('ns1', 'ns1-c'), ('ns1', 'ns1-d')])
 
     def test_xattrs(self):
         xattrs = dict(a='1', b='2', c='3', d='a\0b', e='\0')

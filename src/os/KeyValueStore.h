@@ -66,10 +66,10 @@ class StripObjectMap: public GenericObjectMap {
                    // also block read operation which not should be permitted.
     coll_t cid;
     ghobject_t oid;
+    bool updated;
     bool deleted;
-    map<pair<string, string>, bufferlist> buffers;  // pair(prefix, key)
 
-    StripObjectHeader(): strip_size(default_strip_size), max_size(0), deleted(false) {}
+    StripObjectHeader(): strip_size(default_strip_size), max_size(0), updated(false), deleted(false) {}
 
     void encode(bufferlist &bl) const {
       ENCODE_START(1, 1, bl);
@@ -248,6 +248,8 @@ class KeyValueStore : public ObjectStore,
 
     //Dirty records
     StripHeaderMap strip_headers;
+    map< uniq_id, map<pair<string, string>, bufferlist> > buffers;  // pair(prefix, key),to buffer updated data in one transaction
+
     list<Context*> finishes;
 
     KeyValueStore *store;
@@ -483,6 +485,7 @@ class KeyValueStore : public ObjectStore,
   uint32_t get_target_version() {
     return target_version;
   }
+  bool need_journal() { return false; };
   int peek_journal_fsid(uuid_d *id) {
     *id = fsid;
     return 0;
@@ -608,8 +611,6 @@ class KeyValueStore : public ObjectStore,
                               BufferTransaction &t);
   int _collection_remove_recursive(const coll_t &cid,
                                    BufferTransaction &t);
-  int _collection_rename(const coll_t &cid, const coll_t &ncid,
-                         BufferTransaction &t);
   int list_collections(vector<coll_t>& ls);
   bool collection_exists(coll_t c);
   bool collection_empty(coll_t c);

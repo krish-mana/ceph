@@ -505,7 +505,7 @@ public:
     uint32_t get_data_length() {
       return largest_data_len;
     }
-    /// offset within the encoded buffer to the start of the first data buffer that's encoded
+    /// offset within the encoded buffer to the start of the largest data buffer that's encoded
     uint32_t get_data_offset() {
       if (largest_data_off_in_tbl) {
 	return largest_data_off_in_tbl +
@@ -525,7 +525,7 @@ public:
     int get_data_alignment() {
       if (!largest_data_len)
 	return -1;
-      return (largest_data_off - get_data_offset()) & ~CEPH_PAGE_MASK;
+      return (0 - get_data_offset()) & ~CEPH_PAGE_MASK;
     }
     /// Is the Transaction empty (no operations)
     bool empty() {
@@ -870,33 +870,20 @@ public:
       ::encode(cid, tbl);
       ops++;
     }
-    /**
-     * Add object to another collection (DEPRECATED)
-     *
-     * The Object is added to the new collection. This is a virtual
-     * add, we now have two names for the same object.  This is only
-     * used for conversion of old stores to new stores and is not
-     * needed for new implementations unless they expect to make use
-     * of the conversion infrastructure.
-     */
-    void collection_add(coll_t cid, coll_t ocid, const ghobject_t& oid) {
+    void collection_move(coll_t cid, coll_t oldcid, const ghobject_t& oid) {
+      // NOTE: we encode this as a fixed combo of ADD + REMOVE.  they
+      // always appear together, so this is effectively a single MOVE.
       __u32 op = OP_COLL_ADD;
       ::encode(op, tbl);
       ::encode(cid, tbl);
-      ::encode(ocid, tbl);
+      ::encode(oldcid, tbl);
       ::encode(oid, tbl);
       ops++;
-    }
-    void collection_remove(coll_t cid, const ghobject_t& oid) {
-      __u32 op = OP_COLL_REMOVE;
+      op = OP_COLL_REMOVE;
       ::encode(op, tbl);
-      ::encode(cid, tbl);
+      ::encode(oldcid, tbl);
       ::encode(oid, tbl);
       ops++;
-    }
-    void collection_move(coll_t cid, coll_t oldcid, const ghobject_t& oid) {
-      collection_add(cid, oldcid, oid);
-      collection_remove(oldcid, oid);
       return;
     }
     void collection_move_rename(coll_t oldcid, const ghobject_t& oldoid,
@@ -952,14 +939,6 @@ public:
       ::encode(op, tbl);
       ::encode(cid, tbl);
       ::encode(aset, tbl);
-      ops++;
-    }
-    /// Change the name of a collection
-    void collection_rename(coll_t cid, coll_t ncid) {
-      __u32 op = OP_COLL_RENAME;
-      ::encode(op, tbl);
-      ::encode(cid, tbl);
-      ::encode(ncid, tbl);
       ops++;
     }
 
@@ -1226,9 +1205,12 @@ public:
   ObjectStore(const ObjectStore& o);
   const ObjectStore& operator=(const ObjectStore& o);
 
+  // versioning
+  virtual int upgrade() {
+    return 0;
+  }
+
   // mgmt
-  virtual int version_stamp_is_valid(uint32_t *version) { return 1; }
-  virtual int update_version_stamp() = 0;
   virtual bool test_mount_in_use() = 0;
   virtual int mount() = 0;
   virtual int umount() = 0;
@@ -1244,9 +1226,12 @@ public:
   virtual void collect_metadata(map<string,string> *pm) { }
 
   /**
-   * get the most recent "on-disk format version" supported
+   * check whether need journal device
+   *
+   * It's not constant for backend store. FileStore could have journaless mode
+   * and KeyValueStore could have journal device for special backend.
    */
-  virtual uint32_t get_target_version() = 0;
+  virtual bool need_journal() = 0;
 
   /**
    * check the journal uuid/fsid, without opening

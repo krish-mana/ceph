@@ -19,6 +19,7 @@
 
 #include "common/Formatter.h"
 #include "common/errno.h"
+#include "common/ceph_argparse.h"
 
 #include "global/global_init.h"
 
@@ -494,7 +495,7 @@ out:
 }
 
 //Based on part of OSD::load_pgs()
-int finish_remove_pgs(ObjectStore *store, uint64_t *next_removal_seq)
+int finish_remove_pgs(ObjectStore *store)
 {
   vector<coll_t> ls;
   int r = store->list_collections(ls);
@@ -508,7 +509,6 @@ int finish_remove_pgs(ObjectStore *store, uint64_t *next_removal_seq)
        it != ls.end();
        ++it) {
     spg_t pgid;
-    snapid_t snap;
 
     if (it->is_temp(pgid)) {
       cout << "finish_remove_pgs " << *it << " clearing temp" << std::endl;
@@ -516,16 +516,13 @@ int finish_remove_pgs(ObjectStore *store, uint64_t *next_removal_seq)
       continue;
     }
 
-    if (it->is_pg(pgid, snap)) {
-      continue;
-    }
-
     uint64_t seq;
-    if (it->is_removal(&seq, &pgid)) {
-      if (seq >= *next_removal_seq)
-	*next_removal_seq = seq + 1;
-      cout << "finish_remove_pgs removing " << *it << ", seq is "
-	       << seq << " pgid is " << pgid << std::endl;
+    coll_t coll(pgid);
+    char val;
+    if (it->is_removal(&seq, &pgid) ||
+	store->collection_getattr(coll, "remove", &val, 1) == 1) {
+      cout << "finish_remove_pgs removing " << *it
+	   << " pgid is " << pgid << std::endl;
       remove_coll(store, *it);
       continue;
     }
@@ -535,17 +532,15 @@ int finish_remove_pgs(ObjectStore *store, uint64_t *next_removal_seq)
   return 0;
 }
 
-int initiate_new_remove_pg(ObjectStore *store, spg_t r_pgid,
-    uint64_t *next_removal_seq)
+int initiate_new_remove_pg(ObjectStore *store, spg_t r_pgid)
 {
   ObjectStore::Transaction *rmt = new ObjectStore::Transaction;
 
   if (store->collection_exists(coll_t(r_pgid))) {
-      coll_t to_remove = coll_t::make_removal_coll((*next_removal_seq)++, r_pgid);
-      cout << "collection rename " << coll_t(r_pgid)
-	   << " to " << to_remove
-        << std::endl;
-      rmt->collection_rename(coll_t(r_pgid), to_remove);
+    cout << " marking collection for removal" << std::endl;
+    bufferlist one;
+    one.append('1');
+    rmt->collection_setattr(coll_t(r_pgid), "remove", one);
   } else {
     delete rmt;
     return ENOENT;
@@ -1198,9 +1193,6 @@ int get_pg_metadata(ObjectStore *store, coll_t coll, bufferlist &bl)
   cout << std::endl;
 #endif
 
-  coll_t newcoll(ms.info.pgid);
-  t->collection_rename(coll, newcoll);
-
   int ret = write_pg(*t, ms.map_epoch, ms.info, ms.log, ms.struct_ver, ms.past_intervals);
   if (ret) return ret;
 
@@ -1334,8 +1326,7 @@ int do_import(ObjectStore *store, OSDSuperblock& sb)
   pg_info_t info;
   PGLog::IndexedLog log;
 
-  uint64_t next_removal_seq = 0;	//My local seq
-  finish_remove_pgs(store, &next_removal_seq);
+  finish_remove_pgs(store);
 
   int ret = sh.read_super();
   if (ret)
@@ -1384,11 +1375,12 @@ int do_import(ObjectStore *store, OSDSuperblock& sb)
     return 1;
   }
 
-  //Switch to collection which will be removed automatically if
-  //this program is interupted.
-  coll_t rmcoll = coll_t::make_removal_coll(next_removal_seq, pgid);
+  // mark this coll for removal until we are done
+  bufferlist one;
+  one.append('1');
   ObjectStore::Transaction *t = new ObjectStore::Transaction;
-  t->create_collection(rmcoll);
+  t->create_collection(coll);
+  t->collection_setattr(coll, "remove", one);
   store->apply_transaction(*t);
   delete t;
 
@@ -1408,11 +1400,11 @@ int do_import(ObjectStore *store, OSDSuperblock& sb)
     }
     switch(type) {
     case TYPE_OBJECT_BEGIN:
-      ret = get_object(store, rmcoll, ebl);
+      ret = get_object(store, coll, ebl);
       if (ret) return ret;
       break;
     case TYPE_PG_METADATA:
-      ret = get_pg_metadata(store, rmcoll, ebl);
+      ret = get_pg_metadata(store, coll, ebl);
       if (ret) return ret;
       found_metadata = true;
       break;
@@ -1428,6 +1420,13 @@ int do_import(ObjectStore *store, OSDSuperblock& sb)
     cerr << "Missing metadata section" << std::endl;
     return EFAULT;
   }
+
+  // done, clear removal flag
+  cout << "done, clearing remove flag" << std::endl;
+  t = new ObjectStore::Transaction;
+  t->collection_rmattr(coll, "remove");
+  store->apply_transaction(*t);
+  delete t;
 
   return 0;
 }
@@ -1836,15 +1835,18 @@ int main(int argc, char **argv)
   po::positional_options_description pd;
   pd.add("object", 1).add("objcmd", 1).add("arg1", 1).add("arg2", 1);
 
+  vector<string> ceph_option_strings;
   po::variables_map vm;
-  po::parsed_options parsed =
-   po::command_line_parser(argc, argv).options(all).allow_unregistered().positional(pd).run();
-  po::store( parsed, vm);
   try {
+    po::parsed_options parsed =
+      po::command_line_parser(argc, argv).options(all).allow_unregistered().positional(pd).run();
+    po::store( parsed, vm);
     po::notify(vm);
-  }
-  catch(...) {
-    usage(desc);
+    ceph_option_strings = po::collect_unrecognized(parsed.options,
+						   po::include_positional);
+  } catch(po::error &e) {
+    std::cerr << e.what() << std::endl;
+    return 1;
   }
 
   if (vm.count("help")) {
@@ -1978,10 +1980,9 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  vector<const char *> ceph_options, def_args;
-  vector<string> ceph_option_strings = po::collect_unrecognized(
-    parsed.options, po::include_positional);
-  ceph_options.reserve(ceph_option_strings.size());
+  vector<const char *> ceph_options;
+  env_to_vec(ceph_options);
+  ceph_options.reserve(ceph_options.size() + ceph_option_strings.size());
   for (vector<string>::iterator i = ceph_option_strings.begin();
        i != ceph_option_strings.end();
        ++i) {
@@ -1995,7 +1996,7 @@ int main(int argc, char **argv)
     flags |= SKIP_MOUNT_OMAP;
 
   global_init(
-    &def_args, ceph_options, CEPH_ENTITY_TYPE_OSD,
+    NULL, ceph_options, CEPH_ENTITY_TYPE_OSD,
     CODE_ENVIRONMENT_UTILITY_NODOUT, 0);
     //CINIT_FLAG_NO_DEFAULT_CONFIG_FILE);
   common_init_finish(g_ceph_context);
@@ -2041,7 +2042,7 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  ObjectStore *fs = ObjectStore::create(NULL, type, dpath, jpath, flags);
+  ObjectStore *fs = ObjectStore::create(g_ceph_context, type, dpath, jpath, flags);
   if (fs == NULL) {
     cerr << "Must provide --type (filestore, memstore, keyvaluestore-dev)" << std::endl;
     exit(1);
@@ -2135,15 +2136,14 @@ int main(int argc, char **argv)
   biginfo_oid = OSD::make_pg_biginfo_oid(pgid);
 
   if (op == "remove") {
-    uint64_t next_removal_seq = 0;	//My local seq
-    finish_remove_pgs(fs, &next_removal_seq);
-    int r = initiate_new_remove_pg(fs, pgid, &next_removal_seq);
+    finish_remove_pgs(fs);
+    int r = initiate_new_remove_pg(fs, pgid);
     if (r) {
       cerr << "PG '" << pgid << "' not found" << std::endl;
       ret = 1;
       goto out;
     }
-    finish_remove_pgs(fs, &next_removal_seq);
+    finish_remove_pgs(fs);
     cout << "Remove successful" << std::endl;
     goto out;
   }

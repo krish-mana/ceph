@@ -672,19 +672,18 @@ public:
     if (i == get_pools().end()) {
       return false;
     }
+    if (!i->second.ec_pool()) {
+      *out = spg_t(pgid);
+      return true;
+    }
     int primary;
     vector<int> acting;
     pg_to_acting_osds(pgid, &acting, &primary);
-    if (i->second.ec_pool()) {
-      for (uint8_t i = 0; i < acting.size(); ++i) {
-	if (acting[i] == primary) {
-	  *out = spg_t(pgid, shard_id_t(i));
-	  return true;
-	}
+    for (uint8_t i = 0; i < acting.size(); ++i) {
+      if (acting[i] == primary) {
+        *out = spg_t(pgid, shard_id_t(i));
+        return true;
       }
-    } else {
-      *out = spg_t(pgid);
-      return true;
     }
     return false;
   }
@@ -771,6 +770,18 @@ public:
     return calc_pg_role(osd, group, nrep);
   }
 
+  bool osd_is_valid_op_target(pg_t pg, int osd) const {
+    int primary;
+    vector<int> group;
+    int nrep = pg_to_acting_osds(pg, &group, &primary);
+    if (osd == primary)
+      return true;
+    if (pg_is_ec(pg))
+      return false;
+
+    return calc_pg_role(osd, group, nrep) >= 0;
+  }
+
 
   /*
    * handy helpers to build simple maps...
@@ -810,6 +821,7 @@ private:
   void print_osd_line(int cur, ostream *out, Formatter *f) const;
 public:
   void print(ostream& out) const;
+  void print_pools(ostream& out) const;
   void print_summary(Formatter *f, ostream& out) const;
   void print_oneline_summary(ostream& out) const;
   void print_tree(ostream *out, Formatter *f) const;

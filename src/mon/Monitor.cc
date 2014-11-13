@@ -451,76 +451,21 @@ void Monitor::handle_conf_change(const struct md_config_t *conf,
   }
 }
 
-void Monitor::update_log_client(
-    LogChannelRef lc, const string &name,
-    map<string,string> &log_to_monitors,
-    map<string,string> &log_to_syslog,
-    map<string,string> &log_channels,
-    map<string,string> &log_prios)
-{
-  bool to_monitors = (get_str_map_key(log_to_monitors, name,
-                                      &CLOG_CHANNEL_DEFAULT) == "true");
-  bool to_syslog = (get_str_map_key(log_to_syslog, name,
-                                    &CLOG_CHANNEL_DEFAULT) == "true");
-  string syslog_facility = get_str_map_key(log_channels, name,
-                                           &CLOG_CHANNEL_DEFAULT);
-  string prio = get_str_map_key(log_prios, name, &CLOG_CHANNEL_DEFAULT);
-
-  lc->set_log_to_monitors(to_monitors);
-  lc->set_log_to_syslog(to_syslog);
-  lc->set_syslog_facility(syslog_facility);
-  lc->set_log_channel(name);
-  lc->set_log_prio(prio);
-
-  dout(15) << __func__ << " " << name << "("
-           << " to_monitors: " << (to_monitors ? "true" : "false")
-           << " to_syslog: " << (to_syslog ? "true" : "false")
-           << " syslog_facility: " << syslog_facility
-           << " prio: " << prio << ")" << dendl;
-}
-
 void Monitor::update_log_clients()
 {
   map<string,string> log_to_monitors;
   map<string,string> log_to_syslog;
   map<string,string> log_channel;
   map<string,string> log_prio;
-  ostringstream oss;
 
-  int r = get_conf_str_map_helper(g_conf->clog_to_monitors, oss,
-                                  &log_to_monitors, CLOG_CHANNEL_DEFAULT);
-  if (r < 0) {
-    derr << __func__ << " error parsing 'clog_to_monitors'" << dendl;
+  if (parse_log_client_options(g_ceph_context, log_to_monitors, log_to_syslog,
+			       log_channel, log_prio))
     return;
-  }
 
-  r = get_conf_str_map_helper(g_conf->clog_to_syslog, oss,
-                              &log_to_syslog, CLOG_CHANNEL_DEFAULT);
-  if (r < 0) {
-    derr << __func__ << " error parsing 'clog_to_syslog'" << dendl;
-    return;
-  }
-
-  r = get_conf_str_map_helper(g_conf->clog_to_syslog_facility, oss,
-                              &log_channel, CLOG_CHANNEL_DEFAULT);
-  if (r < 0) {
-    derr << __func__ << " error parsing 'clog_to_syslog_facility'" << dendl;
-    return;
-  }
-
-  r = get_conf_str_map_helper(g_conf->clog_to_syslog_level, oss,
-                              &log_prio, CLOG_CHANNEL_DEFAULT);
-  if (r < 0) {
-    derr << __func__ << " error parsing 'clog_to_syslog_level'" << dendl;
-    return;
-  }
-
-  update_log_client(clog, CLOG_CHANNEL_CLUSTER,
-                    log_to_monitors, log_to_syslog,
-                    log_channel, log_prio);
-  update_log_client(audit_clog, CLOG_CHANNEL_AUDIT,
-                    log_to_monitors, log_to_syslog,
-                    log_channel, log_prio);
+  clog->update_config(log_to_monitors, log_to_syslog,
+		      log_channel, log_prio);
+  audit_clog->update_config(log_to_monitors, log_to_syslog,
+			    log_channel, log_prio);
 }
 
 int Monitor::sanitize_options()
@@ -1583,6 +1528,8 @@ void Monitor::handle_probe(MMonProbe *m)
  */
 void Monitor::handle_probe_probe(MMonProbe *m)
 {
+  MMonProbe *r;
+
   dout(10) << "handle_probe_probe " << m->get_source_inst() << *m
 	   << " features " << m->get_connection()->get_features() << dendl;
   uint64_t missing = required_features & ~m->get_connection()->get_features();
@@ -1595,12 +1542,26 @@ void Monitor::handle_probe_probe(MMonProbe *m)
       m->required_features = required_features;
       m->get_connection()->send_message(r);
     }
-    m->put();
-    return;
+    goto out;
   }
 
-  MMonProbe *r = new MMonProbe(monmap->fsid, MMonProbe::OP_REPLY,
-			       name, has_ever_joined);
+  if (!is_probing() && !is_synchronizing()) {
+    // If the probing mon is way ahead of us, we need to re-bootstrap.
+    // Normally we capture this case when we initially bootstrap, but
+    // it is possible we pass those checks (we overlap with
+    // quorum-to-be) but fail to join a quorum before it moves past
+    // us.  We need to be kicked back to bootstrap so we can
+    // synchonize, not keep calling elections.
+    if (paxos->get_version() + 1 < m->paxos_first_version) {
+      dout(1) << " peer " << m->get_source_addr() << " has first_committed "
+	      << "ahead of us, re-bootstrapping" << dendl;
+      bootstrap();
+      goto out;
+
+    }
+  }
+
+  r = new MMonProbe(monmap->fsid, MMonProbe::OP_REPLY, name, has_ever_joined);
   r->name = name;
   r->quorum = quorum;
   monmap->encode(r->monmap_bl, m->get_connection()->get_features());
@@ -1615,6 +1576,7 @@ void Monitor::handle_probe_probe(MMonProbe *m)
     extra_probe_peers.insert(m->get_source_addr());
   }
 
+ out:
   m->put();
 }
 
@@ -2082,7 +2044,8 @@ void Monitor::get_mon_status(Formatter *f, ostream& ss)
   }
 }
 
-void Monitor::get_health(string& status, bufferlist *detailbl, Formatter *f)
+void Monitor::get_health(list<string>& status, bufferlist *detailbl,
+			 Formatter *f)
 {
   list<pair<health_status_t,string> > summary;
   list<pair<health_status_t,string> > detail;
@@ -2101,14 +2064,12 @@ void Monitor::get_health(string& status, bufferlist *detailbl, Formatter *f)
 
   if (f)
     f->open_array_section("summary");
-  stringstream ss;
   health_status_t overall = HEALTH_OK;
   if (!summary.empty()) {
-    ss << ' ';
     while (!summary.empty()) {
       if (overall > summary.front().first)
 	overall = summary.front().first;
-      ss << summary.front().second;
+      status.push_back(summary.front().second);
       if (f) {
         f->open_object_section("item");
         f->dump_stream("severity") <<  summary.front().first;
@@ -2116,8 +2077,6 @@ void Monitor::get_health(string& status, bufferlist *detailbl, Formatter *f)
         f->close_section();
       }
       summary.pop_front();
-      if (!summary.empty())
-	ss << "; ";
     }
   }
   if (f)
@@ -2168,15 +2127,15 @@ void Monitor::get_health(string& status, bufferlist *detailbl, Formatter *f)
       }
     }
     if (!warns.empty()) {
-      if (!ss.str().empty())
-        ss << ";";
-      ss << " clock skew detected on";
+      ostringstream ss;
+      ss << "clock skew detected on";
       while (!warns.empty()) {
         ss << " mon." << warns.front();
         warns.pop_front();
         if (!warns.empty())
           ss << ",";
       }
+      status.push_back(ss.str());
     }
     if (f)
       f->close_section();
@@ -2186,7 +2145,7 @@ void Monitor::get_health(string& status, bufferlist *detailbl, Formatter *f)
 
   stringstream fss;
   fss << overall;
-  status = fss.str() + ss.str();
+  status.push_front(fss.str());
   if (f)
     f->dump_stream("overall_status") << overall;
 
@@ -2214,7 +2173,7 @@ void Monitor::get_cluster_status(stringstream &ss, Formatter *f)
     f->open_object_section("status");
 
   // reply with the status for all the components
-  string health;
+  list<string> health;
   get_health(health, NULL, f);
 
   if (f) {
@@ -2245,8 +2204,10 @@ void Monitor::get_cluster_status(stringstream &ss, Formatter *f)
     f->close_section();
   } else {
     ss << "    cluster " << monmap->get_fsid() << "\n";
-    ss << "     health " << health << "\n";
-    ss << "     monmap " << *monmap << ", election epoch " << get_epoch()
+    ss << "     health " << joinify(health.begin(), health.end(), 
+				    string("\n            ")) << "\n";
+    ss << "     monmap " << *monmap << "\n";
+    ss << "            election epoch " << get_epoch()
        << ", quorum " << get_quorum() << " " << get_quorum_names() << "\n";
     if (mdsmon()->mdsmap.get_enabled())
       ss << "     mdsmap " << mdsmon()->mdsmap << "\n";
@@ -2583,13 +2544,19 @@ void Monitor::handle_command(MMonCommand *m)
       }
       rdata.append(ds);
     } else if (prefix == "health") {
-      string health_str;
+      list<string> health_str;
       get_health(health_str, detail == "detail" ? &rdata : NULL, f.get());
       if (f) {
         f->flush(ds);
         ds << '\n';
       } else {
-        ds << health_str;
+	assert(!health_str.empty());
+	ds << health_str.front();
+	health_str.pop_front();
+	if (!health_str.empty()) {
+	  ds << ' ';
+	  ds << joinify(health_str.begin(), health_str.end(), string("; "));
+	}
       }
       bufferlist comb;
       comb.append(ds);
@@ -2637,7 +2604,7 @@ void Monitor::handle_command(MMonCommand *m)
       tagstr = tagstr.substr(0, tagstr.find_last_of(' '));
     f->dump_string("tag", tagstr);
 
-    string hs;
+    list<string> hs;
     get_health(hs, NULL, f.get());
 
     monmon()->dump_info(f.get());
@@ -3402,7 +3369,7 @@ void Monitor::handle_ping(MPing *m)
   Formatter *f = new JSONFormatter(true);
   f->open_object_section("pong");
 
-  string health_str;
+  list<string> health_str;
   get_health(health_str, NULL, f);
   {
     stringstream ss;

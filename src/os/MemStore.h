@@ -218,7 +218,6 @@ private:
 			  size_t size);
   int _collection_setattrs(coll_t cid, map<string,bufferptr> &aset);
   int _collection_rmattr(coll_t cid, const char *name);
-  int _collection_rename(const coll_t &cid, const coll_t &ncid);
   int _split_collection(coll_t cid, uint32_t bits, uint32_t rem, coll_t dest);
 
   int _save();
@@ -232,16 +231,11 @@ public:
     : ObjectStore(path),
       coll_lock("MemStore::coll_lock"),
       apply_lock("MemStore::apply_lock"),
-      finisher(cct) { }
+      finisher(cct),
+      sharded(false) { }
   ~MemStore() { }
 
-  int update_version_stamp() {
-    return 0;
-  }
-  uint32_t get_target_version() {
-    return 1;
-  }
-
+  bool need_journal() { return false; };
   int peek_journal_fsid(uuid_d *fsid);
 
   bool test_mount_in_use() {
@@ -263,10 +257,12 @@ public:
     return 0;
   }
 
+  bool sharded;
   void set_allow_sharded_objects() {
+    sharded = true;
   }
   bool get_allow_sharded_objects() {
-    return true;
+    return sharded;
   }
 
   int statfs(struct statfs *buf);
