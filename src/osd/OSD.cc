@@ -2920,14 +2920,19 @@ void OSD::build_past_intervals_parallel()
       if (cur_epoch < p.start || cur_epoch > p.end)
 	continue;
 
+      pg_t pgid = pg->info.pgid.pgid;
+      if (cur_map->get_pools().count(pgid.pool()))
+	pgid = pgid.get_ancestor(cur_map->get_pg_num(pgid.pool()));
+
       vector<int> acting, up;
       int up_primary;
       int primary;
       cur_map->pg_to_up_acting_osds(
-	pg->info.pgid.pgid, &up, &up_primary, &acting, &primary);
+	pgid, &up, &up_primary, &acting, &primary);
 
       if (p.same_interval_since == 0) {
 	dout(10) << __func__ << " epoch " << cur_epoch << " pg " << pg->info.pgid
+		 << " effective pgid " << pgid
 		 << " first map, acting " << acting
 		 << " up " << up << ", same_interval_since = " << cur_epoch << dendl;
 	p.same_interval_since = cur_epoch;
@@ -2950,7 +2955,7 @@ void OSD::build_past_intervals_parallel()
 	p.same_interval_since,
 	pg->info.history.last_epoch_clean,
 	cur_map, last_map,
-	pg->info.pgid.pgid,
+	pgid,
 	&pg->past_intervals,
 	&debug);
       if (new_interval) {
