@@ -185,7 +185,7 @@ PG::PG(OSDService *o, OSDMapRef curmap,
   #ifdef PG_DEBUG_REFS
   _ref_id_lock("PG::_ref_id_lock"), _ref_id(0),
   #endif
-  dirty_info(false), dirty_big_info(false),
+  deleting(false), dirty_info(false), dirty_big_info(false),
   info(p),
   info_struct_v(0),
   coll(p), pg_log(cct),
@@ -201,6 +201,7 @@ PG::PG(OSDService *o, OSDMapRef curmap,
   send_notify(false),
   pg_whoami(osd->whoami, p.shard),
   need_up_thru(false),
+  last_peering_reset(0),
   heartbeat_peer_lock("PG::heartbeat_peer_lock"),
   backfill_reserved(0),
   backfill_reserving(0),
@@ -213,10 +214,7 @@ PG::PG(OSDService *o, OSDMapRef curmap,
   active_pushes(0),
   recovery_state(this),
   pg_id(p),
-  peer_features((uint64_t)-1),
-  last_peering_reset_lock("PG::last_peering_reset_lock"),
-  last_peering_reset(0),
-  _deleting(false)
+  peer_features((uint64_t)-1)
 {
 #ifdef PG_DEBUG_REFS
   osd->add_pgid(p, this);
@@ -1988,7 +1986,7 @@ void PG::finish_recovery(list<Context*>& tfin)
 void PG::_finish_recovery(Context *c)
 {
   lock();
-  if (is_deleting()) {
+  if (deleting) {
     unlock();
     return;
   }
@@ -3718,7 +3716,7 @@ void PG::scrub(epoch_t queued, ThreadPool::TPHandle &handle)
     lock();
     dout(20) << __func__ << " slept for " << t << dendl;
   }
-  if (pg_has_reset_since(queued)) {
+  if (deleting || pg_has_reset_since(queued)) {
     unlock();
     return;
   }
@@ -4570,13 +4568,10 @@ bool PG::old_peering_msg(epoch_t reply_epoch, epoch_t query_epoch)
 void PG::set_last_peering_reset()
 {
   dout(20) << "set_last_peering_reset " << get_osdmap()->get_epoch() << dendl;
-  {
-    Mutex::Locker l(last_peering_reset_lock);
-    if (last_peering_reset != get_osdmap()->get_epoch()) {
-      last_peering_reset = get_osdmap()->get_epoch();
-    }
+  if (last_peering_reset != get_osdmap()->get_epoch()) {
+    last_peering_reset = get_osdmap()->get_epoch();
+    reset_interval_flush();
   }
-  reset_interval_flush();
 }
 
 struct FlushState {
@@ -4749,7 +4744,7 @@ void PG::start_peering_interval(
   // pg->on_*
   on_change(t);
 
-  assert(!is_deleting());
+  assert(!deleting);
 
   // should we tell the primary we are here?
   send_notify = !is_primary();
