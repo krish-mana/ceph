@@ -235,7 +235,6 @@ int main(int argc, char **argv)
   int64_t min_stride_size = -1, max_stride_size = -1;
   int max_seconds = 0;
   bool pool_snaps = false;
-  bool write_fadvise_dontneed = false;
 
   struct {
     TestOpType op;
@@ -288,8 +287,6 @@ int main(int argc, char **argv)
       no_omap = true;
     else if (strcmp(argv[i], "--pool-snaps") == 0)
       pool_snaps = true;
-    else if (strcmp(argv[i], "--write-fadvise-dontneed") == 0)
-      write_fadvise_dontneed = true;
     else if (strcmp(argv[i], "--ec-pool") == 0) {
       if (!op_weights.empty()) {
 	cerr << "--ec-pool must be specified prior to any ops" << std::endl;
@@ -385,7 +382,6 @@ int main(int argc, char **argv)
     max_stride_size,
     no_omap,
     pool_snaps,
-    write_fadvise_dontneed,
     id);
 
   TestOpStat stats;
