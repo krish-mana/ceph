@@ -215,6 +215,15 @@ public:
   /// Ensure that all previous operations are durable
   int sync(const ghobject_t *oid=0, const SequencerPosition *spos=0);
 
+  /// List objects in ghobject_t order
+  int object_list_partial(
+    const ghobject_t &start, ///< [in] list objects >= start
+    int min,                 ///< [in] min to list (unless hit end)
+    int max,                 ///< [in] max to list
+    vector<ghobject_t> *out, ///< [out] objects listed
+    ghobject_t *next         ///< [out] next to list, max() if end
+    ); ///< @returns error code
+
   /// Util, list all objects, there must be no other concurrent access
   int list_objects(vector<ghobject_t> *objs ///< [out] objects
     );

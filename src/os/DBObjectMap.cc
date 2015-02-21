@@ -1257,3 +1257,28 @@ int DBObjectMap::list_objects(vector<ghobject_t> *out)
   }
   return 0;
 }
+
+int DBObjectMap::object_list_partial(
+  const ghobject_t &start,
+  int min,
+  int max,
+  vector<ghobject_t> *out,
+  ghobject_t *next)
+{
+  if (state.v < 3)
+    return -ENOTSUP;
+  KeyValueDB::Iterator iter = db->get_iterator(HOBJECT_TO_SEQ);
+  for (iter->lower_bound(start.sort_preserving_to_str());
+       iter->valid() && (int)out->size() < max;
+       iter->next()) {
+    ghobject_t obj = ghobject_t::ghobject_from_sort_preserving_str(iter->key());
+    out->push_back(obj);
+  }
+  if (next) {
+    if (iter->valid())
+      *next = ghobject_t::ghobject_from_sort_preserving_str(iter->key());
+    else
+      *next = ghobject_t::get_max();
+  }
+  return 0;
+}
