@@ -48,6 +48,10 @@ public:
   const string &get_key() const {
     return key;
   }
+  void set_key(const string &_key) {
+    if (_key != oid.name)
+      key = _key;
+  }
 
   string to_str() const;
   
@@ -56,6 +60,10 @@ public:
   }
   void set_hash(uint32_t value) { 
     hash = value;
+    build_filestore_key_cache();
+  }
+  void set_filestore_key(uint32_t value) {
+    hash = _reverse_nibbles(value);
     build_filestore_key_cache();
   }
 
@@ -317,6 +325,9 @@ public:
     o = (*this);
     (*this) = temp;
   }
+
+  string sort_preserving_to_str() const;
+  static ghobject_t ghobject_from_sort_preserving_str(const string &str);
 
   void encode(bufferlist& bl) const;
   void decode(bufferlist::iterator& bl);

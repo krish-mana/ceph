@@ -72,7 +72,6 @@ set<string> hobject_t::get_prefixes(
 string hobject_t::to_str() const
 {
   string out;
-
   char snap_with_hash[1000];
   char *t = snap_with_hash;
   char *end = t + sizeof(snap_with_hash);
@@ -100,6 +99,96 @@ string hobject_t::to_str() const
   append_escaped(nspace, &out);
 
   return out;
+}
+
+string ghobject_t::sort_preserving_to_str() const
+{
+  // large enough to hold any object name
+  char out[8000];
+  char *t = out;
+  char *end = out + sizeof(out);
+
+  if (hobj.max)
+    t += snprintf(t, end - t, "max");
+  *(t++) = 0;
+  t += snprintf(t, end - t, "%*llX", 16, (long long unsigned)hobj.pool);
+  *(t++) = 0;
+  t += snprintf(t, end - t, "%*lX", 8, hobj.get_filestore_key());
+  *(t++) = 0;
+  t += snprintf(t, end - t, "%s", hobj.nspace.c_str());
+  *(t++) = 0;
+  t += snprintf(t, end - t, "%s", hobj.get_effective_key().c_str());
+  *(t++) = 0;
+  t += snprintf(t, end - t, "%s", hobj.oid.name.c_str());
+  *(t++) = 0;
+  t += snprintf(t, end - t, "%*llX", 16, (long long unsigned)hobj.snap);
+  *(t++) = 0;
+  t += snprintf(t, end - t, "%*X", 2, shard_id.id);
+  *(t++) = 0;
+  t += snprintf(t, end - t, "%*llX", 16, (long long unsigned)generation);
+  *(t++) = 0;
+  return string(out);
+}
+
+ghobject_t ghobject_t::ghobject_from_sort_preserving_str(const string &str)
+{
+  const char *t = str.data();
+  const char *end = t + str.size();
+  const char *nextnull = t;
+  int r = 0;
+
+  ghobject_t obj;
+  if (*t == 'm') {
+    obj.hobj.max = true;
+    t += 3;
+  } else {
+    obj.hobj.max = false;
+  }
+  nextnull = t;
+
+  t = nextnull + 1;
+  while (++nextnull) assert(nextnull < end);
+  uint64_t pool;
+  r = sscanf("%llX", t, &pool);
+  assert(r == 1);
+  obj.hobj.pool = (int64_t)pool;
+
+  t = nextnull + 1;
+  while (++nextnull) assert(nextnull < end);
+  uint32_t fkey;
+  r = sscanf("%lX", t, &fkey);
+  assert(r == 1);
+  obj.hobj.set_filestore_key(fkey);
+
+  t = nextnull + 1;
+  while (++nextnull) assert(nextnull < end);
+  obj.hobj.nspace = string(t, nextnull);
+
+  t = nextnull + 1;
+  while (++nextnull) assert(nextnull < end);
+  string effective_key(t, nextnull);
+
+  t = nextnull + 1;
+  while (++nextnull) assert(nextnull < end);
+  obj.hobj.oid = string(t, nextnull);
+  obj.hobj.set_key(effective_key);
+
+  t = nextnull + 1;
+  while (++nextnull) assert(nextnull < end);
+  r = sscanf("%llX", t, &obj.hobj.snap.val);
+  assert(r == 1);
+
+  t = nextnull + 1;
+  while (++nextnull) assert(nextnull < end);
+  r = sscanf("%X", t, &obj.shard_id.id);
+  assert(r == 1);
+
+  t = nextnull + 1;
+  while (++nextnull) assert(nextnull < end);
+  r = sscanf("%llX", t, &obj.generation);
+  assert(r == 1);
+
+  return obj;
 }
 
 void hobject_t::encode(bufferlist& bl) const

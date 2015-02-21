@@ -321,6 +321,7 @@ public:
 
   /// String munging (public for testing)
   static string ghobject_key(const ghobject_t &oid);
+  static string ghobject_key_v2(const ghobject_t &oid);
   static string ghobject_key_v0(coll_t c, const ghobject_t &oid);
   static int is_buggy_ghobject_key_v1(const string &in);
 private:

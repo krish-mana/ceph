@@ -111,6 +111,11 @@ bool DBObjectMap::check(std::ostream &out)
 
 string DBObjectMap::ghobject_key(const ghobject_t &oid)
 {
+  return oid.sort_preserving_to_str();
+}
+
+string DBObjectMap::ghobject_key_v2(const ghobject_t &oid)
+{
   string out;
   append_escaped(oid.hobj.oid.name, &out);
   out.push_back('.');
@@ -189,7 +194,11 @@ int DBObjectMap::is_buggy_ghobject_key_v1(const string &in)
 
 string DBObjectMap::map_header_key(const ghobject_t &oid)
 {
-  return ghobject_key(oid);
+  assert(state.v >= 2);
+  if (state.v == 2)
+    return ghobject_key_v2(oid);
+  else
+    return ghobject_key(oid);
 }
 
 string DBObjectMap::header_key(uint64_t seq)
@@ -1021,7 +1030,7 @@ int DBObjectMap::init(bool do_upgrade)
     }
   } else {
     // New store
-    state.v = 2;
+    state.v = 3;
     state.seq = 1;
   }
   dout(20) << "(init)dbobjectmap: seq is " << state.seq << dendl;
