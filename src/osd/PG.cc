@@ -890,19 +890,24 @@ map<pg_shard_t, pg_info_t>::const_iterator PG::find_best_info(
 {
   eversion_t min_last_update_acceptable = eversion_t::max();
   epoch_t max_last_epoch_started_found = 0;
+
+  // Find the max history.last_epoch_started we know about
+  if (!cct->_conf->osd_find_best_info_ignore_history_les) {
+    for (map<pg_shard_t, pg_info_t>::const_iterator i = infos.begin();
+	 i != infos.end();
+	 ++i) {
+      if (max_last_epoch_started_found < i->second.history.last_epoch_started) {
+	max_last_epoch_started_found = i->second.history.last_epoch_started;
+      }
+    }
+  }
+
+  // Then find the min last_update for any osd with a last_epoch_started
+  // at least that large.
   for (map<pg_shard_t, pg_info_t>::const_iterator i = infos.begin();
        i != infos.end();
        ++i) {
-    if (!cct->_conf->osd_find_best_info_ignore_history_les &&
-	max_last_epoch_started_found < i->second.history.last_epoch_started) {
-      min_last_update_acceptable = eversion_t::max();
-      max_last_epoch_started_found = i->second.history.last_epoch_started;
-    }
-    if (max_last_epoch_started_found < i->second.last_epoch_started) {
-      min_last_update_acceptable = eversion_t::max();
-      max_last_epoch_started_found = i->second.last_epoch_started;
-    }
-    if (max_last_epoch_started_found == i->second.last_epoch_started) {
+    if (max_last_epoch_started_found <= i->second.last_epoch_started) {
       if (min_last_update_acceptable > i->second.last_update)
 	min_last_update_acceptable = i->second.last_update;
     }
@@ -921,6 +926,9 @@ map<pg_shard_t, pg_info_t>::const_iterator PG::find_best_info(
     // Only consider peers with last_update >= min_last_update_acceptable
     if (p->second.last_update < min_last_update_acceptable)
       continue;
+    // disqualify anyone with a too old last_epoch_started
+    if (p->second.last_epoch_started < max_last_epoch_started_found)
+      continue;
     // Disquality anyone who is incomplete (not fully backfilled)
     if (p->second.is_incomplete())
       continue;
@@ -928,6 +936,7 @@ map<pg_shard_t, pg_info_t>::const_iterator PG::find_best_info(
       best = p;
       continue;
     }
+
     // Prefer newer last_update
     if (pool.info.require_rollback()) {
       if (p->second.last_update > best->second.last_update)
