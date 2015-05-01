@@ -146,6 +146,8 @@ static coll_t META_COLL("meta");
 #undef dout_prefix
 #define dout_prefix _prefix(_dout, whoami, get_osdmap_epoch())
 
+const double OSD::OSD_TICK_INTERVAL = 1.0;
+
 static ostream& _prefix(std::ostream* _dout, int whoami, epoch_t epoch) {
   return *_dout << "osd." << whoami << " " << epoch << " ";
 }
@@ -1454,6 +1456,8 @@ OSD::OSD(CephContext *cct_, ObjectStore *store_,
   Dispatcher(cct_),
   osd_lock("OSD::osd_lock"),
   tick_timer(cct, osd_lock),
+  tick_timer_lock("OSD::tick_timer_lock"),
+  tick_timer_without_osd_lock(cct, tick_timer_lock),
   authorize_handler_cluster_registry(new AuthAuthorizeHandlerRegistry(cct,
 								      cct->_conf->auth_supported.empty() ?
 								      cct->_conf->auth_cluster_required :
@@ -1712,6 +1716,7 @@ int OSD::init()
     return 0;
 
   tick_timer.init();
+  tick_timer_without_osd_lock.init();
   service.backfill_request_timer.init();
 
   // mount.
@@ -1850,6 +1855,10 @@ int OSD::init()
 
   // tick
   tick_timer.add_event_after(cct->_conf->osd_heartbeat_interval, new C_Tick(this));
+  {
+    Mutex::Locker l(tick_timer_lock);
+    tick_timer_without_osd_lock.add_event_after(cct->_conf->osd_heartbeat_interval, new C_Tick_WithoutOSDLock(this));
+  }
 
   service.init();
   service.publish_map(osdmap);
@@ -2305,6 +2314,11 @@ int OSD::shutdown()
 
   tick_timer.shutdown();
 
+  {
+    Mutex::Locker l(tick_timer_lock);
+    tick_timer_without_osd_lock.shutdown();
+  }
+
   // note unmount epoch
   dout(10) << "noting clean unmount in epoch " << osdmap->get_epoch() << dendl;
   superblock.mounted = service.get_boot_epoch();
@@ -2664,14 +2678,12 @@ PG *OSD::get_pg_or_queue_for_pg(const spg_t& pgid, OpRequestRef& op)
 
 bool OSD::_have_pg(spg_t pgid)
 {
-  assert(osd_lock.is_locked());
   RWLock::RLocker l(pg_map_lock);
   return pg_map.count(pgid);
 }
 
 PG *OSD::_lookup_lock_pg(spg_t pgid)
 {
-  assert(osd_lock.is_locked());
   RWLock::RLocker l(pg_map_lock);
   if (!pg_map.count(pgid))
     return NULL;
@@ -2683,7 +2695,6 @@ PG *OSD::_lookup_lock_pg(spg_t pgid)
 
 PG *OSD::_lookup_pg(spg_t pgid)
 {
-  assert(osd_lock.is_locked());
   RWLock::RLocker l(pg_map_lock);
   if (!pg_map.count(pgid))
     return NULL;
@@ -2693,7 +2704,6 @@ PG *OSD::_lookup_pg(spg_t pgid)
 
 PG *OSD::_lookup_lock_pg_with_map_lock_held(spg_t pgid)
 {
-  assert(osd_lock.is_locked());
   assert(pg_map.count(pgid));
   PG *pg = pg_map[pgid];
   pg->lock();
@@ -3880,10 +3890,6 @@ void OSD::tick()
     // periodically kick recovery work queue
     recovery_tp.wake();
 
-    if (!scrub_random_backoff()) {
-      sched_scrub();
-    }
-
     check_replay_queue();
   }
 
@@ -3899,7 +3905,18 @@ void OSD::tick()
 
   check_ops_in_flight();
 
-  tick_timer.add_event_after(1.0, new C_Tick(this));
+  tick_timer.add_event_after(OSD_TICK_INTERVAL, new C_Tick(this));
+}
+
+void OSD::tick_without_osd_lock()
+{
+  assert(tick_timer_lock.is_locked());
+  dout(5) << "tick_without_osd_lock" << dendl;
+
+  if (!scrub_random_backoff()) {
+    sched_scrub();
+  }
+  tick_timer_without_osd_lock.add_event_after(OSD_TICK_INTERVAL, new C_Tick_WithoutOSDLock(this));
 }
 
 void OSD::check_ops_in_flight()
@@ -4062,50 +4079,48 @@ bool remove_dir(
   OSDriver *osdriver,
   ObjectStore::Sequencer *osr,
   coll_t coll, DeletingStateRef dstate,
+  bool *finished,
   ThreadPool::TPHandle &handle)
 {
   vector<ghobject_t> olist;
   int64_t num = 0;
   ObjectStore::Transaction *t = new ObjectStore::Transaction;
   ghobject_t next;
-  while (!next.is_max()) {
-    handle.reset_tp_timeout();
-    store->collection_list_partial(
-      coll,
-      next,
-      store->get_ideal_list_min(),
-      store->get_ideal_list_max(),
-      0,
-      &olist,
-      &next);
-    for (vector<ghobject_t>::iterator i = olist.begin();
-	 i != olist.end();
-	 ++i, ++num) {
-      if (i->is_pgmeta())
-	continue;
-      OSDriver::OSTransaction _t(osdriver->get_transaction(t));
-      int r = mapper->remove_oid(i->hobj, &_t);
-      if (r != 0 && r != -ENOENT) {
-	assert(0);
-      }
-      t->remove(coll, *i);
-      if (num >= cct->_conf->osd_target_transaction_size) {
-	C_SaferCond waiter;
-	store->queue_transaction(osr, t, &waiter);
-	bool cont = dstate->pause_clearing();
-	handle.suspend_tp_timeout();
-	waiter.wait();
-	handle.reset_tp_timeout();
-	if (cont)
-	  cont = dstate->resume_clearing();
-	delete t;
-	if (!cont)
-	  return false;
-	t = new ObjectStore::Transaction;
-	num = 0;
-      }
+  handle.reset_tp_timeout();
+  store->collection_list_partial(
+    coll,
+    next,
+    store->get_ideal_list_min(),
+    store->get_ideal_list_max(),
+    0,
+    &olist,
+    &next);
+  for (vector<ghobject_t>::iterator i = olist.begin();
+       i != olist.end();
+       ++i, ++num) {
+    if (i->is_pgmeta())
+      continue;
+    OSDriver::OSTransaction _t(osdriver->get_transaction(t));
+    int r = mapper->remove_oid(i->hobj, &_t);
+    if (r != 0 && r != -ENOENT) {
+      assert(0);
     }
-    olist.clear();
+    t->remove(coll, *i);
+    if (num >= cct->_conf->osd_target_transaction_size) {
+      C_SaferCond waiter;
+      store->queue_transaction(osr, t, &waiter);
+      bool cont = dstate->pause_clearing();
+      handle.suspend_tp_timeout();
+      waiter.wait();
+      handle.reset_tp_timeout();
+      if (cont)
+        cont = dstate->resume_clearing();
+      delete t;
+      if (!cont)
+	return false;
+      t = new ObjectStore::Transaction;
+      num = 0;
+    }
   }
 
   C_SaferCond waiter;
@@ -4117,6 +4132,8 @@ bool remove_dir(
   if (cont)
     cont = dstate->resume_clearing();
   delete t;
+  // whether there are more objects to remove in the collection
+  *finished = next.is_max();
   return cont;
 }
 
@@ -4129,20 +4146,26 @@ void OSD::RemoveWQ::_process(
   OSDriver &driver = pg->osdriver;
   coll_t coll = coll_t(pg->info.pgid);
   pg->osr->flush();
+  bool finished = false;
 
-  if (!item.second->start_clearing())
+  if (!item.second->start_or_resume_clearing())
     return;
 
-  list<coll_t> colls_to_remove;
-  pg->get_colls(&colls_to_remove);
-  for (list<coll_t>::iterator i = colls_to_remove.begin();
-       i != colls_to_remove.end();
-       ++i) {
+  list<coll_t>& remaining_colls = item.second->colls_to_remove;
+  for (list<coll_t>::iterator i = remaining_colls.begin();
+       i != remaining_colls.end();) {
     bool cont = remove_dir(
       pg->cct, store, &mapper, &driver, pg->osr.get(), *i, item.second,
-      handle);
+      &finished, handle);
     if (!cont)
       return;
+    if (finished) {
+      i = remaining_colls.erase(i);
+    } else {
+      if (item.second->pause_clearing())
+        queue_front(item);
+      return;
+    }
   }
 
   if (!item.second->start_deleting())
@@ -4151,6 +4174,9 @@ void OSD::RemoveWQ::_process(
   ObjectStore::Transaction *t = new ObjectStore::Transaction;
   PGLog::clear_info_log(pg->info.pgid, t);
 
+  // remove the collections themselves
+  list<coll_t> colls_to_remove;
+  pg->get_colls(&colls_to_remove);
   for (list<coll_t>::iterator i = colls_to_remove.begin();
        i != colls_to_remove.end();
        ++i) {
@@ -5897,8 +5923,6 @@ bool OSD::scrub_should_schedule()
 
 void OSD::sched_scrub()
 {
-  assert(osd_lock.is_locked());
-
   bool load_is_low = scrub_should_schedule();
 
   dout(20) << "sched_scrub load_is_low=" << (int)load_is_low << dendl;
