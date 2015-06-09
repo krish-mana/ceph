@@ -349,6 +349,7 @@ class PGQueueable {
     PGScrub,
     PGRecovery
     > QVariant;
+  PGRef pg;
   QVariant qvariant;
   int cost; 
   unsigned priority;
@@ -366,32 +367,35 @@ class PGQueueable {
     void operator()(PGRecovery &op);
   };
 public:
-  PGQueueable(OpRequestRef op)
+  PGQueueable(PGRef pg, OpRequestRef op)
     : qvariant(op), cost(op->get_req()->get_cost()),
       priority(op->get_req()->get_priority()),
       start_time(op->get_req()->get_recv_stamp()),
       owner(op->get_req()->get_source_inst())
     {}
   PGQueueable(
+    PGRef pg,
     const PGSnapTrim &op, int cost, unsigned priority, utime_t start_time,
     const entity_inst_t &owner)
-    : qvariant(op), cost(cost), priority(priority), start_time(start_time),
-      owner(owner) {}
+    : pg(pg), qvariant(op), cost(cost), priority(priority),
+      start_time(start_time), owner(owner) {}
   PGQueueable(
+    PGRef pg,
     const PGScrub &op, int cost, unsigned priority, utime_t start_time,
     const entity_inst_t &owner)
-    : qvariant(op), cost(cost), priority(priority), start_time(start_time),
-      owner(owner) {}
+    : pg(pg), qvariant(op), cost(cost), priority(priority),
+      start_time(start_time), owner(owner) {}
   PGQueueable(
+    PGRef pg,
     const PGRecovery &op, int cost, unsigned priority, utime_t start_time,
     const entity_inst_t &owner)
-    : qvariant(op), cost(cost), priority(priority), start_time(start_time),
-      owner(owner) {}
+    : pg(pg), qvariant(op), cost(cost), priority(priority),
+      start_time(start_time), owner(owner) {}
   boost::optional<OpRequestRef> maybe_get_op() {
     OpRequestRef *op = boost::get<OpRequestRef>(&qvariant);
     return op ? *op : boost::optional<OpRequestRef>();
   }
-  void run(OSD *osd, PGRef &pg, ThreadPool::TPHandle &handle) {
+  void run(OSD *osd, PGRef pg, ThreadPool::TPHandle &handle) {
     RunVis v(osd, pg, handle);
     boost::apply_visitor(v, qvariant);
   }
@@ -399,6 +403,8 @@ public:
   int get_cost() const { return cost; }
   utime_t get_start_time() const { return start_time; }
   entity_inst_t get_owner() const { return owner; }
+  const PG *get_pg() const { return pg.get(); }
+  PGRef get_pg() { return pg; }
 };
 
 class OSDService {
@@ -419,7 +425,7 @@ public:
   PerfCounters *&logger;
   PerfCounters *&recoverystate_perf;
   MonClient   *&monc;
-  ShardedThreadPool::ShardedWQ < pair <PGRef, PGQueueable> > &op_wq;
+  ShardedThreadPool::ShardedWQ <PGQueueable> &op_wq;
   ThreadPool::BatchWorkQueue<PG> &peering_wq;
   GenContextWQ recovery_gen_wq;
   GenContextWQ op_gen_wq;
@@ -801,14 +807,13 @@ public:
 
   void queue_for_peering(PG *pg);
   void queue_for_recovery(PG *pg, bool front = false) {
-    pair<PGRef, PGQueueable> to_queue = make_pair(
+    PGQueueable to_queue = PGQueueable(
       pg,
-      PGQueueable(
-	PGRecovery(pg->get_osdmap()->get_epoch()),
-	cct->_conf->osd_recovery_cost,
-	cct->_conf->osd_recovery_priority,
-	ceph_clock_now(cct),
-	entity_inst_t()));
+      PGRecovery(pg->get_osdmap()->get_epoch()),
+      cct->_conf->osd_recovery_cost,
+      cct->_conf->osd_recovery_priority,
+      ceph_clock_now(cct),
+      entity_inst_t());
     if (front) {
       op_wq.queue_front(to_queue);
     } else {
@@ -817,25 +822,23 @@ public:
   }
   void queue_for_snap_trim(PG *pg) {
     op_wq.queue(
-      make_pair(
+      PGQueueable(
 	pg,
-	PGQueueable(
-	  PGSnapTrim(pg->get_osdmap()->get_epoch()),
-	  cct->_conf->osd_snap_trim_cost,
-	  cct->_conf->osd_snap_trim_priority,
-	  ceph_clock_now(cct),
-	  entity_inst_t())));
+	PGSnapTrim(pg->get_osdmap()->get_epoch()),
+	cct->_conf->osd_snap_trim_cost,
+	cct->_conf->osd_snap_trim_priority,
+	ceph_clock_now(cct),
+	entity_inst_t()));
   }
   void queue_for_scrub(PG *pg) {
     op_wq.queue(
-      make_pair(
+      PGQueueable(
 	pg,
-	PGQueueable(
-	  PGScrub(pg->get_osdmap()->get_epoch()),
-	  cct->_conf->osd_scrub_cost,
-	  cct->_conf->osd_scrub_priority,
-	  ceph_clock_now(cct),
-	  entity_inst_t())));
+	PGScrub(pg->get_osdmap()->get_epoch()),
+	cct->_conf->osd_scrub_cost,
+	cct->_conf->osd_scrub_priority,
+	ceph_clock_now(cct),
+	entity_inst_t()));
   }
 
   // osd map cache (past osd maps)
@@ -1582,14 +1585,14 @@ private:
   // -- op queue --
 
   friend class PGQueueable;
-  class ShardedOpWQ: public ShardedThreadPool::ShardedWQ < pair <PGRef, PGQueueable> > {
+  class ShardedOpWQ: public ShardedThreadPool::ShardedWQ<PGQueueable> {
 
     struct ShardData {
       Mutex sdata_lock;
       Cond sdata_cond;
       Mutex sdata_op_ordering_lock;
       map<PG*, list<PGQueueable> > pg_for_processing;
-      PrioritizedQueue< pair<PGRef, PGQueueable>, entity_inst_t> pqueue;
+      PrioritizedQueue<PGQueueable , entity_inst_t> pqueue;
       ShardData(
 	string lock_name, string ordering_lock,
 	uint64_t max_tok_per_prio, uint64_t min_cost)
@@ -1604,7 +1607,7 @@ private:
 
   public:
     ShardedOpWQ(uint32_t pnum_shards, OSD *o, time_t ti, time_t si, ShardedThreadPool* tp):
-      ShardedThreadPool::ShardedWQ < pair <PGRef, PGQueueable> >(ti, si, tp),
+      ShardedThreadPool::ShardedWQ<PGQueueable>(ti, si, tp),
       osd(o), num_shards(pnum_shards) {
       for(uint32_t i = 0; i < num_shards; i++) {
 	char lock_name[32] = {0};
@@ -1629,8 +1632,8 @@ private:
     }
 
     void _process(uint32_t thread_index, heartbeat_handle_d *hb);
-    void _enqueue(pair <PGRef, PGQueueable> item);
-    void _enqueue_front(pair <PGRef, PGQueueable> item);
+    void _enqueue(PGQueueable item);
+    void _enqueue_front(PGQueueable item);
       
     void return_waiting_threads() {
       for(uint32_t i = 0; i < num_shards; i++) {
@@ -1659,8 +1662,8 @@ private:
     struct Pred {
       PG *pg;
       Pred(PG *pg) : pg(pg) {}
-      bool operator()(const pair<PGRef, PGQueueable> &op) {
-	return op.first == pg;
+      bool operator()(const PGQueueable &op) {
+	return op.get_pg() == pg;
       }
     };
 
@@ -1683,12 +1686,12 @@ private:
       sdata = shard_list[shard_index];
       assert(sdata != NULL);
       assert(dequeued);
-      list<pair<PGRef, PGQueueable> > _dequeued;
+      list<PGQueueable> _dequeued;
       sdata->sdata_op_ordering_lock.Lock();
       sdata->pqueue.remove_by_filter(Pred(pg), &_dequeued);
-      for (list<pair<PGRef, PGQueueable> >::iterator i = _dequeued.begin();
+      for (list<PGQueueable>::iterator i = _dequeued.begin();
 	   i != _dequeued.end(); ++i) {
-	boost::optional<OpRequestRef> mop = i->second.maybe_get_op();
+	boost::optional<OpRequestRef> mop = i->maybe_get_op();
 	if (mop)
 	  dequeued->push_back(*mop);
       }

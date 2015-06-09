@@ -1814,7 +1814,7 @@ void PG::take_op_map_waiters()
     if (op_must_wait_for_map(get_osdmap_with_maplock()->get_epoch(), *i)) {
       break;
     } else {
-      osd->op_wq.queue(make_pair(PGRef(this), *i));
+      osd->op_wq.queue(PGQueueable(PGRef(this), *i));
       waiting_for_map.erase(i++);
     }
   }
@@ -1832,7 +1832,7 @@ void PG::queue_op(OpRequestRef& op)
     waiting_for_map.push_back(op);
     return;
   }
-  osd->op_wq.queue(make_pair(PGRef(this), op));
+  osd->op_wq.queue(PGQueueable(PGRef(this), op));
   {
     // after queue() to include any locking costs
 #ifdef WITH_LTTNG
@@ -3265,7 +3265,7 @@ void PG::requeue_object_waiters(map<hobject_t, list<OpRequestRef> >& m)
 
 void PG::requeue_op(OpRequestRef op)
 {
-  osd->op_wq.queue_front(make_pair(PGRef(this), op));
+  osd->op_wq.queue_front(PGQueueable(PGRef(this), op));
 }
 
 void PG::requeue_ops(list<OpRequestRef> &ls)
@@ -3274,7 +3274,7 @@ void PG::requeue_ops(list<OpRequestRef> &ls)
   for (list<OpRequestRef>::reverse_iterator i = ls.rbegin();
        i != ls.rend();
        ++i) {
-    osd->op_wq.queue_front(make_pair(PGRef(this), *i));
+    osd->op_wq.queue_front(PGQueueable(PGRef(this), *i));
   }
   ls.clear();
 }

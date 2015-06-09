@@ -7308,7 +7308,7 @@ void ReplicatedPG::op_applied(const eversion_t &applied_version)
       if (last_update_applied == static_cast<MOSDRepScrub*>(
 	    scrubber.active_rep_scrub->get_req())->scrub_to) {
 	osd->op_wq.queue(
-	  make_pair(
+	  PGQueueable(
 	    this,
 	    scrubber.active_rep_scrub));
 	scrubber.active_rep_scrub = OpRequestRef();
@@ -8414,7 +8414,7 @@ void ReplicatedPG::_applied_recovered_object_replica()
       scrubber.active_rep_scrub && static_cast<MOSDRepScrub*>(
 	scrubber.active_rep_scrub->get_req())->chunky) {
     osd->op_wq.queue(
-      make_pair(
+      PGQueueable(
 	this,
 	scrubber.active_rep_scrub));
     scrubber.active_rep_scrub = OpRequestRef();
