@@ -12,6 +12,8 @@
  * 
  */
 
+#include <boost/scoped_ptr.hpp>
+
 #include "msg/Message.h"
 #include "DispatchQueue.h"
 #include "SimpleMessenger.h"
@@ -85,10 +87,10 @@ void DispatchQueue::enqueue(Message *m, int priority, uint64_t id)
   add_arrival(m);
   if (priority >= CEPH_MSG_PRIO_LOW) {
     mqueue.enqueue_strict(
-        id, priority, QueueItem(m));
+        id, priority, new QueueItem(m));
   } else {
     mqueue.enqueue(
-        id, priority, m->get_cost(), QueueItem(m));
+        id, priority, m->get_cost(), new QueueItem(m));
   }
   cond.Signal();
 }
@@ -127,10 +129,10 @@ void DispatchQueue::run_local_delivery()
       add_arrival(m);
       if (priority >= CEPH_MSG_PRIO_LOW) {
         mqueue.enqueue_strict(
-            0, priority, QueueItem(m));
+            0, priority, new QueueItem(m));
       } else {
         mqueue.enqueue(
-            0, priority, m->get_cost(), QueueItem(m));
+            0, priority, m->get_cost(), new QueueItem(m));
       }
       cond.Signal();
     }
@@ -153,30 +155,30 @@ void DispatchQueue::entry()
   lock.Lock();
   while (true) {
     while (!mqueue.empty()) {
-      QueueItem qitem = mqueue.dequeue();
-      if (!qitem.is_code())
-	remove_arrival(qitem.get_message());
+      boost::scoped_ptr<QueueItem> qitem(mqueue.dequeue());
+      if (!qitem->is_code())
+	remove_arrival(qitem->get_message());
       lock.Unlock();
 
-      if (qitem.is_code()) {
-	switch (qitem.get_code()) {
+      if (qitem->is_code()) {
+	switch (qitem->get_code()) {
 	case D_BAD_REMOTE_RESET:
-	  msgr->ms_deliver_handle_remote_reset(qitem.get_connection());
+	  msgr->ms_deliver_handle_remote_reset(qitem->get_connection());
 	  break;
 	case D_CONNECT:
-	  msgr->ms_deliver_handle_connect(qitem.get_connection());
+	  msgr->ms_deliver_handle_connect(qitem->get_connection());
 	  break;
 	case D_ACCEPT:
-	  msgr->ms_deliver_handle_accept(qitem.get_connection());
+	  msgr->ms_deliver_handle_accept(qitem->get_connection());
 	  break;
 	case D_BAD_RESET:
-	  msgr->ms_deliver_handle_reset(qitem.get_connection());
+	  msgr->ms_deliver_handle_reset(qitem->get_connection());
 	  break;
 	default:
 	  assert(0);
 	}
       } else {
-	Message *m = qitem.get_message();
+	Message *m = qitem->get_message();
 	if (stop) {
 	  ldout(cct,10) << " stop flag set, discarding " << m << " " << *m << dendl;
 	  m->put();
@@ -200,16 +202,17 @@ void DispatchQueue::entry()
 
 void DispatchQueue::discard_queue(uint64_t id) {
   Mutex::Locker l(lock);
-  list<QueueItem> removed;
+  list<QueueItem*> removed;
   mqueue.remove_by_class(id, &removed);
-  for (list<QueueItem>::iterator i = removed.begin();
+  for (list<QueueItem*>::iterator i = removed.begin();
        i != removed.end();
-       ++i) {
-    assert(!(i->is_code())); // We don't discard id 0, ever!
-    Message *m = i->get_message();
+       removed.erase(i++)) {
+    assert(!((*i)->is_code())); // We don't discard id 0, ever!
+    Message *m = (*i)->get_message();
     remove_arrival(m);
     msgr->dispatch_throttle_release(m->get_dispatch_throttle_size());
     m->put();
+    delete *i;
   }
 }
 
@@ -229,6 +232,11 @@ void DispatchQueue::wait()
 
 void DispatchQueue::shutdown()
 {
+  while (!mqueue.empty()) {
+    QueueItem *item = mqueue.dequeue();
+    delete item;
+  }
+
   // stop my local delivery thread
   local_delivery_lock.Lock();
   stop_local_delivery = true;

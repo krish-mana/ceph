@@ -43,9 +43,12 @@ class DispatchQueue {
     int type;
     ConnectionRef con;
     MessageRef m;
+    xlist<QueueItem*>::item qitem;
   public:
-    QueueItem(Message *m) : type(-1), con(0), m(m) {}
-    QueueItem(int type, Connection *con) : type(type), con(con), m(0) {}
+    QueueItem(Message *m)
+      : type(-1), con(0), m(m), qitem(this) {}
+    QueueItem(int type, Connection *con)
+      : type(type), con(con), m(0), qitem(this) {}
     bool is_code() const {
       return type != -1;
     }
@@ -61,6 +64,7 @@ class DispatchQueue {
       assert(is_code());
       return con.get();
     }
+    xlist<QueueItem*>::item *get_item() { return &qitem; }
   };
     
   CephContext *cct;
@@ -68,7 +72,7 @@ class DispatchQueue {
   mutable Mutex lock;
   Cond cond;
 
-  PrioritizedQueue<QueueItem, uint64_t> mqueue;
+  PrioritizedQueue<QueueItem*, uint64_t> mqueue;
 
   set<pair<double, Message*> > marrival;
   map<Message *, set<pair<double, Message*> >::iterator> marrival_map;
@@ -141,7 +145,7 @@ class DispatchQueue {
     mqueue.enqueue_strict(
       0,
       CEPH_MSG_PRIO_HIGHEST,
-      QueueItem(D_CONNECT, con));
+      new QueueItem(D_CONNECT, con));
     cond.Signal();
   }
   void queue_accept(Connection *con) {
@@ -151,7 +155,7 @@ class DispatchQueue {
     mqueue.enqueue_strict(
       0,
       CEPH_MSG_PRIO_HIGHEST,
-      QueueItem(D_ACCEPT, con));
+      new QueueItem(D_ACCEPT, con));
     cond.Signal();
   }
   void queue_remote_reset(Connection *con) {
@@ -161,7 +165,7 @@ class DispatchQueue {
     mqueue.enqueue_strict(
       0,
       CEPH_MSG_PRIO_HIGHEST,
-      QueueItem(D_BAD_REMOTE_RESET, con));
+      new QueueItem(D_BAD_REMOTE_RESET, con));
     cond.Signal();
   }
   void queue_reset(Connection *con) {
@@ -171,7 +175,7 @@ class DispatchQueue {
     mqueue.enqueue_strict(
       0,
       CEPH_MSG_PRIO_HIGHEST,
-      QueueItem(D_BAD_RESET, con));
+      new QueueItem(D_BAD_RESET, con));
     cond.Signal();
   }
 
@@ -202,6 +206,10 @@ class DispatchQueue {
       local_delivery_thread(this),
       stop(false)
     {}
+
+  ~DispatchQueue() {
+    assert(mqueue.empty());
+  }
 };
 
 #endif
