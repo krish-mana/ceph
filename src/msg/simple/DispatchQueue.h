@@ -44,11 +44,16 @@ class DispatchQueue {
     ConnectionRef con;
     MessageRef m;
     xlist<QueueItem*>::item qitem;
+    uint64_t cost;
+    unsigned priority;
+    uint64_t id;
   public:
-    QueueItem(Message *m)
-      : type(-1), con(0), m(m), qitem(this) {}
+    QueueItem(unsigned priority, uint64_t id, Message *m)
+      : type(-1), con(0), m(m), qitem(this),
+	cost(m->get_cost()), priority(priority), id(id) {}
     QueueItem(int type, Connection *con)
-      : type(type), con(con), m(0), qitem(this) {}
+      : type(type), con(con), m(0), qitem(this),
+	cost(0), priority(CEPH_MSG_PRIO_HIGH), id(0) {}
     bool is_code() const {
       return type != -1;
     }
@@ -65,6 +70,9 @@ class DispatchQueue {
       return con.get();
     }
     xlist<QueueItem*>::item *get_item() { return &qitem; }
+    unsigned get_priority() const { return priority; }
+    uint64_t get_cost() const { return cost; }
+    uint64_t get_class() const { return id; }
   };
     
   CephContext *cct;
@@ -72,7 +80,7 @@ class DispatchQueue {
   mutable Mutex lock;
   Cond cond;
 
-  PrioritizedQueue<QueueItem*, uint64_t> mqueue;
+  PrioritizedQueue<QueueItem, uint64_t> mqueue;
 
   set<pair<double, Message*> > marrival;
   map<Message *, set<pair<double, Message*> >::iterator> marrival_map;
@@ -143,8 +151,6 @@ class DispatchQueue {
     if (stop)
       return;
     mqueue.enqueue_strict(
-      0,
-      CEPH_MSG_PRIO_HIGHEST,
       new QueueItem(D_CONNECT, con));
     cond.Signal();
   }
@@ -153,8 +159,6 @@ class DispatchQueue {
     if (stop)
       return;
     mqueue.enqueue_strict(
-      0,
-      CEPH_MSG_PRIO_HIGHEST,
       new QueueItem(D_ACCEPT, con));
     cond.Signal();
   }
@@ -163,8 +167,6 @@ class DispatchQueue {
     if (stop)
       return;
     mqueue.enqueue_strict(
-      0,
-      CEPH_MSG_PRIO_HIGHEST,
       new QueueItem(D_BAD_REMOTE_RESET, con));
     cond.Signal();
   }
@@ -173,8 +175,6 @@ class DispatchQueue {
     if (stop)
       return;
     mqueue.enqueue_strict(
-      0,
-      CEPH_MSG_PRIO_HIGHEST,
       new QueueItem(D_BAD_RESET, con));
     cond.Signal();
   }

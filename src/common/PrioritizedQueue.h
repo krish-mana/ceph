@@ -42,6 +42,20 @@
  * Within a priority class, we schedule round robin based on the class
  * of type K used to enqueue items.  e.g. you could use entity_inst_t
  * to provide fairness for different clients.
+ *
+ * Queued items are passed in as T*.  The user of this class must ensure
+ * the validity of each pointer until the item is dequeued.  Additionally,
+ * T must provide:
+ *   T::qitem of type xlist<T*>::item initialized to T* for the exclusive
+ *       use of PrioritizedQueue while it is queued.
+ *   uint64_t T::get_cost() const;
+ *   unsigned T::get_priority() const;
+ *   K T::get_class() const;
+ *
+ * Calling T::qitem::remove_myself() will cause the item if queued to be
+ * removed.  This means that between calls into PrioritizedQueue, all
+ * queued items must be on an xlist, and that removal from those xlists
+ * must be harmless.
  */
 template <typename T, typename K>
 class PrioritizedQueue {
@@ -49,25 +63,25 @@ class PrioritizedQueue {
   int64_t max_tokens_per_subqueue;
   int64_t min_cost;
 
-  typedef std::list<std::pair<unsigned, T> > ListPairs;
+  typedef xlist<T*> ElemList;
   template <class F>
   static unsigned filter_list_pairs(
-    ListPairs *l, F f,
-    std::list<T> *out) {
+    ElemList *l, F f,
+    std::list<T*> *out) {
     unsigned ret = 0;
     if (out) {
-      for (typename ListPairs::reverse_iterator i = l->rbegin();
+      for (typename ElemList::reverse_iterator i = l->rbegin();
 	   i != l->rend();
 	   ++i) {
-	if (f(i->second)) {
-	  out->push_front(i->second);
+	if (f(*i)) {
+	  out->push_front(*i);
 	}
       }
     }
-    for (typename ListPairs::iterator i = l->begin();
+    for (typename ElemList::iterator i = l->begin();
 	 i != l->end();
       ) {
-      if (f(i->second)) {
+      if (f(*i)) {
 	l->erase(i++);
 	++ret;
       } else {
@@ -79,22 +93,16 @@ class PrioritizedQueue {
 
   struct SubQueue {
   private:
-    typedef std::map<K, ListPairs> Classes;
+    typedef std::map<K, ElemList> Classes;
     Classes q;
     unsigned tokens, max_tokens;
-    int64_t size;
     typename Classes::iterator cur;
   public:
-    SubQueue(const SubQueue &other)
-      : q(other.q),
-	tokens(other.tokens),
-	max_tokens(other.max_tokens),
-	size(other.size),
-	cur(q.begin()) {}
+    SubQueue(const SubQueue &other); // copy disallowed
     SubQueue()
       : tokens(0),
 	max_tokens(0),
-	size(0), cur(q.begin()) {}
+	cur(q.begin()) {}
     void set_max_tokens(unsigned mt) {
       max_tokens = mt;
     }
@@ -115,19 +123,17 @@ class PrioritizedQueue {
       else
 	tokens = 0;
     }
-    void enqueue(K cl, unsigned cost, T item) {
-      q[cl].push_back(std::make_pair(cost, item));
+    void enqueue(T *item) {
+      q[item->get_class()].push_back(&(item->qitem));
       if (cur == q.end())
 	cur = q.begin();
-      size++;
     }
-    void enqueue_front(K cl, unsigned cost, T item) {
-      q[cl].push_front(std::make_pair(cost, item));
+    void enqueue_front(T *item) {
+      q[item->get_class()].push_front(&(item->qitem));
       if (cur == q.end())
 	cur = q.begin();
-      size++;
     }
-    std::pair<unsigned, T> front() const {
+    T *front() const {
       assert(!(q.empty()));
       assert(cur != q.end());
       return cur->second.front();
@@ -142,21 +148,25 @@ class PrioritizedQueue {
 	++cur;
       if (cur == q.end())
 	cur = q.begin();
-      size--;
     }
     unsigned length() const {
-      assert(size >= 0);
-      return (unsigned)size;
+      int answer = 0;
+      for (typename Classes::const_iterator i = q.begin();
+	   i != q.end();
+	   ++i) {
+	answer += i->second.size();
+      }
+      assert(answer >= 0);
+      return answer;
     }
     bool empty() const {
       return q.empty();
     }
     template <class F>
-    void remove_by_filter(F f, std::list<T> *out) {
+    void remove_by_filter(F f, std::list<T*> *out) {
       for (typename Classes::iterator i = q.begin();
 	   i != q.end();
 	   ) {
-	size -= filter_list_pairs(&(i->second), f, out);
 	if (i->second.empty()) {
 	  if (cur == i)
 	    ++cur;
@@ -168,19 +178,18 @@ class PrioritizedQueue {
       if (cur == q.end())
 	cur = q.begin();
     }
-    void remove_by_class(K k, std::list<T> *out) {
+    void remove_by_class(K k, std::list<T*> *out) {
       typename Classes::iterator i = q.find(k);
       if (i == q.end())
 	return;
-      size -= i->second.size();
       if (i == cur)
 	++cur;
       if (out) {
-	for (typename ListPairs::reverse_iterator j =
+	for (typename ElemList::reverse_iterator j =
 	       i->second.rbegin();
 	     j != i->second.rend();
 	     ++j) {
-	  out->push_front(j->second);
+	  out->push_front(*j);
 	}
       }
       q.erase(i);
@@ -191,10 +200,10 @@ class PrioritizedQueue {
     void dump(Formatter *f) const {
       f->dump_int("tokens", tokens);
       f->dump_int("max_tokens", max_tokens);
-      f->dump_int("size", size);
+      f->dump_int("size", length());
       f->dump_int("num_keys", q.size());
       if (!empty())
-	f->dump_int("first_item_cost", front().first);
+	f->dump_int("first_item_cost", front()->get_cost(0));
     }
   };
 
@@ -219,7 +228,7 @@ class PrioritizedQueue {
     assert(total_priority >= 0);
   }
 
-  void distribute_tokens(unsigned cost) {
+  void distribute_tokens(uint64_t cost) {
     if (total_priority == 0)
       return;
     for (typename SubQueues::iterator i = queue.begin();
@@ -254,7 +263,7 @@ public:
   }
 
   template <class F>
-  void remove_by_filter(F f, std::list<T> *removed = 0) {
+  void remove_by_filter(F f, std::list<T*> *removed = 0) {
     for (typename SubQueues::iterator i = queue.begin();
 	 i != queue.end();
 	 ) {
@@ -280,7 +289,7 @@ public:
     }
   }
 
-  void remove_by_class(K k, std::list<T> *out = 0) {
+  void remove_by_class(K k, std::list<T*> *out = 0) {
     for (typename SubQueues::iterator i = queue.begin();
 	 i != queue.end();
 	 ) {
@@ -305,15 +314,15 @@ public:
     }
   }
 
-  void enqueue_strict(K cl, unsigned priority, T item) {
-    high_queue[priority].enqueue(cl, 0, item);
+  void enqueue_strict(T *item) {
+    high_queue[priority].enqueue(item);
   }
 
-  void enqueue_strict_front(K cl, unsigned priority, T item) {
-    high_queue[priority].enqueue_front(cl, 0, item);
+  void enqueue_strict_front(T *item) {
+    high_queue[priority].enqueue_front(item);
   }
 
-  void enqueue(K cl, unsigned priority, unsigned cost, T item) {
+  void enqueue(T *item) {
     if (cost < min_cost)
       cost = min_cost;
     if (cost > max_tokens_per_subqueue)
@@ -321,7 +330,7 @@ public:
     create_queue(priority)->enqueue(cl, cost, item);
   }
 
-  void enqueue_front(K cl, unsigned priority, unsigned cost, T item) {
+  void enqueue_front(T *item) {
     if (cost < min_cost)
       cost = min_cost;
     if (cost > max_tokens_per_subqueue)
@@ -335,11 +344,11 @@ public:
     return queue.empty() && high_queue.empty();
   }
 
-  T dequeue() {
+  T *dequeue() {
     assert(!empty());
 
     if (!(high_queue.empty())) {
-      T ret = high_queue.rbegin()->second.front().second;
+      T *ret = high_queue.rbegin()->second.front();
       high_queue.rbegin()->second.pop_front();
       if (high_queue.rbegin()->second.empty())
 	high_queue.erase(high_queue.rbegin()->first);
@@ -354,8 +363,8 @@ public:
 	 ++i) {
       assert(!(i->second.empty()));
       if (i->second.front().first < i->second.num_tokens()) {
-	T ret = i->second.front().second;
-	unsigned cost = i->second.front().first;
+	T *ret = i->second.front();
+	uint64_t cost = ret->get_cost();
 	i->second.take_tokens(cost);
 	i->second.pop_front();
 	if (i->second.empty())
@@ -367,8 +376,8 @@ public:
 
     // if no subqueues have sufficient tokens, we behave like a strict
     // priority queue.
-    T ret = queue.rbegin()->second.front().second;
-    unsigned cost = queue.rbegin()->second.front().first;
+    T *ret = queue.rbegin()->second.front();
+    uint64_t cost = ret->get_cost();
     queue.rbegin()->second.pop_front();
     if (queue.rbegin()->second.empty())
       remove_queue(queue.rbegin()->first);

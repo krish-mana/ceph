@@ -352,7 +352,7 @@ class PGQueueable : public RefCountedObject {
     > QVariant;
   PGRef pg;
   QVariant qvariant;
-  int cost; 
+  uint64_t cost; 
   unsigned priority;
   utime_t start_time;
   entity_inst_t owner;
@@ -401,7 +401,7 @@ public:
     boost::apply_visitor(v, qvariant);
   }
   unsigned get_priority() const { return priority; }
-  int get_cost() const { return cost; }
+  uint64_t get_cost() const { return cost; }
   utime_t get_start_time() const { return start_time; }
   entity_inst_t get_owner() const { return owner; }
   const PG *get_pg() const { return pg.get(); }
@@ -1597,7 +1597,7 @@ private:
       Cond sdata_cond;
       Mutex sdata_op_ordering_lock;
       map<PG*, list<PGQueueableRef> > pg_for_processing;
-      PrioritizedQueue<PGQueueable*, entity_inst_t> pqueue;
+      PrioritizedQueue<PGQueueable, entity_inst_t> pqueue;
       ShardData(
 	string lock_name, string ordering_lock,
 	uint64_t max_tok_per_prio, uint64_t min_cost)
