@@ -220,6 +220,9 @@ public:
     uint64_t cost;
     K klass;
 
+    SubQueues *tqueue;
+    boost::optional<SubQueues::iterator> sqiter;
+    boost::optional<SubQueue::Classes::iterator> kiter;
     QItem(
       T item,
       unsigned priority,
@@ -229,10 +232,18 @@ public:
 	item(item),
 	priority(priority),
 	cost(cost),
-	klass(k) {}
+	klass(k),
+	tqueue(0) {}
   public:
     bool is_queued() const { return xlist<QItem*>::get_list(); }
-    void dequeued() {}
+    void dequeued() {
+      tqueue = NULL;
+      squiter = boost::optional<SubQueues::iterator>();
+      kiter = boost::optional<SubQueues::Classes::iterator>();
+    }
+    void set_tqueue(SubQueues *_tqueue) { tqueue = _tqueue; }
+    void set_sqiter(SubQueues::iterator &iter) { squiter = iter; }
+    void set_kiter(SubQueues::Classes::iterator &iter) { kiter = iter; }
   };
 
 private:
@@ -344,18 +355,21 @@ public:
 
   QItemRef enqueue_strict(K cl, unsigned priority, T item) {
     QItem *it = new QItem(item, priority, 0, cl);
+    it->tqueue = &high_queue;
     high_queue[priority].enqueue(it);
     return QItemRef(it);
   }
 
   QItemRef enqueue_strict_front(K cl, unsigned priority, T item) {
     QItem *it = new QItem(item, priority, 0, cl);
+    it->tqueue = &high_queue;
     high_queue[priority].enqueue_front(it);
     return QItemRef(it);
   }
 
   QItemRef enqueue(K cl, unsigned priority, uint64_t cost, T item) {
     QItem *it = new QItem(item, priority, cost, cl);
+    it->tqueue = &queue;
     if (cost < min_cost)
       cost = min_cost;
     if (cost > max_tokens_per_subqueue)
