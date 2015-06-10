@@ -154,17 +154,34 @@ public:
     remove(_back);
   }
 
-  class iterator: std::iterator<std::forward_iterator_tag, T> {
+  class iterator: public std::iterator<std::bidirectional_iterator_tag, T> {
   private:
     item *cur;
   public:
     iterator(item *i = 0) : cur(i) {}
-    T operator*() { return static_cast<T>(cur->_item); }
+    T &operator*() const { return cur->_item; }
     iterator& operator++() {
       assert(cur);
       assert(cur->_list);
       cur = cur->_next;
       return *this;
+    }
+    iterator operator++(int) {
+      iterator tmp = *this;
+      ++(*this);
+      return tmp;
+    }
+    iterator& operator--() {
+      assert(cur);
+      assert(cur->_list);
+      assert(cur->_prev);
+      cur = cur->_prev;
+      return *this;
+    }
+    iterator operator--(int) {
+      iterator tmp = *this;
+      --(*this);
+      return tmp;
     }
     bool end() const { return cur == 0; }
     bool operator==(const iterator& rhs) const {
@@ -178,23 +195,58 @@ public:
   iterator begin() { return iterator(_front); }
   iterator end() { return iterator(NULL); }
 
-  class const_iterator: std::iterator<std::forward_iterator_tag, T> {
+  class const_iterator:
+    public std::iterator<std::bidirectional_iterator_tag, T> {
   private:
     item *cur;
   public:
     const_iterator(item *i = 0) : cur(i) {}
-    const T operator*() { return static_cast<const T>(cur->_item); }
+    const T &operator*() const { return cur->_item; }
     const_iterator& operator++() {
       assert(cur);
       assert(cur->_list);
       cur = cur->_next;
       return *this;
     }
+    const_iterator operator++(int) {
+      const_iterator tmp = *this;
+      ++(*this);
+      return tmp;
+    }
+    const_iterator& operator--() {
+      assert(cur);
+      assert(cur->_list);
+      assert(cur->_prev);
+      cur = cur->_prev;
+      return *this;
+    }
+    const_iterator operator--(int) {
+      const_iterator tmp = *this;
+      --(*this);
+      return tmp;
+    }
     bool end() const { return cur == 0; }
   };
 
   const_iterator begin() const { return const_iterator(_front); }
   const_iterator end() const { return const_iterator(NULL); }
+
+
+  typedef std::reverse_iterator<iterator> reverse_iterator;
+  reverse_iterator rbegin() {
+    return std::reverse_iterator<iterator>(end());
+  }
+  reverse_iterator rend() {
+    return std::reverse_iterator<iterator>(begin());
+  }
+
+  typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
+  const_reverse_iterator rbegin() const {
+    return std::reverse_iterator<const_iterator>(end());
+  }
+  const_reverse_iterator rend() const {
+    return std::reverse_iterator<const_iterator>(begin());
+  }
 };
 
 
