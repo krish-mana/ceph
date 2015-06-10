@@ -8207,27 +8207,27 @@ void OSD::ShardedOpWQ::_process(uint32_t thread_index, heartbeat_handle_d *hb ) 
       return;
     }
   }
-  PGQueueable item = sdata->pqueue.dequeue();
-  sdata->pg_for_processing[&*(item.get_pg())].push_back(item);
+  PGQueueableRef item(sdata->pqueue.dequeue(), false /* don't add ref */);
+  sdata->pg_for_processing[&*(item->get_pg())].push_back(item);
   sdata->sdata_op_ordering_lock.Unlock();
   ThreadPool::TPHandle tp_handle(osd->cct, hb, timeout_interval, 
     suicide_interval);
 
-  item.get_pg()->lock_suspend_timeout(tp_handle);
+  item->get_pg()->lock_suspend_timeout(tp_handle);
 
-  boost::optional<PGQueueable> op;
+  PGQueueableRef op;
   {
     Mutex::Locker l(sdata->sdata_op_ordering_lock);
-    if (!sdata->pg_for_processing.count(&*(item.get_pg()))) {
-      item.get_pg()->unlock();
+    if (!sdata->pg_for_processing.count(&*(item->get_pg()))) {
+      item->get_pg()->unlock();
       return;
     }
-    assert(sdata->pg_for_processing[&*(item.get_pg())].size());
-    op = sdata->pg_for_processing[&*(item.get_pg())].front();
-    sdata->pg_for_processing[&*(item.get_pg())].pop_front();
-    if (!(sdata->pg_for_processing[&*(item.get_pg())].size()))
-      sdata->pg_for_processing.erase(&*(item.get_pg()));
-  }  
+    assert(sdata->pg_for_processing[&*(item->get_pg())].size());
+    op = sdata->pg_for_processing[&*(item->get_pg())].front();
+    sdata->pg_for_processing[&*(item->get_pg())].pop_front();
+    if (!(sdata->pg_for_processing[&*(item->get_pg())].size()))
+      sdata->pg_for_processing.erase(&*(item->get_pg()));
+  }
 
   // osd:opwq_process marks the point at which an operation has been dequeued
   // and will begin to be handled by a worker thread.
@@ -8251,7 +8251,7 @@ void OSD::ShardedOpWQ::_process(uint32_t thread_index, heartbeat_handle_d *hb ) 
   delete f;
   *_dout << dendl;
 
-  op->run(osd, item.get_pg(), tp_handle);
+  op->run(osd, op->get_pg(), tp_handle);
 
   {
 #ifdef WITH_LTTNG
@@ -8264,25 +8264,26 @@ void OSD::ShardedOpWQ::_process(uint32_t thread_index, heartbeat_handle_d *hb ) 
         reqid.name._num, reqid.tid, reqid.inc);
   }
 
-  (item.get_pg())->unlock();
+  (item->get_pg())->unlock();
 }
 
-void OSD::ShardedOpWQ::_enqueue(PGQueueable item) {
+void OSD::ShardedOpWQ::_enqueue(PGQueueable *item) {
 
-  uint32_t shard_index = (((item.get_pg())->get_pgid().ps())% shard_list.size());
+  uint32_t shard_index =
+    (((item->get_pg())->get_pgid().ps())% shard_list.size());
 
   ShardData* sdata = shard_list[shard_index];
   assert (NULL != sdata);
-  unsigned priority = item.get_priority();
-  unsigned cost = item.get_cost();
+  unsigned priority = item->get_priority();
+  unsigned cost = item->get_cost();
   sdata->sdata_op_ordering_lock.Lock();
  
   if (priority >= CEPH_MSG_PRIO_LOW)
     sdata->pqueue.enqueue_strict(
-      item.get_owner(), priority, item);
+      item->get_owner(), priority, item);
   else
     sdata->pqueue.enqueue(
-      item.get_owner(),
+      item->get_owner(),
       priority, cost, item);
   sdata->sdata_op_ordering_lock.Unlock();
 
@@ -8292,27 +8293,32 @@ void OSD::ShardedOpWQ::_enqueue(PGQueueable item) {
 
 }
 
-void OSD::ShardedOpWQ::_enqueue_front(PGQueueable item) {
+void OSD::ShardedOpWQ::_enqueue_front(PGQueueable *item) {
 
-  uint32_t shard_index = (((item.get_pg())->get_pgid().ps())% shard_list.size());
+  uint32_t shard_index =
+    (((item->get_pg())->get_pgid().ps())% shard_list.size());
 
   ShardData* sdata = shard_list[shard_index];
   assert (NULL != sdata);
   sdata->sdata_op_ordering_lock.Lock();
-  if (sdata->pg_for_processing.count(&*(item.get_pg()))) {
-    sdata->pg_for_processing[&*(item.get_pg())].push_front(item);
-    item = sdata->pg_for_processing[&*(item.get_pg())].back();
-    sdata->pg_for_processing[&*(item.get_pg())].pop_back();
+  if (sdata->pg_for_processing.count(&*(item->get_pg()))) {
+    sdata->pg_for_processing[&*(item->get_pg())].push_front(
+      PGQueueableRef(item, false /* eat passed in ref */));
+
+    item = sdata->pg_for_processing[&*(item->get_pg())].back().get();
+    item->get();
+
+    sdata->pg_for_processing[&*(item->get_pg())].pop_back();
   }
-  unsigned priority = item.get_priority();
-  unsigned cost = item.get_cost();
+  unsigned priority = item->get_priority();
+  unsigned cost = item->get_cost();
   if (priority >= CEPH_MSG_PRIO_LOW)
     sdata->pqueue.enqueue_strict_front(
-      item.get_owner(),
+      item->get_owner(),
       priority, item);
   else
     sdata->pqueue.enqueue_front(
-      item.get_owner(),
+      item->get_owner(),
       priority, cost, item);
 
   sdata->sdata_op_ordering_lock.Unlock();
