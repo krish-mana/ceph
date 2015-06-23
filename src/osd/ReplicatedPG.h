@@ -574,7 +574,6 @@ public:
 
     interval_set<uint64_t> modified_ranges;
     ObjectContextRef obc;
-    map<hobject_t,ObjectContextRef, hobject_t::BitwiseComparator> src_obc;
     ObjectContextRef clone_obc;    // if we created a clone
     ObjectContextRef snapset_obc;  // if we created/deleted a snapdir
 
@@ -729,7 +728,10 @@ public:
 
     OpContext *ctx;
     ObjectContextRef obc;
+<<<<<<< HEAD
     map<hobject_t,ObjectContextRef, hobject_t::BitwiseComparator> src_obc;
+=======
+>>>>>>> ReplicatedPG: remove src_obcs, restructure LIST_SNAPS
 
     ceph_tid_t rep_tid;
 
