@@ -982,6 +982,12 @@ public:
 class ReadOp : public TestOp {
 public:
   vector<librados::AioCompletion *> completions;
+
+  librados::AioCompletion *lsnapcompletion;
+  librados::ObjectReadOperation lsnapop;
+  librados::snap_set_t osnaps;
+  int lsnapresult;
+
   librados::ObjectReadOperation op;
   string oid;
   ObjectDesc old_value;
@@ -1006,6 +1012,9 @@ public:
   bufferlist header;
 
   map<string, bufferlist> xattrs;
+
+  int in_flight;
+
   ReadOp(int n,
 	 RadosTestContext *context,
 	 const string &oid,
@@ -1013,6 +1022,8 @@ public:
 	 TestOpStat *stat = 0)
     : TestOp(n, context, stat),
       completions(3),
+      lsnapcompletion(NULL),
+      lsnapresult(0),
       oid(oid),
       snap(0),
       balance_reads(balance_reads),
@@ -1020,7 +1031,7 @@ public:
       retvals(3),
       extent_results(3),
       is_sparse_read(3, false),
-      waiting_on(0),
+      waiting_on(4),
       attrretval(0)
   {}
 
@@ -1055,9 +1066,12 @@ public:
     }
     std::cout << num << ": read oid " << oid << " snap " << snap << std::endl;
     done = 0;
+
     for (uint32_t i = 0; i < 3; i++) {
       completions[i] = context->rados.aio_create_completion((void *) this, &read_callback, 0);
     }
+    lsnapcompletion =
+      context->rados.aio_create_completion((void *) this, &read_callback, 0);
 
     context->oid_in_use.insert(oid);
     context->oid_not_in_use.erase(oid);
@@ -1069,6 +1083,18 @@ public:
 
     TestWatchContext *ctx = context->get_watch_context(oid);
     context->state_lock.Unlock();
+
+    lsnapop.list_snaps(&osnaps, &lsnapresult);
+    context->io_ctx.snap_set_read(LIBRADOS_SNAP_DIR);
+    int r = context->io_ctx.aio_operate(
+      context->prefix+oid,
+      lsnapcompletion,
+      &lsnapop,
+      librados::OPERATION_NOFLAG,
+      0);
+    assert(r == 0);
+    context->io_ctx.snap_set_read(0);
+
     if (ctx) {
       assert(old_value.exists);
       TestAlarm alarm;
@@ -1115,7 +1141,6 @@ public:
 
     assert(!context->io_ctx.aio_operate(context->prefix+oid, completions[0], &op,
 					flags, NULL));
-    waiting_on++;
  
     // send 2 pipelined reads on the same object/snap. This can help testing
     // OSD's read behavior in some scenarios
@@ -1123,7 +1148,6 @@ public:
       librados::ObjectReadOperation pipeline_op;
       _do_read(pipeline_op, i);
       assert(!context->io_ctx.aio_operate(context->prefix+oid, completions[i], &pipeline_op, 0));
-      waiting_on++;
     }
 
     if (snap >= 0) {
@@ -1141,6 +1165,7 @@ public:
       return;
     }
 
+    assert(lsnapcompletion->is_complete());
     context->oid_in_use.erase(oid);
     context->oid_not_in_use.insert(oid);
     int retval = completions[0]->get_return_value();
