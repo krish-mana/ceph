@@ -976,6 +976,11 @@ public:
 
 class ReadOp : public TestOp {
 public:
+  librados::AioCompletion *lsnapcompletion;
+  librados::ObjectReadOperation lsnapop;
+  librados::snap_set_t osnaps;
+  int lsnapresult;
+
   librados::AioCompletion *completion;
   librados::ObjectReadOperation op;
   string oid;
@@ -997,16 +1002,22 @@ public:
   bufferlist header;
 
   map<string, bufferlist> xattrs;
+
+  int in_flight;
+
   ReadOp(int n,
 	 RadosTestContext *context,
 	 const string &oid,
 	 TestOpStat *stat = 0)
     : TestOp(n, context, stat),
+      lsnapcompletion(NULL),
+      lsnapresult(0),
       completion(NULL),
       oid(oid),
       snap(0),
       retval(0),
-      attrretval(0)
+      attrretval(0),
+      in_flight(0)
   {}
 		
   void _begin()
@@ -1021,6 +1032,8 @@ public:
     std::cout << num << ": read oid " << oid << " snap " << snap << std::endl;
     done = 0;
     completion = context->rados.aio_create_completion((void *) this, &read_callback, 0);
+    lsnapcompletion =
+      context->rados.aio_create_completion((void *) this, &read_callback, 0);
 
     context->oid_in_use.insert(oid);
     context->oid_not_in_use.erase(oid);
@@ -1032,6 +1045,19 @@ public:
 
     TestWatchContext *ctx = context->get_watch_context(oid);
     context->state_lock.Unlock();
+
+    lsnapop.list_snaps(&osnaps, &lsnapresult);
+    context->io_ctx.snap_set_read(LIBRADOS_SNAP_DIR);
+    int r = context->io_ctx.aio_operate(
+      context->prefix+oid,
+      lsnapcompletion,
+      &lsnapop,
+      librados::OPERATION_BALANCE_READS,
+      0);
+    ++in_flight;
+    assert(r == 0);
+    context->io_ctx.snap_set_read(0);
+
     if (ctx) {
       assert(old_value.exists);
       TestAlarm alarm;
@@ -1076,7 +1102,7 @@ public:
       op.omap_get_header(&header, 0);
     }
     op.getxattrs(&xattrs, 0);
-    int r = !context->io_ctx.aio_operate(
+    r = !context->io_ctx.aio_operate(
       context->prefix+oid,
       completion,
       &op,
@@ -1084,6 +1110,7 @@ public:
        librados::OPERATION_BALANCE_READS :
        librados::OPERATION_NOFLAG),
       0);
+    ++in_flight;
     assert(r == 0);
     if (snap >= 0) {
       context->io_ctx.snap_set_read(0);
@@ -1093,10 +1120,16 @@ public:
   void _finish(CallbackInfo *info)
   {
     context->state_lock.Lock();
+    --in_flight;
+    if (in_flight > 0) {
+      context->state_lock.Unlock();
+      return;
+    }
     assert(!done);
     context->oid_in_use.erase(oid);
     context->oid_not_in_use.insert(oid);
     assert(completion->is_complete());
+    assert(lsnapcompletion->is_complete());
     uint64_t version = completion->get_version64();
     if (int err = completion->get_return_value()) {
       if (!(err == -ENOENT && old_value.deleted())) {
