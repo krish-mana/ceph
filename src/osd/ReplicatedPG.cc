@@ -7689,6 +7689,25 @@ void ReplicatedPG::handle_watch_timeout(WatchRef watch)
   ctx->obc->obs = ctx->new_obs;
 }
 
+int ReplicatedPG::get_object_info_and_snapset(
+  const hobject_t &soid,
+  object_info_t *oi,
+  SnapSet *ss,
+  map<string, bufferlist> *attrs)
+{
+  return 0;
+}
+
+int ReplicatedPG::find_object_state(
+  const hobject_t &soid,
+  object_info_t *oi,
+  SnapSet *ss,
+  bool map_snapid_to_clone,
+  hobject_t *missing_oid)
+{
+  return 0;
+}
+
 ObjectContextRef ReplicatedPG::create_object_context(const object_info_t& oi,
 						     SnapSetContext *ssc)
 {
@@ -7727,21 +7746,23 @@ ObjectContextRef ReplicatedPG::get_object_context(const hobject_t& soid,
 	     << dendl;
   } else {
     dout(10) << __func__ << ": obc NOT found in cache: " << soid << dendl;
-    // check disk
-    bufferlist bv;
-    if (attrs) {
-      assert(attrs->count(OI_ATTR));
-      bv = attrs->find(OI_ATTR)->second;
-    } else {
-      int r = pgbackend->objects_get_attr(soid, OI_ATTR, &bv);
-      if (r < 0) {
-	if (!can_create) {
-	  dout(10) << __func__ << ": no obc for soid "
-		   << soid << " and !can_create"
-		   << dendl;
-	  return ObjectContextRef();   // -ENOENT!
-	}
 
+    // check disk
+    SnapSet ss;
+    object_info_t oi;
+    int r = get_object_info_and_snapset(
+      soid,
+      &oi,
+      &ss,
+      attrs);
+    assert(r != -EAGAIN); // caller promises that soid is not missing
+    if (r == -ENOENT) {
+      if (!can_create) {
+	dout(10) << __func__ << ": no obc for soid "
+		 << soid << " and !can_create"
+		 << dendl;
+	return ObjectContextRef();
+      } else {
 	dout(10) << __func__ << ": no obc for soid "
 		 << soid << " but can_create"
 		 << dendl;
@@ -7757,6 +7778,18 @@ ObjectContextRef ReplicatedPG::get_object_context(const hobject_t& soid,
 		 << " ssc: " << obc->ssc
 		 << " snapset: " << obc->ssc->snapset << dendl;
 	return obc;
+      }
+    }
+
+    bufferlist bv;
+    if (attrs) {
+      assert(attrs->count(OI_ATTR));
+      bv = attrs->find(OI_ATTR)->second;
+    } else {
+      int r = pgbackend->objects_get_attr(soid, OI_ATTR, &bv);
+      if (r < 0) {
+	return r;
+
       }
     }
 

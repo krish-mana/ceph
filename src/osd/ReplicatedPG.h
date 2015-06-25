@@ -999,6 +999,53 @@ public:
   void handle_watch_timeout(WatchRef watch);
 protected:
 
+  /**
+   * get_object_state
+   *
+   * Fetches the object state off disk corresponding for soid.
+   * This method assumes that soid has already been resolved to a
+   * specific object and does not examine the SnapSet to map the
+   * snap to an object.
+   *
+   * @param soid [in] object to look up
+   * @param oi [out] resulting object info, may be null
+   * @param snapset [out] resulting object snapset for HEAD or
+   *        SNAPDIR, may be null
+   * @param attrs [in] use the attrs rather than looking at the disk
+   * @return -ENOENT if the object does not exist, -EAGAIN if missing
+   */
+  int get_object_info_and_snapset(
+    const hobject_t &soid,
+    object_info_t *oi,
+    SnapSet *ss,
+    map<string, bufferlist> *attrs = NULL
+    );
+
+  /**
+   * find_object_state
+   *
+   * Maps soid to a specific clone using the SnapSet and clone oi.snaps
+   * and returns the obs.
+   *
+   * @param soid [in] object to look up
+   * @param oi [out] object info if found, may be null
+   * @param snapset [out] resulting object snapset for the corresponding
+   *        snap object
+   * @param map_snapid_to_clone [in] if true, treat the snap as the clone id
+   *        even if the snap has been removed (not present in oi.snaps)
+   * @param missing_oid [out] if non-null, will be filled in with the first
+   *        oid which caused an -EAGAIN return value.
+   * @return -ENOENT if the oid does not exist, -EAGAIN if a required object is
+   *         missing
+   */
+  int find_object_info_and_snapset(
+    const hobject_t &soid,
+    object_info_t *oi,
+    SnapSet *ss,
+    bool map_snapid_to_clone = false,
+    hobject_t *missing_oid = NULL
+    );
+
   ObjectContextRef create_object_context(const object_info_t& oi, SnapSetContext *ssc);
   ObjectContextRef get_object_context(
     const hobject_t& soid,
