@@ -3123,14 +3123,13 @@ struct ObjectState {
 
 struct SnapSetContext {
   hobject_t oid;
-  int ref;
-  bool registered;
   SnapSet snapset;
   bool exists;
 
   SnapSetContext(const hobject_t& o) :
-    oid(o), ref(0), registered(false), exists(true) { }
+    oid(o), exists(true) { }
 };
+typedef ceph::shared_ptr<SnapSetContext> SnapSetContextRef;
 
 struct RWState {
   enum State {
@@ -3311,9 +3310,7 @@ typedef ceph::shared_ptr<ObjectContext> ObjectContextRef;
 struct ObjectContext {
   ObjectState obs;
 
-  SnapSetContext *ssc;  // may be null
-
-  Context *destructor_callback;
+  SnapSetContextRef ssc;  // may be null
 
   /// in-progress copyfrom ops for this object
   bool blocked;
@@ -3434,15 +3431,11 @@ struct ObjectContext {
   }
 
   ObjectContext(RWStateRef rwstate)
-    : ssc(NULL),
-      destructor_callback(0),
-      blocked(false), requeue_scrub_on_unblock(false),
+    : blocked(false), requeue_scrub_on_unblock(false),
       rwstate(rwstate) {}
 
   ~ObjectContext() {
     assert(rwstate->empty());
-    if (destructor_callback)
-      destructor_callback->complete(0);
   }
 
   void start_block() {
