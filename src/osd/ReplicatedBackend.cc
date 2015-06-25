@@ -1505,7 +1505,7 @@ void ReplicatedBackend::prepare_pull(
 	     soid.get_snapdir()));
     assert(headctx);
     // check snapset
-    SnapSetContext *ssc = headctx->ssc;
+    SnapSetContextRef ssc = headctx->ssc;
     assert(ssc);
     dout(10) << " snapset " << ssc->snapset << dendl;
     calc_clone_subsets(ssc->snapset, soid, get_parent()->get_local_missing(),
@@ -1581,7 +1581,7 @@ void ReplicatedBackend::prep_push_to_replica(
       return prep_push(obc, soid, peer, pop);
     }
 
-    SnapSetContext *ssc = obc->ssc;
+    SnapSetContextRef ssc = obc->ssc;
     assert(ssc);
     dout(15) << "push_to_replica snapset is " << ssc->snapset << dendl;
     map<pg_shard_t, pg_missing_t>::const_iterator pm =
@@ -1597,7 +1597,7 @@ void ReplicatedBackend::prep_push_to_replica(
   } else if (soid.snap == CEPH_NOSNAP) {
     // pushing head or unversioned object.
     // base this on partially on replica's clones?
-    SnapSetContext *ssc = obc->ssc;
+    SnapSetContextRef ssc = obc->ssc;
     assert(ssc);
     dout(15) << "push_to_replica snapset is " << ssc->snapset << dendl;
     calc_head_subsets(
@@ -1777,7 +1777,7 @@ void ReplicatedBackend::submit_push_complete(ObjectRecoveryInfo &recovery_info,
 
 ObjectRecoveryInfo ReplicatedBackend::recalc_subsets(
   const ObjectRecoveryInfo& recovery_info,
-  SnapSetContext *ssc)
+  SnapSetContextRef ssc)
 {
   if (!recovery_info.soid.snap || recovery_info.soid.snap >= CEPH_NOSNAP)
     return recovery_info;
