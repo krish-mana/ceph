@@ -1301,7 +1301,11 @@ void ReplicatedPG::do_request(
       osd->reply_op_error(op, -EBLACKLISTED);
       return;
     }
-    do_op(op); // do it now
+    if (is_primary()) {
+      do_op(op); // do it now
+    } else {
+      do_op_replica(op);
+    }
     break;
   }
 
@@ -1347,6 +1351,80 @@ hobject_t ReplicatedPG::earliest_backfill() const
       e = iter->second.last_backfill;
   }
   return e;
+}
+
+/**
+ * do_op_replica
+ *
+ * Handle replica op on replica, replies with EAGAIN
+ * if the request must be resent to the primary
+ */
+void ReplicatedPG::do_op_replica(OpRequestRef &op)
+{
+  MOSDOp *m = static_cast<MOSDOp*>(op->get_req());
+  assert(m->get_type() == CEPH_MSG_OSD_OP);
+
+  dout(10) << __func__ << *m
+	   << (op->may_write() ? " may_write" : "")
+	   << (op->may_read() ? " may_read" : "")
+	   << (op->may_cache() ? " may_cache" : "")
+	   << " flags " << ceph_osd_flag_string(m->get_flags())
+	   << dendl;
+
+  if (pool.info.ec_pool()) {
+    // XXX: reviewer: should this ping the central log?  Only a buggy client
+    // would set BALANCE_READS etc on an ec pool
+    dout(10) << __func__
+	     << " got replica op on replica for ec pool, EAGAIN" << dendl;
+    osd->reply_op_error(op, -EAGAIN);
+    return;
+  }
+
+  if (op->includes_pg_op()) {
+    dout(10) << __func__ << " got pg op on replica, EAGAIN" << dendl;
+    osd->reply_op_error(op, -EAGAIN);
+    return;
+  }
+
+  if (op->may_write() || op->may_cache()) {
+    dout(10) << __func__ << " got pg op on write or cache, EAGAIN" << dendl;
+    osd->reply_op_error(op, -EAGAIN);
+    return;
+  }
+
+  hobject_t request_oid(m->get_oid(), m->get_object_locator().key,
+			m->get_snapid(), m->get_pg().ps(),
+			info.pgid.pool(), m->get_object_locator().nspace);
+
+  object_info_t oi;
+  int r = 0;//find_object_info_and_snapset(request_oid, &obs, NULL);
+  if (r != 0) {
+    dout(10) << __func__ << " find_object_state on " << request_oid
+	     << " returned " << r << dendl;
+    osd->reply_op_error(op, r);
+    return;
+  }
+
+  int result = 0;
+  object_stat_sum_t delta_stats;
+  bool first_read = false;
+  int data_off = 0;
+  int num_read = 0;
+  for (vector<OSDOp>::iterator p = m->ops.begin();
+       p != m->ops.end();
+       ++p) {
+    result = do_replica_safe_read(
+      *p,
+      oi,
+      delta_stats,
+      first_read,
+      data_off,
+      num_read,
+      0,
+      ObjectContextRef());
+    if (result < 0)
+      break;
+  }
 }
 
 /** do_op - do an op
