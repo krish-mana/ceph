@@ -470,6 +470,12 @@ public:
     map<string, bufferlist> &attrs) {
     return get_object_context(hoid, true, &attrs);
   }
+
+  friend class C_PG_ReleaseReplicaWriteLocks;
+  void get_replica_write_locks(
+    const vector<pg_log_entry_t> &logv,
+    ObjectStore::Transaction *t);
+
   void log_operation(
     const vector<pg_log_entry_t> &logv,
     boost::optional<pg_hit_set_history_t> &hset_history,
@@ -482,6 +488,8 @@ public:
       dirty_info = true;
     }
     append_log(logv, trim_to, trim_rollback_to, *t, transaction_applied);
+    if (!is_primary())
+      get_replica_write_locks(logv, t);
   }
 
   void op_applied(
@@ -1074,9 +1082,8 @@ protected:
 
   // projected object info
   SharedLRU<hobject_t, ObjectContext, hobject_t::ComparatorWithDefault> object_contexts;
-  SharedPtrRegistry<hobject_t, RWState> rwstate_registry;
   SharedPtrRegistry<
-    hobject_t, RWState, hobject_t::ComparatorWithDefault> rwstate_registry;
+    hobject_t, RWState, hobject_t::BitwiseComparator> rwstate_registry;
 
   // map from oid.snapdir() to SnapSetContextRef
   SharedPtrRegistry<
