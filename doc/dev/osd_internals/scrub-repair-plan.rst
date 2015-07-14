@@ -7,9 +7,9 @@ subsequently get detailed information about which objects are inconsistent and c
 only repair an entire PG at a time using ceph's default repair strategy, which is
 not terribly clever.  The goal is to ensure that users:
 
-1) Can query at any time inconsistent objects along with a summary of
+#. Can query at any time inconsistent objects along with a summary of
 the inconsistency (in a pageable fashion) from any pg.
-2) Can repair a single object at a time, and are able to specify how the repair
+#. Can repair a single object at a time, and are able to specify how the repair
 should be done.  At least:
 
   - Use osd <osd> as the correct copy (not applicable to an EC pool)
