@@ -11,5 +11,5 @@ not terribly clever.  The goal is to ensure that users:
    the inconsistency (in a pageable fashion) from any pg.
 #. Can repair a single object at a time, and are able to specify how the repair
    should be done.  At least:
-  #. Use osd <osd> as the correct copy (not applicable to an EC pool)
-  #. Delete all copies of the object
+   - Use osd <osd> as the correct copy (not applicable to an EC pool)
+   - Delete all copies of the object
