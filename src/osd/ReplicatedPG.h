@@ -728,10 +728,6 @@ public:
 
     OpContext *ctx;
     ObjectContextRef obc;
-<<<<<<< HEAD
-    map<hobject_t,ObjectContextRef, hobject_t::BitwiseComparator> src_obc;
-=======
->>>>>>> ReplicatedPG: remove src_obcs, restructure LIST_SNAPS
 
     ceph_tid_t rep_tid;
 
@@ -797,16 +793,16 @@ protected:
      * this (read or write) if we get the first we will be guaranteed
      * to get the second.
      */
-    ObjectContext::RWState::State type = ObjectContext::RWState::RWNONE;
+    RWState::State type = RWState::RWNONE;
     if (write_ordered && ctx->op->may_read()) {
-      type = ObjectContext::RWState::RWEXCL;
+      type = RWState::RWEXCL;
       ctx->lock_to_release = OpContext::E_LOCK;
     } else if (write_ordered) {
-      type = ObjectContext::RWState::RWWRITE;
+      type = RWState::RWWRITE;
       ctx->lock_to_release = OpContext::W_LOCK;
     } else {
       assert(ctx->op->may_read());
-      type = ObjectContext::RWState::RWREAD;
+      type = RWState::RWREAD;
       ctx->lock_to_release = OpContext::R_LOCK;
     }
 
@@ -1032,6 +1028,9 @@ protected:
 
   // projected object info
   SharedLRU<hobject_t, ObjectContext, hobject_t::ComparatorWithDefault> object_contexts;
+  SharedPtrRegistry<
+    hobject_t, RWState, hobject_t::ComparatorWithDefault> rwstate_registry;
+
   // map from oid.snapdir() to SnapSetContext *
   map<hobject_t, SnapSetContext*, hobject_t::BitwiseComparator> snapset_contexts;
   Mutex snapset_contexts_lock;
