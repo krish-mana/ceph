@@ -641,6 +641,15 @@ public:
 		      map<string, bufferlist> *out);
   int omap_check_keys(coll_t c, const ghobject_t &oid, const set<string> &keys,
 		      set<string> *out);
+  int omap_scan_keys_value(
+    coll_t c, const ghobject_t &oid,
+    const string *lb,
+    const string *ub,
+    unsigned max,
+    uint64_t max_bytes,
+    uint64_t padding_per_pair,
+    map<string, bufferlist> *out);
+
   ObjectMap::ObjectMapIterator get_omap_iterator(coll_t c, const ghobject_t &oid);
 
   int _create_collection(coll_t c, const SequencerPosition &spos);

@@ -4874,6 +4874,62 @@ int FileStore::omap_check_keys(coll_t c, const ghobject_t &hoid,
   return 0;
 }
 
+int FileStore::omap_scan_keys_value(
+  coll_t c, const ghobject_t &hoid,
+  const string *lb,
+  const string *ub,
+  unsigned max,
+  uint64_t max_bytes,
+  uint64_t per_pair_padding,
+  map<string, bufferlist> *out)
+{
+  tracepoint(objectstore, omap_scan_keys_value_enter, c.c_str());
+  _kludge_temp_object_collection(c, hoid);
+
+  assert(out);
+
+  Index index;
+  int r = get_index(c, &index);
+  if (r < 0)
+    return r;
+  {
+    assert(NULL != index.index);
+    RWLock::RLocker l((index.index)->access_lock);
+    r = lfn_find(hoid, index);
+    if (r < 0)
+      return r;
+  }
+
+  ObjectMap::ObjectMapIterator iter =
+    object_map->get_iterator(hoid);
+  if (!iter)
+    return -ERANGE;
+
+  if (lb)
+    iter->lower_bound(*lb);
+  else if (ub)
+    iter->upper_bound(*ub);
+  else
+    iter->seek_to_first();
+
+  uint64_t bytes_so_far = 0;
+  unsigned got = 0;
+  for (;
+       got < max && iter->valid();
+       iter->next(), ++got) {
+    if (iter->status() != 0)
+      return iter->status();
+    bytes_so_far += 
+      (iter->key().size() + iter->value().length()) +
+      per_pair_padding;
+    if (max_bytes && bytes_so_far >= max_bytes)
+      break;
+    out->insert(make_pair(iter->key(), iter->value()));
+  }
+  tracepoint(objectstore, omap_scan_keys_value_exit, 0);
+  return iter->valid() ? 0 : -ERANGE;
+}
+
 ObjectMap::ObjectMapIterator FileStore::get_omap_iterator(coll_t c,
 							  const ghobject_t &hoid)
 {

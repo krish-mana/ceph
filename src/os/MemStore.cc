@@ -563,6 +563,52 @@ int MemStore::omap_check_keys(
   return 0;
 }
 
+int MemStore::omap_scan_keys_value(
+  coll_t cid,              ///< [in] Collection containing oid
+  const ghobject_t &oid,   ///< [in] Object containing omap
+  const string *lb,        ///< [in] only get keys >= lb (see ub)
+  const string *ub,        ///< [in] only get keys > lb (lb or ub must be null)
+  unsigned max,            ///< [in] fetch at most max keys (0 means no limit)
+  uint64_t max_bytes,       ///< [in] at most max bytes (0 means no limit)
+  uint64_t per_pair_padding, /// < [in] bytes to add for each pair
+  map<string, bufferlist> *out ///< [out] results
+  )
+{
+  assert(out);
+  dout(10) << __func__ << " " << cid << " " << oid << dendl;
+  CollectionRef c = get_collection(cid);
+  if (!c)
+    return -ENOENT;
+  RWLock::RLocker l(c->lock);
+
+  ObjectRef o = c->get_object(oid);
+  if (!o)
+    return -ENOENT;
+
+  map<string, bufferlist>::iterator iter;
+  if (lb)
+    iter = o->omap.lower_bound(*lb);
+  else if (ub)
+    iter = o->omap.upper_bound(*ub);
+  else
+    iter = o->omap.begin();
+
+  uint64_t bytes_so_far = 0;
+  unsigned got = 0;
+  for (; (!max || got < max) &&
+	 iter != o->omap.end();
+       ++got, ++iter) {
+    bytes_so_far +=
+      iter->first.size() + iter->second.length() +
+      per_pair_padding;
+    if (max_bytes && bytes_so_far >= max_bytes)
+      break;
+    out->insert(*iter);
+  }
+  return iter == o->omap.end() ? -ERANGE : 0;
+}
+
+
 ObjectMap::ObjectMapIterator MemStore::get_omap_iterator(coll_t cid,
 							 const ghobject_t& oid)
 {

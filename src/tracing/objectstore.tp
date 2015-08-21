@@ -293,6 +293,22 @@ TRACEPOINT_EVENT(objectstore, omap_check_keys_exit,
     )
 )
 
+TRACEPOINT_EVENT(objectstore, omap_scan_keys_value_enter,
+    TP_ARGS(
+        const char *, coll_name),
+    TP_FIELDS(
+        ctf_string(coll_name, coll_name)
+    )
+)
+
+TRACEPOINT_EVENT(objectstore, omap_scan_keys_value_exit,
+    TP_ARGS(
+       int, retval),
+    TP_FIELDS(
+        ctf_integer(int, retval, retval)
+    )
+)
+
 TRACEPOINT_EVENT(objectstore, get_omap_iterator,
     TP_ARGS(
         const char *, coll_name),

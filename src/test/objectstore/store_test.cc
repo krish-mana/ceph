@@ -773,8 +773,22 @@ TEST_P(StoreTest, OmapCloneTest) {
     map<string,bufferlist> r;
     bufferlist h;
     store->omap_get(cid, hoid2, &h, &r);
+    string ub;
     ASSERT_TRUE(h.contents_equal(header));
     ASSERT_EQ(r.size(), km.size());
+
+    r.clear();
+    int ret = store->omap_scan_keys_value(cid, hoid2, nullptr, &ub, 1, 0, 0, &r);
+    ASSERT_EQ(ret, 0);
+    ASSERT_EQ(r.size(), 1);
+    ASSERT_EQ(r.begin()->first, km.begin()->first);
+    ub = r.begin()->first;
+
+    r.clear();
+    ret = store->omap_scan_keys_value(cid, hoid2, nullptr, &ub, 1, 0, 0, &r);
+    ASSERT_EQ(ret, -ERANGE);
+    ASSERT_EQ(r.size(), 1);
+    ASSERT_EQ(r.begin()->first, km.rbegin()->first);
   }
   {
     ObjectStore::Transaction t;

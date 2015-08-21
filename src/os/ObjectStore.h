@@ -2083,6 +2083,18 @@ public:
     set<string> *out         ///< [out] Subset of keys defined on oid
     ) = 0;
 
+  /// Scan keys and values
+  virtual int omap_scan_keys_value(
+    coll_t c,                ///< [in] Collection containing oid
+    const ghobject_t &oid,   ///< [in] Object containing omap
+    const string *lb,        ///< [in] only get keys >= lb (see ub)
+    const string *ub,        ///< [in] only get keys > lb (lb or ub must be null)
+    unsigned max,            ///< [in] fetch at most max keys (0 means no limit)
+    uint64_t max_size,       ///< [in] at most max bytes (0 means no limit)
+    uint64_t per_pair_padding, /// < [in] bytes to add for each pair
+    map<string, bufferlist> *out ///< [out] results
+    ) = 0; ///< @return 0 for success, ERANGE if we reached the end
+
   /**
    * Returns an object map iterator
    *

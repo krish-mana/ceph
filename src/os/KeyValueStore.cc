@@ -2633,6 +2633,47 @@ int KeyValueStore::omap_check_keys(coll_t c, const ghobject_t &hoid,
   return 0;
 }
 
+int KeyValueStore::omap_scan_keys_value(
+  coll_t c, const ghobject_t &oid,
+  const string *lb,
+  const string *ub,
+  unsigned max,
+  uint64_t max_bytes,
+  uint64_t per_pair_padding,
+  map<string, bufferlist> *out)
+{
+  dout(15) << __func__ << " " << c << "/" << oid << dendl;
+
+  ObjectMap::ObjectMapIterator iter =
+    backend->get_iterator(c, oid, OBJECT_OMAP);
+  if (!iter)
+    return -ERANGE;
+
+  if (lb)
+    iter->lower_bound(*lb);
+  else if (ub)
+    iter->upper_bound(*ub);
+  else
+    iter->seek_to_first();
+
+  uint64_t bytes_so_far = 0;
+  unsigned got = 0;
+  for (;
+       ((!max || got < max) &&
+	iter->valid());
+       ++got, iter->next()) {
+    if (iter->status() != 0)
+      return iter->status();
+    bytes_so_far +=
+      (iter->key().size() + iter->value().length()) +
+      per_pair_padding;
+    if (max_bytes && bytes_so_far >= max_bytes)
+      break;
+    out->insert(make_pair(iter->key(), iter->value()));
+  }
+  return iter->valid() ? 0 : -ERANGE;
+}
+
 ObjectMap::ObjectMapIterator KeyValueStore::get_omap_iterator(
     coll_t c, const ghobject_t &hoid)
 {
