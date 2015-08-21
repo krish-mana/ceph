@@ -1941,6 +1941,78 @@ int NewStore::omap_check_keys(
   return r;
 }
 
+
+/// Scan keys and values
+int NewStore::omap_scan_keys_value(
+  coll_t cid,                ///< [in] Collection containing oid
+  const ghobject_t &oid,   ///< [in] Object containing omap
+  const string *lb,        ///< [in] only get keys >= lb (see ub)
+  const string *ub,        ///< [in] only get keys > lb (lb or ub must be null)
+  unsigned max,            ///< [in] fetch at most max keys (0 means no limit)
+  uint64_t max_bytes,      ///< [in] at most max bytes (0 means no limit)
+  uint64_t per_pair_padding, /// < [in] bytes to add for each pair
+  map<string, bufferlist> *out ///< [out] results
+  )
+{
+  dout(15) << __func__ << " " << cid << " oid " << oid << dendl;
+  CollectionRef c = _get_collection(cid);
+  if (!c)
+    return -ENOENT;
+  RWLock::RLocker l(c->lock);
+  int r = 0;
+  OnodeRef o = c->get_onode(oid, false);
+  if (!o || !o->exists) {
+    r = -ENOENT;
+    goto out;
+  }
+  if (!o->onode.omap_head)
+    goto out;
+  o->flush();
+
+  {
+    KeyValueDB::Iterator it = db->get_iterator(PREFIX_OMAP);
+    if (lb) {
+      string _lb;
+      get_omap_key(o->onode.omap_head, *lb, &_lb);
+      it->lower_bound(_lb);
+    } else if (ub) {
+      string _ub;
+      get_omap_key(o->onode.omap_head, *ub, &_ub);
+      it->upper_bound(_ub);
+    } else {
+      string head;
+      get_omap_header(o->onode.omap_head, &head);
+      it->lower_bound(head);
+    }
+
+    string tail;
+    get_omap_tail(o->onode.omap_head, &tail);
+
+    uint64_t bytes_so_far = 0;
+    unsigned got = 0;
+    for (;
+	 (!max || got < max) &&
+	   it->valid() &&
+	   it->raw_key().second <= tail;
+	 ++got, it->next()) {
+      string key;
+      decode_omap_key(it->raw_key().second, &key);
+      bytes_so_far += key.size() + it->value().length() + per_pair_padding;
+      if (max_bytes && bytes_so_far >= max_bytes)
+	break;
+      out->insert(make_pair(key, it->value()));
+    }
+
+    if (it->valid() && it->raw_key().second <= tail)
+      r = 0;
+    else
+      r = -ERANGE;
+  }
+ out:
+  dout(15) << __func__ << " " << cid << " oid " << oid << " = " << r << dendl;
+  return r;
+}
+
 ObjectMap::ObjectMapIterator NewStore::get_omap_iterator(
   coll_t cid,              ///< [in] collection
   const ghobject_t &oid  ///< [in] object
