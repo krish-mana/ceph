@@ -790,28 +790,41 @@ void ReplicatedBackend::be_deep_scrub(
     o.read_error = true;
   }
 
-  ObjectMap::ObjectMapIterator iter = store->get_omap_iterator(
-    coll,
-    ghobject_t(
-      poid, ghobject_t::NO_GEN, get_parent()->whoami_shard().shard));
-  assert(iter);
-  uint64_t keys_scanned = 0;
-  for (iter->seek_to_first(); iter->valid() ; iter->next()) {
-    if (cct->_conf->osd_scan_list_ping_tp_interval &&
-	(keys_scanned % cct->_conf->osd_scan_list_ping_tp_interval == 0)) {
+  r = 0;
+  string ub;
+  uint64_t scan_at_a_time = 
+    cct->_conf->osd_scan_list_ping_tp_interval ?
+    cct->_conf->osd_scan_list_ping_tp_interval :
+    100;
+  do {
+    map<string, bufferlist> out;
+    r = store->omap_scan_keys_value(
+      coll,
+      ghobject_t(
+	poid, ghobject_t::NO_GEN, get_parent()->whoami_shard().shard),
+      nullptr,
+      &ub,
+      scan_at_a_time,
+      0,
+      0,
+      &out);
+    if (out.size())
+      ub = out.rbegin()->first;
+    if (cct->_conf->osd_scan_list_ping_tp_interval)
       handle.reset_tp_timeout();
+    
+    for (auto p: out) {
+      dout(25) << "CRC key " << p.first << " value "
+	       << string(p.second.c_str(), p.second.length()) << dendl;
+      
+      ::encode(p.first, bl);
+      ::encode(p.second, bl);
+      oh << bl;
+      bl.clear();
     }
-    ++keys_scanned;
+  } while (r == 0);
 
-    dout(25) << "CRC key " << iter->key() << " value "
-	     << string(iter->value().c_str(), iter->value().length()) << dendl;
-
-    ::encode(iter->key(), bl);
-    ::encode(iter->value(), bl);
-    oh << bl;
-    bl.clear();
-  }
-  if (iter->status() == -EIO) {
+  if (r == -EIO) {
     dout(25) << __func__ << "  " << poid << " got "
 	     << r << " on omap scan, read_error" << dendl;
     o.read_error = true;
