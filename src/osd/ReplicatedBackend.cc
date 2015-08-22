@@ -2013,26 +2013,26 @@ int ReplicatedBackend::build_push_op(const ObjectRecoveryInfo &recovery_info,
 
   uint64_t available = cct->_conf->osd_recovery_max_chunk;
   if (!progress.omap_complete) {
-    ObjectMap::ObjectMapIterator iter =
-      store->get_omap_iterator(coll,
-			       ghobject_t(recovery_info.soid));
-    for (iter->lower_bound(progress.omap_recovered_to);
-	 iter->valid();
-	 iter->next()) {
-      if (!out_op->omap_entries.empty() &&
-	  available <= (iter->key().size() + iter->value().length()))
-	break;
-      out_op->omap_entries.insert(make_pair(iter->key(), iter->value()));
-
-      if ((iter->key().size() + iter->value().length()) <= available)
-	available -= (iter->key().size() + iter->value().length());
-      else
-	available = 0;
+    int r = store->omap_scan_keys_value(
+      coll,
+      ghobject_t(recovery_info.soid),
+      nullptr,
+      &(progress.omap_recovered_to),
+      0,
+      available,
+      0,
+      &out_op->omap_entries);
+    for (auto p: out_op->omap_entries) {
+      assert(p.first.size() + p.second.length() > available);
+      available -= p.first.size() + p.second.length();
     }
-    if (!iter->valid())
+    if (r == 0) {
+      new_progress.omap_recovered_to = out_op->omap_entries.rbegin()->first;
+      available = 0;
+    } else {
+      assert(r == -ERANGE);
       new_progress.omap_complete = true;
-    else
-      new_progress.omap_recovered_to = iter->key();
+    }
   }
 
   if (available > 0) {
