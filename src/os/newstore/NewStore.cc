@@ -1651,92 +1651,6 @@ int NewStore::collection_list(
 
 // omap reads
 
-NewStore::OmapIteratorImpl::OmapIteratorImpl(CollectionRef c, OnodeRef o, KeyValueDB::Iterator it)
-  : c(c), o(o), it(it)
-{
-  RWLock::RLocker l(c->lock);
-  if (o->onode.omap_head) {
-    get_omap_header(o->onode.omap_head, &head);
-    get_omap_tail(o->onode.omap_head, &tail);
-    it->lower_bound(head);
-  }
-}
-
-int NewStore::OmapIteratorImpl::seek_to_first()
-{
-  RWLock::RLocker l(c->lock);
-  if (o->onode.omap_head) {
-    it->lower_bound(head);
-  } else {
-    it = KeyValueDB::Iterator();
-  }
-  return 0;
-}
-
-int NewStore::OmapIteratorImpl::upper_bound(const string& after)
-{
-  RWLock::RLocker l(c->lock);
-  if (o->onode.omap_head) {
-    string key;
-    get_omap_key(o->onode.omap_head, after, &key);
-    it->upper_bound(key);
-  } else {
-    it = KeyValueDB::Iterator();
-  }
-  return 0;
-}
-
-int NewStore::OmapIteratorImpl::lower_bound(const string& to)
-{
-  RWLock::RLocker l(c->lock);
-  if (o->onode.omap_head) {
-    string key;
-    get_omap_key(o->onode.omap_head, to, &key);
-    it->lower_bound(key);
-  } else {
-    it = KeyValueDB::Iterator();
-  }
-  return 0;
-}
-
-bool NewStore::OmapIteratorImpl::valid()
-{
-  RWLock::RLocker l(c->lock);
-  if (o->onode.omap_head && it->valid() && it->raw_key().second <= tail) {
-    return true;
-  } else {
-    return false;
-  }
-}
-
-int NewStore::OmapIteratorImpl::next(bool validate)
-{
-  RWLock::RLocker l(c->lock);
-  if (o->onode.omap_head) {
-    it->next();
-    return 0;
-  } else {
-    return -1;
-  }
-}
-
-string NewStore::OmapIteratorImpl::key()
-{
-  RWLock::RLocker l(c->lock);
-  assert(it->valid());
-  string db_key = it->raw_key().second;
-  string user_key;
-  decode_omap_key(db_key, &user_key);
-  return user_key;
-}
-
-bufferlist NewStore::OmapIteratorImpl::value()
-{
-  RWLock::RLocker l(c->lock);
-  assert(it->valid());
-  return it->value();
-}
-
 int NewStore::omap_get(
   coll_t cid,                ///< [in] Collection containing oid
   const ghobject_t &oid,   ///< [in] Object containing omap
@@ -2013,31 +1927,6 @@ int NewStore::omap_scan_keys_value(
   dout(15) << __func__ << " " << cid << " oid " << oid << " = " << r << dendl;
   return r;
 }
-
-ObjectMap::ObjectMapIterator NewStore::get_omap_iterator(
-  coll_t cid,              ///< [in] collection
-  const ghobject_t &oid  ///< [in] object
-  )
-{
-
-  dout(10) << __func__ << " " << cid << " " << oid << dendl;
-  CollectionRef c = _get_collection(cid);
-  if (!c) {
-    dout(10) << __func__ << " " << cid << "doesn't exist" <<dendl;
-    return ObjectMap::ObjectMapIterator();
-  }
-  RWLock::RLocker l(c->lock);
-  OnodeRef o = c->get_onode(oid, false);
-  if (!o) {
-    dout(10) << __func__ << " " << oid << "doesn't exist" <<dendl;
-    return ObjectMap::ObjectMapIterator();
-  }
-  o->flush();
-  dout(10) << __func__ << " header = " << o->onode.omap_head <<dendl;
-  KeyValueDB::Iterator it = db->get_iterator(PREFIX_OMAP);
-  return ObjectMap::ObjectMapIterator(new OmapIteratorImpl(c, o, it));
-}
-
 
 // -----------------
 // write helpers

@@ -113,25 +113,6 @@ public:
   };
   typedef ceph::shared_ptr<Collection> CollectionRef;
 
-  class OmapIteratorImpl : public ObjectMap::ObjectMapIteratorImpl {
-    CollectionRef c;
-    OnodeRef o;
-    KeyValueDB::Iterator it;
-    string head, tail;
-  public:
-    OmapIteratorImpl(CollectionRef c, OnodeRef o, KeyValueDB::Iterator it);
-    int seek_to_first();
-    int upper_bound(const string &after);
-    int lower_bound(const string &to);
-    bool valid();
-    int next(bool validate=true);
-    string key();
-    bufferlist value();
-    int status() {
-      return 0;
-    }
-  };
-
   class OpSequencer;
   typedef boost::intrusive_ptr<OpSequencer> OpSequencerRef;
 
@@ -701,11 +682,6 @@ public:
     uint64_t per_pair_padding, /// < [in] bytes to add for each pair
     map<string, bufferlist> *out ///< [out] results
     ); ///< @return 0 for success, ERANGE if we reached the end
-
-  ObjectMap::ObjectMapIterator get_omap_iterator(
-    coll_t cid,              ///< [in] collection
-    const ghobject_t &oid  ///< [in] object
-    );
 
   void set_fsid(uuid_d u) {
     fsid = u;
