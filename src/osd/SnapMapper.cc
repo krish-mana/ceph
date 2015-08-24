@@ -34,19 +34,24 @@ int OSDriver::get_next(
   const std::string &key,
   pair<std::string, bufferlist> *next)
 {
-  ObjectMap::ObjectMapIterator iter =
-    os->get_omap_iterator(cid, hoid);
-  if (!iter) {
-    assert(0);
-    return -EINVAL;
-  }
-  iter->upper_bound(key);
-  if (iter->valid()) {
-    if (next)
-      *next = make_pair(iter->key(), iter->value());
+  map<string, bufferlist> out;
+  int ret = os->omap_scan_keys_value(
+    cid,
+    hoid,
+    nullptr,
+    &key,
+    1,
+    0,
+    0,
+    &out);
+  if (ret == 0) {
+    assert(out.size() == 1);
+    *next = *(out.begin());
     return 0;
-  } else {
+  } else if (ret == -ERANGE) {
     return -ENOENT;
+  } else {
+    return ret;
   }
 }
 
