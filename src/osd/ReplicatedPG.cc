@@ -6471,24 +6471,35 @@ int ReplicatedPG::fill_in_copy_get(
 				    &reply_obj.omap_header);
       }
       bufferlist omap_data;
-      ObjectMap::ObjectMapIterator iter =
-	osd->store->get_omap_iterator(coll, ghobject_t(oi.soid));
-      assert(iter);
-      iter->upper_bound(cursor.omap_offset);
-      for (; iter->valid(); iter->next()) {
+      map<string, bufferlist> omap;
+      int ret = osd->store->omap_scan_keys_value(
+	coll,
+	ghobject_t(oi.soid),
+	nullptr,
+	&(cursor.omap_offset),
+	0,
+	left,
+	8,
+	&omap);
+      for (auto p : omap) {
 	++omap_keys;
-	::encode(iter->key(), omap_data);
-	::encode(iter->value(), omap_data);
-	left -= iter->key().length() + 4 + iter->value().length() + 4;
-	if (left <= 0)
-	  break;
+	::encode(p.first, omap_data);
+	::encode(p.second, omap_data);
       }
+
+      if (omap_data.length() > left) {
+	left = 0;
+      } else {
+	left -= omap_data.length();
+      }
+
       if (omap_keys) {
 	::encode(omap_keys, reply_obj.omap_data);
 	reply_obj.omap_data.claim_append(omap_data);
       }
-      if (iter->valid()) {
-	cursor.omap_offset = iter->key();
+
+      if (ret != -ERANGE) {
+	cursor.omap_offset = omap.rbegin()->first;
       } else {
 	cursor.omap_complete = true;
 	dout(20) << " got omap" << dendl;
