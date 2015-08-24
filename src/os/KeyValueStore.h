@@ -653,8 +653,6 @@ class KeyValueStore : public ObjectStore,
     uint64_t max_bytes,
     uint64_t per_pair_padding,
     map<string, bufferlist> *out);
-  ObjectMap::ObjectMapIterator get_omap_iterator(coll_t c,
-                                                 const ghobject_t &oid);
 
   int check_get_rc(const coll_t cid, const ghobject_t& oid, int r, bool is_equal_size);
   void dump_start(const std::string &file);

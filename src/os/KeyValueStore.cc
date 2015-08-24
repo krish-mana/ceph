@@ -2674,13 +2674,6 @@ int KeyValueStore::omap_scan_keys_value(
   return iter->valid() ? 0 : -ERANGE;
 }
 
-ObjectMap::ObjectMapIterator KeyValueStore::get_omap_iterator(
-    coll_t c, const ghobject_t &hoid)
-{
-  dout(15) << __func__ << " " << c << "/" << hoid << dendl;
-  return backend->get_iterator(c, hoid, OBJECT_OMAP);
-}
-
 int KeyValueStore::_omap_clear(coll_t cid, const ghobject_t &hoid,
                                BufferTransaction &t)
 {
@@ -2772,7 +2765,8 @@ int KeyValueStore::_omap_rmkeyrange(coll_t cid, const ghobject_t &hoid,
 
   set<string> keys;
   {
-    ObjectMap::ObjectMapIterator iter = get_omap_iterator(cid, hoid);
+    ObjectMap::ObjectMapIterator iter =
+      backend->get_iterator(cid, hoid, OBJECT_OMAP);
     if (!iter)
       return -ENOENT;
 

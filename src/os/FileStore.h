@@ -650,8 +650,6 @@ public:
     uint64_t padding_per_pair,
     map<string, bufferlist> *out);
 
-  ObjectMap::ObjectMapIterator get_omap_iterator(coll_t c, const ghobject_t &oid);
-
   int _create_collection(coll_t c, const SequencerPosition &spos);
   int _destroy_collection(coll_t c);
   /**

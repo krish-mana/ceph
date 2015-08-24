@@ -2095,21 +2095,6 @@ public:
     map<string, bufferlist> *out ///< [out] results
     ) = 0; ///< @return 0 for success, ERANGE if we reached the end
 
-  /**
-   * Returns an object map iterator
-   *
-   * Warning!  The returned iterator is an implicit lock on filestore
-   * operations in c.  Do not use filestore methods on c while the returned
-   * iterator is live.  (Filling in a transaction is no problem).
-   *
-   * @return iterator, null on error
-   */
-  virtual ObjectMap::ObjectMapIterator get_omap_iterator(
-    coll_t c,              ///< [in] collection
-    const ghobject_t &oid  ///< [in] object
-    ) = 0;
-
-
   virtual int flush_journal() { return -EOPNOTSUPP; }
 
   virtual int dump_journal(ostream& out) { return -EOPNOTSUPP; }

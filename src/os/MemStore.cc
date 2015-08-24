@@ -608,23 +608,6 @@ int MemStore::omap_scan_keys_value(
   return iter == o->omap.end() ? -ERANGE : 0;
 }
 
-
-ObjectMap::ObjectMapIterator MemStore::get_omap_iterator(coll_t cid,
-							 const ghobject_t& oid)
-{
-  dout(10) << __func__ << " " << cid << " " << oid << dendl;
-  CollectionRef c = get_collection(cid);
-  if (!c)
-    return ObjectMap::ObjectMapIterator();
-  RWLock::RLocker l(c->lock);
-
-  ObjectRef o = c->get_object(oid);
-  if (!o)
-    return ObjectMap::ObjectMapIterator();
-  return ObjectMap::ObjectMapIterator(new OmapIteratorImpl(c, o));
-}
-
-
 // ---------------
 // write operations
 

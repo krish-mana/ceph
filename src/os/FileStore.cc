@@ -4930,32 +4930,6 @@ int FileStore::omap_scan_keys_value(
   return iter->valid() ? 0 : -ERANGE;
 }
 
-ObjectMap::ObjectMapIterator FileStore::get_omap_iterator(coll_t c,
-							  const ghobject_t &hoid)
-{
-  tracepoint(objectstore, get_omap_iterator, c.c_str());
-  _kludge_temp_object_collection(c, hoid);
-  dout(15) << __func__ << " " << c << "/" << hoid << dendl;
-  Index index;
-  int r = get_index(c, &index);
-  if (r < 0) {
-    dout(10) << __func__ << " " << c << "/" << hoid << " = 0 "
-	     << "(get_index failed with " << cpp_strerror(r) << ")" << dendl;
-    return ObjectMap::ObjectMapIterator(); 
-  }
-  {
-    assert(NULL != index.index);
-    RWLock::RLocker l((index.index)->access_lock);
-    r = lfn_find(hoid, index);
-    if (r < 0) {
-      dout(10) << __func__ << " " << c << "/" << hoid << " = 0 "
-	       << "(lfn_find failed with " << cpp_strerror(r) << ")" << dendl;
-      return ObjectMap::ObjectMapIterator();
-    }
-  }
-  return object_map->get_iterator(hoid);
-}
-
 int FileStore::_collection_hint_expected_num_objs(coll_t c, uint32_t pg_num,
     uint64_t expected_num_objs,
     const SequencerPosition &spos)
@@ -5279,9 +5253,25 @@ int FileStore::_omap_rmkeyrange(coll_t cid, const ghobject_t &hoid,
   dout(15) << __func__ << " " << cid << "/" << hoid << " [" << first << "," << last << "]" << dendl;
   set<string> keys;
   {
-    ObjectMap::ObjectMapIterator iter = get_omap_iterator(cid, hoid);
+    _kludge_temp_object_collection(cid, hoid);
+
+    Index index;
+    int r = get_index(cid, &index);
+    if (r < 0)
+      return r;
+    {
+      assert(NULL != index.index);
+      RWLock::RLocker l((index.index)->access_lock);
+      r = lfn_find(hoid, index);
+      if (r < 0)
+	return r;
+    }
+
+    ObjectMap::ObjectMapIterator iter =
+      object_map->get_iterator(hoid);
     if (!iter)
       return -ENOENT;
+
     for (iter->lower_bound(first); iter->valid() && iter->key() < last;
 	 iter->next()) {
       keys.insert(iter->key());

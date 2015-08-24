@@ -139,51 +139,6 @@ public:
   typedef ceph::shared_ptr<Collection> CollectionRef;
 
 private:
-  class OmapIteratorImpl : public ObjectMap::ObjectMapIteratorImpl {
-    CollectionRef c;
-    ObjectRef o;
-    map<string,bufferlist>::iterator it;
-  public:
-    OmapIteratorImpl(CollectionRef c, ObjectRef o)
-      : c(c), o(o), it(o->omap.begin()) {}
-
-    int seek_to_first() {
-      RWLock::RLocker l(c->lock);
-      it = o->omap.begin();
-      return 0;
-    }
-    int upper_bound(const string &after) {
-      RWLock::RLocker l(c->lock);
-      it = o->omap.upper_bound(after);
-      return 0;
-    }
-    int lower_bound(const string &to) {
-      RWLock::RLocker l(c->lock);
-      it = o->omap.lower_bound(to);
-      return 0;
-    }
-    bool valid() {
-      RWLock::RLocker l(c->lock);
-      return it != o->omap.end();      
-    }
-    int next() {
-      RWLock::RLocker l(c->lock);
-      ++it;
-      return 0;
-    }
-    string key() {
-      RWLock::RLocker l(c->lock);
-      return it->first;
-    }
-    bufferlist value() {
-      RWLock::RLocker l(c->lock);
-      return it->second;
-    }
-    int status() {
-      return 0;
-    }
-  };
-
 
   ceph::unordered_map<coll_t, CollectionRef> coll_map;
   RWLock coll_lock;    ///< rwlock to protect coll_map
@@ -359,11 +314,6 @@ public:
     uint64_t per_pair_padding, /// < [in] bytes to add for each pair
     map<string, bufferlist> *out ///< [out] results
     ); ///< @return 0 for success, ERANGE if we reached the end
-
-  ObjectMap::ObjectMapIterator get_omap_iterator(
-    coll_t cid,              ///< [in] collection
-    const ghobject_t &oid  ///< [in] object
-    );
 
   void set_fsid(uuid_d u);
   uuid_d get_fsid();
