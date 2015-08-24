@@ -4029,15 +4029,18 @@ int ReplicatedPG::do_replica_safe_read(
       set<string> out_set;
 
       if (pool.info.supports_omap()) {
-	ObjectMap::ObjectMapIterator iter = osd->store->get_omap_iterator(
-	  coll, ghobject_t(soid)
-	  );
-	assert(iter);
-	iter->upper_bound(start_after);
-	for (uint64_t i = 0;
-	     i < max_return && iter->valid();
-	     ++i, iter->next()) {
-	  out_set.insert(iter->key());
+	map<string, bufferlist> out;
+	osd->store->omap_scan_keys_value(
+	  coll,
+	  ghobject_t(soid),
+	  nullptr,
+	  &start_after,
+	  max_return,
+	  0,
+	  0,
+	  &out);
+	for (auto p : out) {
+	  out_set.insert(p.first);
 	}
       } // else return empty out_set
       ::encode(out_set, osd_op.outdata);
@@ -4066,21 +4069,38 @@ int ReplicatedPG::do_replica_safe_read(
       map<string, bufferlist> out_set;
 
       if (pool.info.supports_omap()) {
-	ObjectMap::ObjectMapIterator iter = osd->store->get_omap_iterator(
-	  coll, ghobject_t(soid)
-	  );
-	if (!iter) {
-	  result = -ENOENT;
-	  break;
+	string lb = start_after;
+	if (filter_prefix > start_after) {
+	  osd->store->omap_scan_keys_value(
+	    coll,
+	    ghobject_t(soid),
+	    &filter_prefix,
+	    nullptr,
+	    max_return,
+	    0,
+	    0,
+	    &out_set);
+	} else {
+	  osd->store->omap_scan_keys_value(
+	    coll,
+	    ghobject_t(soid),
+	    nullptr,
+	    &start_after,
+	    max_return,
+	    0,
+	    0,
+	    &out_set);
 	}
-	iter->upper_bound(start_after);
-	if (filter_prefix > start_after) iter->lower_bound(filter_prefix);
-	for (uint64_t i = 0;
-	     i < max_return && iter->valid() &&
-	       iter->key().substr(0, filter_prefix.size()) == filter_prefix;
-	     ++i, iter->next()) {
-	  dout(20) << "Found key " << iter->key() << dendl;
-	  out_set.insert(make_pair(iter->key(), iter->value()));
+	for (auto p = out_set.rbegin(); p != out_set.rend();) {
+	  if (p->first.substr(0, filter_prefix.size()) == filter_prefix) {
+	    break;
+	  } else {
+	    ++p;
+	    out_set.erase(p.base());
+	  }
+	}
+	for (auto p : out_set) {
+	  dout(20) << "Found key " << p.first << dendl;
 	}
       } // else return empty out_set
       ::encode(out_set, osd_op.outdata);
