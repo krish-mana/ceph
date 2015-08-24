@@ -65,6 +65,7 @@ CompatSet get_test_compat_set() {
 
 const ssize_t max_read = 1024 * 1024;
 const int fd_none = INT_MIN;
+const int OMAP_BATCH_SIZE = 25;
 bool outistty;
 bool dry_run = false;
 
@@ -563,15 +564,6 @@ int write_pg(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info,
   return 0;
 }
 
-const int OMAP_BATCH_SIZE = 25;
-void get_omap_batch(ObjectMap::ObjectMapIterator &iter, map<string, bufferlist> &oset)
-{
-  oset.clear();
-  for (int count = OMAP_BATCH_SIZE; count && iter->valid(); --count, iter->next()) {
-    oset.insert(pair<string, bufferlist>(iter->key(), iter->value()));
-  }
-}
-
 int ObjectStoreTool::export_file(ObjectStore *store, coll_t cid, ghobject_t &obj)
 {
   struct stat st;
@@ -661,26 +653,35 @@ int ObjectStoreTool::export_file(ObjectStore *store, coll_t cid, ghobject_t &obj
   if (ret)
     return ret;
 
-  ObjectMap::ObjectMapIterator iter = store->get_omap_iterator(cid, obj);
-  if (!iter) {
-    ret = -ENOENT;
-    cerr << "omap_get_iterator: " << cpp_strerror(ret) << std::endl;
-    return ret;
-  }
-  iter->seek_to_first();
+  string ub;
   int mapcount = 0;
-  map<string, bufferlist> out;
-  while(iter->valid()) {
-    get_omap_batch(iter, out);
-
-    if (out.empty()) break;
+  bool done = false;
+  do {
+    map<string, bufferlist> out;
+    ret = store->omap_scan_keys_value(
+      cid,
+      obj,
+      &ub,
+      nullptr,
+      OMAP_BATCH_SIZE,
+      0,
+      0,
+      &out);
+    if (ret == -ERANGE)
+      done = true;
+    else if (ret != 0)
+      return ret;
 
     mapcount += out.size();
-    omap_section oms(out);
-    ret = write_section(TYPE_OMAP, oms, file_fd);
-    if (ret)
-      return ret;
-  }
+    if (out.size()) {
+      ub = out.rbegin()->first;
+      omap_section oms(out);
+      ret = write_section(TYPE_OMAP, oms, file_fd);
+      if (ret)
+	return ret;
+    }
+  } while (!done);
+
   if (debug)
     cerr << "omap map size " << mapcount << std::endl;
 
@@ -1535,23 +1536,35 @@ int do_list_attrs(ObjectStore *store, coll_t coll, ghobject_t &ghobj)
 
 int do_list_omap(ObjectStore *store, coll_t coll, ghobject_t &ghobj)
 {
-  ObjectMap::ObjectMapIterator iter = store->get_omap_iterator(coll, ghobj);
-  if (!iter) {
-    cerr << "omap_get_iterator: " << cpp_strerror(ENOENT) << std::endl;
-    return -ENOENT;
-  }
-  iter->seek_to_first();
-  map<string, bufferlist> oset;
-  while(iter->valid()) {
-    get_omap_batch(iter, oset);
+  string ub;
+  bool done = false;
+  do {
+    map<string, bufferlist> oset;
+    int ret = store->omap_scan_keys_value(
+      coll,
+      ghobj,
+      nullptr,
+      &ub,
+      OMAP_BATCH_SIZE,
+      0,
+      0,
+      &oset);
 
-    for (map<string,bufferlist>::iterator i = oset.begin();i != oset.end(); ++i) {
-      string key(i->first);
+    if (oset.size())
+      ub = oset.rbegin()->first;
+
+    if (ret == -ERANGE)
+      done = true;
+    else if (ret != 0)
+      return ret;
+
+    for (auto p: oset) {
+      string key(p.first);
       if (outistty)
         cleanbin(key);
       cout << key << std::endl;
     }
-  }
+  } while (!done);
   return 0;
 }
 
