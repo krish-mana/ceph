@@ -1864,14 +1864,15 @@ public:
    * @param allow_eio if false, assert on -EIO operation failure
    * @returns number of bytes read on success, or negative error code on failure.
    */
-   virtual int read(
+  virtual int read(
     coll_t cid,
     const ghobject_t& oid,
     uint64_t offset,
     size_t len,
     bufferlist& bl,
     uint32_t op_flags = 0,
-    bool allow_eio = false) = 0;
+    bool allow_eio = false
+    ) = 0;
 
   /**
    * fiemap -- get extent map of data of an object
