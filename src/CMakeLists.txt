@@ -343,7 +343,7 @@ endif(${WITH_PROFILER})
 
 add_library(common_utf8 STATIC common/utf8.c)
 
-target_link_libraries( common json_spirit common_utf8 erasure_code rt uuid ${CRYPTO_LIBS} ${Boost_LIBRARIES})
+target_link_libraries( common json_spirit common_utf8 erasure_code rt uuid ${CRYPTO_LIBS} ${Boost_LIBRARIES} blkid )
 
 set(libglobal_srcs
   global/global_init.cc
@@ -583,7 +583,7 @@ add_library(os STATIC ${libos_srcs} $<TARGET_OBJECTS:os_mon_objs>)
 if(${HAVE_LIBAIO})
   target_link_libraries(os aio)
 endif(${HAVE_LIBAIO})
-target_link_libraries(os leveldb snappy)
+target_link_libraries(os leveldb snappy blkid)
 
 set(cls_references_files objclass/class_api.cc)
 add_library(cls_references_objs OBJECT ${cls_references_files})
