@@ -71,6 +71,22 @@ static ostream& _prefix(std::ostream *_dout, T *t)
   return *_dout << t->gen_prefix();
 }
 
+void PGQueueable::RunVis::operator()(OpRequestRef &op) {
+  return osd->dequeue_op(pg, op, handle);
+}
+
+void PGQueueable::RunVis::operator()(PGSnapTrim &op) {
+  return pg->snap_trimmer(op.epoch_queued);
+}
+
+void PGQueueable::RunVis::operator()(PGScrub &op) {
+  return pg->scrub(op.epoch_queued, handle);
+}
+
+void PGQueueable::RunVis::operator()(PGRecovery &op) {
+  return osd->do_recovery(pg.get(), op.epoch_queued, op.reserved_pushes, handle);
+}
+
 void PG::get(const string &tag) 
 {
   ref.inc();
