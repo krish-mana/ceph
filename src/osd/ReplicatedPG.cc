@@ -1360,13 +1360,17 @@ void ReplicatedPG::get_src_oloc(const object_t& oid, const object_locator_t& olo
     src_oloc.key = oid.name;
 }
 
-void ReplicatedPG::do_request(
+Ceph::Future<> ReplicatedPG::do_request(
   OpRequestRef& op,
   HBHandle &handle)
 {
+  if (!op_has_sufficient_caps(op)) {
+    osd->reply_op_error(op, -EPERM);
+    return Ceph::Future<>::make_ready_value();
+  }
   assert(!op_must_wait_for_map(get_osdmap()->get_epoch(), op));
   if (can_discard_request(op)) {
-    return;
+    return Ceph::Future<>::make_ready_value();
   }
   if (flushes_in_progress > 0) {
     dout(20) << flushes_in_progress
@@ -1374,7 +1378,7 @@ void ReplicatedPG::do_request(
 	     << "waiting for active on " << op << dendl;
     waiting_for_peered.push_back(op);
     op->mark_delayed("waiting for peered");
-    return;
+    return Ceph::Future<>::make_ready_value();
   }
 
   if (!is_peered()) {
@@ -1382,17 +1386,17 @@ void ReplicatedPG::do_request(
     if (pgbackend->can_handle_while_inactive(op)) {
       bool handled = pgbackend->handle_message(op);
       assert(handled);
-      return;
+      return Ceph::Future<>::make_ready_value();
     } else {
       waiting_for_peered.push_back(op);
       op->mark_delayed("waiting for peered");
-      return;
+      return Ceph::Future<>::make_ready_value();
     }
   }
 
   assert(is_peered() && flushes_in_progress == 0);
   if (pgbackend->handle_message(op))
-    return;
+    return Ceph::Future<>::make_ready_value();
 
   switch (op->get_req()->get_type()) {
   case CEPH_MSG_OSD_OP: {
@@ -1400,19 +1404,19 @@ void ReplicatedPG::do_request(
       dout(20) << " peered, not active, waiting for active on " << op << dendl;
       waiting_for_active.push_back(op);
       op->mark_delayed("waiting for active");
-      return;
+      return Ceph::Future<>::make_ready_value();
     }
     if (is_replay()) {
       dout(20) << " replay, waiting for active on " << op << dendl;
       waiting_for_active.push_back(op);
       op->mark_delayed("waiting for replay end");
-      return;
+      return Ceph::Future<>::make_ready_value();
     }
     // verify client features
     if ((pool.info.has_tiers() || pool.info.is_tier()) &&
 	!op->has_feature(CEPH_FEATURE_OSD_CACHEPOOL)) {
       osd->reply_op_error(op, -EOPNOTSUPP);
-      return;
+      return Ceph::Future<>::make_ready_value();
     }
     MOSDOp *m = static_cast<MOSDOp*>(op->get_req());
     m->finish_decode();
@@ -1422,13 +1426,13 @@ void ReplicatedPG::do_request(
       int r = osd->osd->init_op_flags(op);
       if (r) {
 	osd->reply_op_error(op, r);
-	return;
+	return Ceph::Future<>::make_ready_value();
       }
     }
     if (get_osdmap()->is_blacklisted(m->get_source_addr())) {
       dout(10) << "do_op " << m->get_source_addr() << " is blacklisted" << dendl;
       osd->reply_op_error(op, -EBLACKLISTED);
-      return;
+      return Ceph::Future<>::make_ready_value();
     }
     if ((m->get_flags() & (CEPH_OSD_FLAG_BALANCE_READS |
 			   CEPH_OSD_FLAG_LOCALIZE_READS)) &&
@@ -1438,13 +1442,13 @@ void ReplicatedPG::do_request(
       if (!(is_primary() || is_replica())) {
 	dout(7) << " dropping replica read from epoch" << m->get_map_epoch()
 		<< ", we are not primary or replica" << dendl;
-	return;
+	return Ceph::Future<>::make_ready_value();
       }
     } else {
       // normal case; must be primary
       if (!is_primary()) {
 	osd->handle_misdirected_op(this, op);
-	return;
+	return Ceph::Future<>::make_ready_value();
       }
     }
     if (is_primary()) {
@@ -1482,6 +1486,7 @@ void ReplicatedPG::do_request(
   default:
     assert(0 == "bad message type in do_request");
   }
+  return Ceph::Future<>::make_ready_value();
 }
 
 hobject_t ReplicatedPG::earliest_backfill() const

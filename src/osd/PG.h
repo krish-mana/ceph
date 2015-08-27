@@ -46,6 +46,7 @@
 #include "common/cmdparse.h"
 #include "common/tracked_int_ptr.hpp"
 #include "common/WorkQueue.h"
+#include "common/Future.h"
 #include "common/ceph_context.h"
 #include "include/str_list.h"
 #include "PGBackend.h"
@@ -220,8 +221,9 @@ class PGQueueable {
     OSD *osd;
     PGRef &pg;
     HBHandle &handle;
-    RunVis(OSD *osd, PGRef &pg, HBHandle &handle)
-      : osd(osd), pg(pg), handle(handle) {}
+    Ceph::Future<> *ret;
+    RunVis(OSD *osd, PGRef &pg, HBHandle &handle, Ceph::Future<> *ret)
+      : osd(osd), pg(pg), handle(handle), ret(ret) {}
     void operator()(OpRequestRef &op);
     void operator()(PGSnapTrim &op);
     void operator()(PGScrub &op);
@@ -257,9 +259,9 @@ public:
     PGRecovery *op = boost::get<PGRecovery>(&qvariant);
     return op ? op->reserved_pushes : 0;
   }
-  void run(OSD *osd, PGRef &pg, HBHandle &handle) {
-    RunVis v(osd, pg, handle);
-    boost::apply_visitor(v, qvariant);
+  void run(OSD *osd, PGRef &pg, HBHandle &handle, Ceph::Future<> *ret) {
+    RunVis v(osd, pg, handle, ret);
+    return boost::apply_visitor(v, qvariant);
   }
   unsigned get_priority() const { return priority; }
   int get_cost() const { return cost; }
@@ -2404,7 +2406,7 @@ public:
 
 
   // abstract bits
-  virtual void do_request(
+  virtual Ceph::Future<> do_request(
     OpRequestRef& op,
     HBHandle &handle
   ) = 0;
