@@ -39,6 +39,7 @@
 #include "auth/KeyRing.h"
 #include "messages/MOSDRepScrub.h"
 #include "OpRequest.h"
+#include "OSDReactor.h"
 
 #include <map>
 #include <memory>
@@ -336,7 +337,7 @@ public:
   PerfCounters *&logger;
   PerfCounters *&recoverystate_perf;
   MonClient   *&monc;
-  ShardedThreadPool::ShardedWQ < pair <PGRef, PGQueueable> > &op_wq;
+  OSDReactorPool &op_wq;
   ThreadPool::BatchWorkQueue<PG> &peering_wq;
   GenContextWQ recovery_gen_wq;
   GenContextWQ op_gen_wq;
@@ -835,15 +836,14 @@ public:
   void _queue_for_recovery(
     pair<epoch_t, PGRef> p, uint64_t reserved_pushes) {
     assert(recovery_lock.is_locked_by_me());
-    pair<PGRef, PGQueueable> to_queue = make_pair(
+    op_wq.queue(make_pair(
       p.second,
       PGQueueable(
 	PGRecovery(p.first, reserved_pushes),
 	cct->_conf->osd_recovery_cost,
 	cct->_conf->osd_recovery_priority,
 	ceph_clock_now(cct),
-	entity_inst_t()));
-    op_wq.queue(to_queue);
+	entity_inst_t())));
   }
 
   // osd map cache (past osd maps)
@@ -1242,7 +1242,6 @@ public:
 private:
 
   ThreadPool osd_tp;
-  ShardedThreadPool osd_op_tp;
   ThreadPool disk_tp;
   ThreadPool command_tp;
 
@@ -1763,9 +1762,10 @@ private:
     }
   } op_shardedwq;
 
+  OSDReactorPool op_shardedwq;
 
   void enqueue_op(PG *pg, OpRequestRef& op);
-  void dequeue_op(
+  Ceph::Future<> dequeue_op(
     PGRef pg, OpRequestRef op,
     HBHandle &handle);
 

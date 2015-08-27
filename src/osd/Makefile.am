@@ -24,7 +24,8 @@ libosd_a_SOURCES = \
 	osd/OpRequest.cc \
 	common/TrackedOp.cc \
 	osd/SnapMapper.cc \
-	objclass/class_api.cc
+	objclass/class_api.cc \
+	osd/OSDReactor.cc
 
 libosd_a_CXXFLAGS = ${AM_CXXFLAGS}
 libosd_a_LIBADD =
@@ -50,7 +51,8 @@ noinst_HEADERS += \
 	osd/ECMsgTypes.h \
 	osd/ECTransaction.h \
 	osd/Watch.h \
-	osd/osd_types.h
+	osd/osd_types.h \
+	osd/OSDReactor.h
 
 endif # WITH_OSD
 endif # ENABLE_SERVER

@@ -1565,7 +1565,7 @@ public:
   int do_command(cmdmap_t cmdmap, ostream& ss, bufferlist& idata,
 		 bufferlist& odata);
 
-  void do_request(
+  Ceph::Future<> do_request(
     OpRequestRef& op,
     HBHandle &handle);
   void do_op(OpRequestRef& op);
