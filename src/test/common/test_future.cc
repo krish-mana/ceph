@@ -146,6 +146,37 @@ TEST(Future, basic)
   {
     Future<int, int> fut;
     Promise<int, int> p(fut.get_promise());
+    Promise<int, int> p2;
+    Promise<int, int> *_p2 = &p2;
+    Future<int, int> fut2 = fut.then_ignore_error(
+      [_p2](int _in) {
+	auto ret = Future<int, int>();
+	*_p2 = ret.get_promise();
+	return ret.then_ignore_error([_in](int in) {
+	    return _in + in;
+	  }).then_ignore_error([](int in) {
+	    return in + 4;
+	  }).then_ignore_error([](int in) {
+	    return in + 8;
+	  }).then_ignore_error([](int in) {
+	    return in + 16;
+	  });
+      });
+    p.fulfill(1);
+    fut2.run_until_blocked_or_ready();
+    auto fut3 = fut2.then_ignore_error([](int in) { return in + 32; });
+    p2.fulfill(2);
+    fut3.run_until_blocked_or_ready();
+    ASSERT_FALSE(fut3.blocked());
+    ASSERT_TRUE(fut3.ready());
+    ASSERT_FALSE(p.valid());
+    ASSERT_EQ(fut3.get_value(), 63);
+    ASSERT_FALSE(fut3.valid());
+  }
+
+  {
+    Future<int, int> fut;
+    Promise<int, int> p(fut.get_promise());
     Future<int, int> fut2 = fut.then_ignore_error([](int in) { return in + 10; });
     ASSERT_FALSE(fut.valid());
     ASSERT_TRUE(fut2.valid());
@@ -313,4 +344,22 @@ TEST(Future, types)
   using std::string;
   TestFromTo<int, int, string, string> t(0, 1, "0", "1");
   t.test_then();
+}
+
+TEST(Future, join)
+{
+  using std::string;
+  auto f1 = Future<string>::make_ready_value("foo").then_ignore_error(
+    [](string &&s) { return s; });
+  auto f2 = Future<int>();
+  auto p2 = f2.get_promise();
+  auto f3 = Future<int>::join(
+    std::move(f1), std::move(f2),
+    [](FutureState<string> &&l, FutureState<int> &&r) {
+      return std::move(r);
+    });
+  f3.run_until_blocked_or_ready();
+  p2.fulfill(3);
+  f3.run_until_blocked_or_ready();
+  ASSERT_EQ(f3.get_value(), 3);
 }
