@@ -192,6 +192,19 @@ public:
     }
   };
 
+  /**
+   * Completion Queue Port
+   *
+   * Interface used to notify user of async io completions
+   */
+  struct CompletionQPort {
+    // Notify CompletionQPort that num completions are newly pending
+    virtual void start_operation(unsigned num) = 0;
+    // Notify CompletionQPort that completion has finished
+    virtual void push(void *completion, int result) = 0;
+    virtual ~CompletionQPort() {}
+  };
+
   /*********************************
    *
    * Object Contents and semantics
@@ -1875,6 +1888,51 @@ public:
     ) = 0;
 
   /**
+   * aio_read -- read a byte range of data from an object
+   *
+   * Note: if reading from an offset past the end of the object, we
+   * return 0 (not, say, -EINVAL).
+   *
+   * If -EAGAIN is returned, completion is guarranteed to eventually be
+   * queued on qport.
+   *
+   * @param cid collection for object
+   * @param oid oid of object
+   * @param offset location offset of first byte to be read
+   * @param len number of bytes to be read
+   * @param bl output bufferlist
+   * @param completion uninterpretted pointer to pass back to user
+   * @param cport used to indicate completion to the caller
+   * @param op_flags is CEPH_OSD_OP_FLAG_*
+   * @param allow_eio if false, assert on -EIO operation failure
+   * @returns number of bytes read on success, or negative error code on failure.
+   *          -EAGAIN indicates that the read is async and the return value will
+   *          be passed to the completion (which is now invalid in the caller)
+   */
+  virtual int aio_read(
+    coll_t cid,
+    const ghobject_t& oid,
+    uint64_t offset,
+    size_t len,
+    bufferlist* bl,
+    void *completion,
+    CompletionQPort *cport,
+    uint32_t op_flags = 0,
+    bool allow_eio = false
+    ) {
+    bufferlist _bl;
+    // default to sync
+    return read(
+      cid,
+      oid,
+      offset,
+      len,
+      bl ? *bl : _bl,
+      op_flags,
+      allow_eio);
+  }
+
+  /**
    * fiemap -- get extent map of data of an object
    *
    * Returns an encoded map of the extents of an object's data portion
@@ -1929,6 +1987,32 @@ public:
   }
 
   /**
+   * aio_getattr -- get an xattr of an object
+   *
+   * @param cid collection for object
+   * @param oid oid of object
+   * @param name name of attr to read
+   * @param value place to put output result.
+   * @param completion uninterpretted pointer to pass back to user
+   * @param cport used to indicate completion to the caller
+   * @returns 0 on success, negative error code on failure.
+   */
+  virtual int aio_getattr(
+    coll_t cid,
+    const ghobject_t& oid,
+    const string& name,
+    bufferlist* value,
+    void *completion,
+    CompletionQPort *cport) {
+    bufferptr bp;
+    // default to sync version
+    int r = getattr(cid, oid, name.c_str(), bp);
+    if (bp.length() && value)
+      value->push_back(bp);
+    return r;
+  }
+
+  /**
    * getattrs -- get all of the xattrs of an object
    *
    * @param cid collection for object
@@ -1955,6 +2039,25 @@ public:
       aset[i->first].append(i->second);
     }
     return r;
+  }
+
+  /**
+   * getattrs -- get all of the xattrs of an object
+   *
+   * @param cid collection for object
+   * @param oid oid of object
+   * @param aset place to put output result.
+   * @returns 0 on success, negative error code on failure.
+   */
+  virtual int aio_getattrs(
+    coll_t cid,
+    const ghobject_t& oid,
+    map<string,bufferlist>* aset,
+    void *completion,
+    CompletionQPort *cport) {
+    map<string, bufferlist> _aset;
+    // default to async version
+    return getattrs(cid, oid, aset ? *aset : _aset);
   }
 
 
