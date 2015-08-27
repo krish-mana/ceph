@@ -234,7 +234,8 @@ noinst_HEADERS += \
 	common/ContextCompletion.h \
 	common/bit_vector.hpp \
 	common/SubProcess.h \
-	common/valgrind.h
+	common/valgrind.h \
+	mpsc_queue.h
 
 if ENABLE_XIO
 noinst_HEADERS += \
