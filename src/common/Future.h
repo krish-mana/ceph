@@ -733,7 +733,9 @@ public:
   virtual void wait() = 0;
 
   // invalidates *this
-  virtual std::list<Ref> run() && = 0;
+  virtual std::pair<std::list<Ref>, Transformer *> run() && = 0;
+
+  virtual void set_next(Ref &&next) = 0;
 
   virtual ~Transformer() {}
 };
@@ -743,17 +745,46 @@ class TransformerImpl : boost::noncopyable, public Transformer {
 public:
   Func f;
   Result<U, ErrT> src;
-  TransformerImpl(Func &&f, Result<U, ErrT> &&_src) :
-    f(std::move(f)), src(std::move(_src)) {
+  Transformer::Ref next;
+  TransformerImpl(
+    Func &&f,
+    Result<U, ErrT> &&_src,
+    Transformer::Ref &&next) :
+    f(std::move(f)), src(std::move(_src)), next(std::move(next)) {
     assert(src.valid());
+  }
+  TransformerImpl(
+    Func &&f,
+    Result<U, ErrT> &&_src) :
+    f(std::move(f)), src(std::move(_src)), next(nullptr) {
+    assert(src.valid());
+  }
+
+  void set_next(Transformer::Ref &&_next) {
+    assert(!next);
+    next = std::move(_next);
   }
 
   bool ready() {
     return src.ready();
   }
 
-  std::list<Ref> run() && {
-    return f(src.get());
+  std::pair<std::list<Ref>, Transformer *> run() && {
+    auto p = f(src.get());
+    assert(!(p.first.empty() ^ (p.second == nullptr)));
+    if (p.second) {
+      if (next) {
+	p.second->set_next(std::move(next));
+	return std::make_pair(std::move(p.first), nullptr);
+      } else {
+	return std::make_pair(std::move(p.first), p.second);
+      }
+    } else {
+      std::list<Ref> ret;
+      if (next)
+	ret.emplace_back(std::move(next));
+      return std::make_pair(std::move(ret), nullptr);
+    }
   }
 
   void wait() {
@@ -761,9 +792,62 @@ public:
   }
 };
 
+template <typename U, typename ErrU, typename T, typename ErrT, typename Func>
+class TransformerJoin : boost::noncopyable, public Transformer {
+public:
+  Func f;
+  Result<U, ErrU> srcl;
+  Result<T, ErrT> srcr;
+  Transformer::Ref next;
+  TransformerJoin(
+    Func &&f,
+    Result<U, ErrU> &&srcl,
+    Result<T, ErrT> &&srcr) :
+    f(std::move(f)), srcl(std::move(srcl)), srcr(std::move(srcr)), next(nullptr)
+    {}
+
+  void set_next(Transformer::Ref &&_next) {
+    assert(!next);
+    next = std::move(_next);
+  }
+
+  bool ready() {
+    return srcl.ready() && srcr.ready();
+  }
+
+  std::pair<std::list<Ref>, Transformer *> run() && {
+    auto p = f(srcl.get(), srcr.get());
+    assert(!(p.first.empty() ^ (p.second == nullptr)));
+    if (p.second) {
+      if (next) {
+	p.second->set_next(std::move(next));
+	return std::make_pair(std::move(p.first), nullptr);
+      } else {
+	return std::make_pair(std::move(p.first), p.second);
+      }
+    } else {
+      std::list<Ref> ret;
+      if (next)
+	ret.emplace_back(std::move(next));
+      return std::make_pair(std::move(ret), nullptr);
+    }
+  }
+
+  void wait() {
+    srcl.wait();
+  }
+};
+
 template <typename U, typename Func, typename ErrT>
 Transformer *make_transformer(Func &&f, Result<U, ErrT> &&u) {
   return new TransformerImpl<U, Func, ErrT>(std::move(f), std::move(u));
+}
+
+template <typename U, typename ErrU, typename T, typename ErrT, typename Func>
+Transformer *make_join_transformer(
+  Func &&f, Result<U, ErrU> &&l, Result<T, ErrT> &&r) {
+  return new TransformerJoin<U, ErrU, T, ErrT, Func>(
+    std::move(f), std::move(l), std::move(r));
 }
 
 template <typename T, typename ErrT>
@@ -980,6 +1064,12 @@ apply_value(Futurize<void, ErrT> &&fut, Func &&f, FSType &&fs) {
   return Futurize<void, ErrT>::from_error(f());
 }
 
+template <typename T>
+struct IsFuture : public std::false_type {};
+
+template <typename T, typename ErrT>
+struct IsFuture<Future<T, ErrT> > : public std::true_type {};
+
 template <typename T, typename ErrT = int>
 class Future : boost::noncopyable {
   template <typename U, typename ErrU>
@@ -987,9 +1077,17 @@ class Future : boost::noncopyable {
 
   Result<T, ErrT> inbox;
   std::list<Transformer::Ref> blockers;
+  /* bottom is not owned by this pointers, but is owned transitively by the
+   * blockers list or by a descendant thereof */
+  Transformer *bottom = nullptr;
 
-  Future(Result<T, ErrT> &&inbox, std::list<Transformer::Ref> &&blockers) :
-    inbox(std::move(inbox)), blockers(std::move(blockers)) {}
+  Future(
+    Result<T, ErrT> &&inbox,
+    std::list<Transformer::Ref> &&blockers,
+    Transformer *bottom) :
+    inbox(std::move(inbox)),
+    blockers(std::move(blockers)),
+    bottom(bottom) {}
 
 
   struct ErrMarker {};
@@ -1006,7 +1104,11 @@ public:
   Future() {}
   Future(FutureState<T, ErrT> &&f) : inbox(std::move(f)) {}
   Future(Future &&f) :
-    inbox(std::move(f.inbox)), blockers(std::move(f.blockers)) {}
+    inbox(std::move(f.inbox)),
+    blockers(std::move(f.blockers)),
+    bottom(f.bottom) {
+    f.bottom = nullptr;
+  }
 
   Future &operator=(Future &&f) {
     this->~Future();
@@ -1018,6 +1120,7 @@ public:
   static Future<T, ErrT> make_ready_value(A&&... a) {
     return Future<T, ErrT>(ValMarker(), std::forward<A>(a)...);
   }
+
   template <typename... A>
   static Future<T, ErrT> make_ready_error(A&&... a) {
     return Future<T, ErrT>(ErrMarker(), std::forward<A>(a)...);
@@ -1034,8 +1137,11 @@ public:
   }
 
   bool blocked() {
-    return !((blockers.empty() && inbox.ready()) ||
-	     blockers.front()->ready());
+    for (auto &p: blockers) {
+      if (p->ready())
+	return false;
+    }
+    return !inbox.ready();
   }
 
   bool ready() {
@@ -1085,28 +1191,110 @@ public:
       Func f;
       promise p;
       Cont(Func &&f, promise &&p) : f(std::move(f)), p(std::move(p)) {}
-      std::list<Transformer::Ref> operator()(FutureState<T, ErrT> &&fs) {
+      std::pair<std::list<Transformer::Ref>, Transformer *>
+      operator()(FutureState<T, ErrT> &&fs) {
 	futuretype fut(apply(futurator(), std::move(f), std::move(fs)));
 	if (fut.ready()) {
 	  p.pass_state(std::move(fut.get()));
-	  return std::list<Transformer::Ref>();
+	  return std::make_pair(
+	    std::list<Transformer::Ref>(),
+	    nullptr);
 	} else {
 	  fut.inbox.forward(std::move(p));
-	  return std::move(fut.blockers);
+	  return std::make_pair(
+	    std::move(fut.blockers),
+	    fut.bottom);
 	}
       }
     };
 
     result res;
     promise p(res.get_local_promise());
-    blockers.push_back(
-      Transformer::Ref(
-	make_transformer(
-	  Cont(std::move(f), std::move(p)),
-	  std::move(inbox))));
 
-    futuretype ret(std::move(res), std::move(blockers));
+    Transformer *new_bottom =
+      make_transformer(
+	Cont(std::move(f), std::move(p)),
+	std::move(inbox));
+
+    if (bottom) {
+      bottom->set_next(Transformer::Ref(new_bottom));
+      bottom = nullptr;
+    } else {
+      assert(blockers.empty());
+      blockers.emplace_back(new_bottom);
+    }
+
+    futuretype ret(std::move(res), std::move(blockers), new_bottom);
     return ret;
+  }
+
+  template <typename F1, typename F2, typename Func>
+  static typename std::enable_if<
+    IsFuture<F1>::value && IsFuture<F2>::value,
+    Future<T, ErrT>>::type join(F1 &&f1, F2 &&f2, Func &&f) {
+    using lfuturator = Futurize<F1, ErrT>;
+    using lfstate = FutureState<
+      typename lfuturator::WrappedType,
+      typename lfuturator::ErrorType>;
+
+    using rfuturator = Futurize<F2, ErrT>;
+    using rfstate = FutureState<
+      typename rfuturator::WrappedType,
+      typename rfuturator::ErrorType>;
+
+    using promise = LocalPromise<T, ErrT>;
+    using result = Result<T, ErrT>;
+    using futuretype = Future<T, ErrT>;
+    using futurator = Futurize<futuretype, ErrT>;
+
+    struct Cont {
+      Func f;
+      promise p;
+      Cont(Func &&f, promise &&p) : f(std::move(f)), p(std::move(p)) {};
+      std::pair<std::list<Transformer::Ref>, Transformer *>
+      operator()(lfstate &&ls, rfstate &&rs) {
+	futuretype fut(
+	  apply(futurator(), std::move(f), std::move(ls), std::move(rs)));
+	if (fut.ready()) {
+	  p.pass_state(std::move(fut.get()));
+	  return std::make_pair(
+	    std::list<Transformer::Ref>(),
+	    nullptr);
+	} else {
+	  fut.inbox.forward(std::move(p));
+	  return std::make_pair(
+	    std::move(fut.blockers),
+	    fut.bottom);
+	}
+      }
+    };
+
+    result res;
+    Transformer *new_bottom =
+      make_join_transformer(
+	Cont(std::move(f), res.get_local_promise()),
+	std::move(f1.inbox),
+	std::move(f2.inbox));
+
+    std::list<Transformer::Ref> new_blockers;
+    if (f1.blockers.empty() && f2.blockers.empty()) {
+      assert(!f1.bottom);
+      assert(!f2.bottom);
+      new_blockers.emplace_back(new_bottom);
+    } else if (f2.blockers.empty()) {
+      assert(f1.bottom);
+      assert(!f2.bottom);
+      f1.bottom->set_next(Transformer::Ref(new_bottom));
+    } else {
+      assert(f2.bottom);
+      assert(!f1.bottom);
+      f2.bottom->set_next(Transformer::Ref(new_bottom));
+    }
+    new_blockers.splice(new_blockers.end(), std::move(f1.blockers));
+    new_blockers.splice(new_blockers.end(), std::move(f2.blockers));
+    f1.bottom = f2.bottom = nullptr;
+
+    return futuretype(std::move(res), std::move(new_blockers), new_bottom);
   }
 
   template <typename Func>
@@ -1151,22 +1339,36 @@ public:
   }
 
 private:
-  void run_one_step() {
+  void run_ready_steps() {
     assert(!blocked() && !ready());
     assert(blockers.size());
-    assert(blockers.front()->ready());
-    std::list<Transformer::Ref> next_steps = std::move(*blockers.front()).run();
-    blockers.pop_front();
-    blockers.splice(blockers.begin(), std::move(next_steps));
+    std::list<Transformer::Ref> new_leaves;
+    for (std::list<Transformer::Ref>::iterator i = blockers.begin();
+	 i != blockers.end();
+	 ) {
+      if ((*i)->ready()) {
+	auto ret = std::move(**i).run();
+	if (i->get() == bottom) {
+	  bottom = ret.second;
+	}
+	blockers.splice(i, std::move(ret.first));
+	blockers.erase(i++);
+      } else {
+	++i;
+      }
+    }
+    assert(!(blockers.empty() ^ (bottom == nullptr)));
   }
 
 public:
   void run_until_blocked_or_ready() {
     while (!blocked() && !ready())
-      run_one_step();
+      run_ready_steps();
   }
 
   void wait() {
+    if (blockers.size() > 1)
+      assert(0 == "not implemented yet for after a join");
     if (blockers.empty())
       inbox.wait();
     else
@@ -1223,7 +1425,7 @@ using Promise = FutureDetail::RemotePromise<T, ErrT>;
 template <typename T = void, typename ErrT = void>
 using Future = FutureDetail::Future<T, ErrT>;
 
-template <typename T, typename ErrT = int>
+template <typename T, typename ErrT = void>
 using FutureState = FutureDetail::FutureState<T, ErrT>;
 
 };
