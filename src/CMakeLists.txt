@@ -614,6 +614,7 @@ set(osd_srcs
   osd/osd_types.cc
   osd/ECUtil.cc
   objclass/class_api.cc
+  osd/OSDReactor.cc
   ${osdc_osd_srcs})
 set(osd_mon_files
   mon/Monitor.cc)
