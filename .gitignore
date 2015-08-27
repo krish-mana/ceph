@@ -75,6 +75,9 @@ web/*.html
 # dir from coverity tools
 cov-int/
 
+# cmake build dir
+build/
+
 /test-driver
 
 # gtags(1) generated files
