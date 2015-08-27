@@ -39,6 +39,7 @@
 #include "auth/KeyRing.h"
 #include "messages/MOSDRepScrub.h"
 #include "OpRequest.h"
+#include "OSDReactor.h"
 
 #include <map>
 #include <memory>
