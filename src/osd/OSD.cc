@@ -1500,8 +1500,6 @@ OSD::OSD(CephContext *cct_, ObjectStore *store_,
   osd_compat(get_osd_compat_set()),
   state(STATE_INITIALIZING),
   osd_tp(cct, "OSD::osd_tp", cct->_conf->osd_op_threads, "osd_op_threads"),
-  osd_op_tp(cct, "OSD::osd_op_tp", 
-    cct->_conf->osd_op_num_threads_per_shard * cct->_conf->osd_op_num_shards),
   disk_tp(cct, "OSD::disk_tp", cct->_conf->osd_disk_threads, "osd_disk_threads"),
   command_tp(cct, "OSD::command_tp", 1),
   session_waiting_lock("OSD::session_waiting_lock"),
@@ -1518,11 +1516,8 @@ OSD::OSD(CephContext *cct_, ObjectStore *store_,
                   cct->_conf->osd_num_op_tracker_shard),
   test_ops_hook(NULL),
   op_shardedwq(
-    cct->_conf->osd_op_num_shards,
     this,
-    cct->_conf->osd_op_thread_timeout,
-    cct->_conf->osd_op_thread_suicide_timeout,
-    &osd_op_tp),
+    cct),
   peering_wq(
     this,
     cct->_conf->osd_op_thread_timeout,
@@ -1886,7 +1881,7 @@ int OSD::init()
   update_log_config();
 
   osd_tp.start();
-  osd_op_tp.start();
+  op_shardedwq.start();
   disk_tp.start();
   command_tp.start();
 
@@ -2272,7 +2267,8 @@ int OSD::shutdown()
   }
   
   // finish ops
-  op_shardedwq.drain(); // should already be empty except for lagard PGs
+  dout(10) << "op sharded tp stopped" << dendl;
+  op_shardedwq.stop(); // should already be empty except for lagard PGs
   {
     Mutex::Locker l(finished_lock);
     finished.clear(); // zap waiters (bleh, this is messy)
@@ -2315,10 +2311,6 @@ int OSD::shutdown()
   peering_wq.clear();
   osd_tp.stop();
   dout(10) << "osd tp stopped" << dendl;
-
-  osd_op_tp.drain();
-  osd_op_tp.stop();
-  dout(10) << "op sharded tp stopped" << dendl;
 
   command_tp.drain();
   command_tp.stop();
