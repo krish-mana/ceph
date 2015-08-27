@@ -303,6 +303,9 @@ private:
   }
 
 public:
+  void wait() {
+    assert(0 == "Not implemented");
+  }
   void run_until_blocked_or_ready() {
     while (!blocked() && !ready())
       run_one_step();

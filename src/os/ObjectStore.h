@@ -193,6 +193,19 @@ public:
     }
   };
 
+  /**
+   * Completion Queue Port
+   *
+   * Interface used to notify user of async io completions
+   */
+  struct CompletionQPort {
+    // Notify CompletionQPort that num completions are newly pending
+    virtual void start_operation(unsigned num) = 0;
+    // Notify CompletionQPort that completion has finished
+    virtual void push(void *completion, int result) = 0;
+    virtual ~CompletionQPort() {}
+  };
+
   /*********************************
    *
    * Object Contents and semantics
@@ -1797,7 +1810,50 @@ public:
     bufferlist& bl,
     uint32_t op_flags = 0,
     bool allow_eio = false
-    ) = 0;
+    ) {
+    auto result = aio_read(cid, oid, offset, len, op_flags, allow_eio);
+    result.wait();
+    if (result.is_error()) {
+      return result.get_error();
+    } else {
+      bufferlist val = result.get();
+      bl.swap(val);
+      return val.length();
+    }
+  }
+
+  /**
+   * aio_read -- read a byte range of data from an object
+   *
+   * Note: if reading from an offset past the end of the object, we
+   * return 0 (not, say, -EINVAL).
+   *
+   * @param cid collection for object
+   * @param oid oid of object
+   * @param offset location offset of first byte to be read
+   * @param len number of bytes to be read
+   * @param op_flags is CEPH_OSD_OP_FLAG_*
+   * @param allow_eio if false, assert on -EIO operation failure
+   * @returns Future containing bytes read
+   */
+  virtual Ceph::Future<bufferlist> aio_read(
+    coll_t cid,
+    const ghobject_t &oid,
+    uint64_t offset,
+    size_t len,
+    uint32_t op_flags = 0,
+    bool allow_eio = false
+    ) {
+    bufferlist bl;
+    int r = read(cid, oid, offset, len, bl, op_flags, allow_eio);
+    if (r >= 0) {
+      return std::move(bl);
+    } else {
+      Ceph::Future<bufferlist> ret;
+      ret.set_error(r);
+      return ret;
+    }
+  }
 
   /**
    * fiemap -- get extent map of data of an object
@@ -1826,7 +1882,21 @@ public:
    * @param value place to put output result.
    * @returns 0 on success, negative error code on failure.
    */
-  virtual int getattr(coll_t cid, const ghobject_t& oid, const char *name, bufferptr& value) = 0;
+  virtual int getattr(
+    coll_t cid, const ghobject_t& oid, const char *name, bufferptr& value) {
+    auto fut = aio_getattr(cid, oid, string(name));
+    fut.wait();
+    if (fut.is_error()) {
+      return fut.get_error();
+    } else {
+      bufferlist bl = fut.get();
+      if (bl.length() > 0) {
+	value = buffer::create(bl.length());
+	bl.copy(0, bl.length(), value.c_str());
+      }
+      return bl.length();
+    }
+  }
 
   /**
    * getattr -- get an xattr of an object
@@ -1851,6 +1921,33 @@ public:
     int r = getattr(cid, oid, name.c_str(), bp);
     value.push_back(bp);
     return r;
+  }
+
+  /**
+   * aio_getattr -- get an xattr of an object
+   *
+   * @param cid collection for object
+   * @param oid oid of object
+   * @param name name of attr to read
+   * @returns Future with result
+   */
+  virtual Ceph::Future<bufferlist> aio_getattr(
+    coll_t cid,
+    const ghobject_t& oid,
+    const string& name) {
+    bufferptr bp;
+    // default to sync version
+    int r = getattr(cid, oid, name.c_str(), bp);
+    if (r < 0) {
+      Ceph::Future<bufferlist> ret;
+      ret.set_error(r);
+      return ret;
+    } else {
+      bufferlist value;
+      if (bp.length())
+	value.push_back(bp);
+      return std::move(value);
+    }
   }
 
   /**
@@ -1880,6 +1977,29 @@ public:
       aset[i->first].append(i->second);
     }
     return r;
+  }
+
+  /**
+   * getattrs -- get all of the xattrs of an object
+   *
+   * @param cid collection for object
+   * @param oid oid of object
+   * @param aset place to put output result.
+   * @returns Future with resulting map
+   */
+  virtual Ceph::Future<map<string, bufferlist>> aio_getattrs(
+    coll_t cid,
+    const ghobject_t& oid) {
+    map<string, bufferlist> _aset;
+    // default to sync version
+    int r = getattrs(cid, oid, _aset);
+    if (r < 0) {
+      Ceph::Future<map<string, bufferlist>> ret;
+      ret.set_error(r);
+      return ret;
+    } else {
+      return std::move(_aset);
+    }
   }
 
 
