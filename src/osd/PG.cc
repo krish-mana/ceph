@@ -234,7 +234,7 @@ PG::~PG()
 #endif
 }
 
-void PG::lock_suspend_timeout(ThreadPool::TPHandle &handle)
+void PG::lock_suspend_timeout(HBHandle &handle)
 {
   handle.suspend_tp_timeout();
   lock();
@@ -479,7 +479,7 @@ bool PG::MissingLoc::add_source_info(
   const pg_info_t &oinfo,
   const pg_missing_t &omissing,
   bool sort_bitwise,
-  ThreadPool::TPHandle* handle)
+  HBHandle* handle)
 {
   bool found_missing = false;
   // found items?
@@ -3446,7 +3446,7 @@ void PG::scrub_unreserve_replicas()
 
 void PG::_scan_rollback_obs(
   const vector<ghobject_t> &rollback_obs,
-  ThreadPool::TPHandle &handle)
+  HBHandle &handle)
 {
   ObjectStore::Transaction *t = NULL;
   eversion_t trimmed_to = last_rollback_info_trimmed_to_applied;
@@ -3550,7 +3550,7 @@ void PG::_scan_snaps(ScrubMap &smap)
 int PG::build_scrub_map_chunk(
   ScrubMap &map,
   hobject_t start, hobject_t end, bool deep, uint32_t seed,
-  ThreadPool::TPHandle &handle)
+  HBHandle &handle)
 {
   dout(10) << __func__ << " [" << start << "," << end << ") "
 	   << " seed " << seed << dendl;
@@ -3623,7 +3623,7 @@ void PG::repair_object(
  */
 void PG::replica_scrub(
   OpRequestRef op,
-  ThreadPool::TPHandle &handle)
+  HBHandle &handle)
 {
   MOSDRepScrub *msg = static_cast<MOSDRepScrub *>(op->get_req());
   assert(!scrubber.active_rep_scrub);
@@ -3682,7 +3682,7 @@ void PG::replica_scrub(
  * scrub will be chunky if all OSDs in PG support chunky scrub
  * scrub will fail if OSDs are too old.
  */
-void PG::scrub(epoch_t queued, ThreadPool::TPHandle &handle)
+void PG::scrub(epoch_t queued, HBHandle &handle)
 {
   if (g_conf->osd_scrub_sleep > 0 &&
       (scrubber.state == PG::Scrubber::NEW_CHUNK ||
@@ -3799,7 +3799,7 @@ void PG::scrub(epoch_t queued, ThreadPool::TPHandle &handle)
  * scrubber.state encodes the current state of the scrub (refer to state diagram
  * for details).
  */
-void PG::chunky_scrub(ThreadPool::TPHandle &handle)
+void PG::chunky_scrub(HBHandle &handle)
 {
   // check for map changes
   if (scrubber.is_chunky_scrub_active()) {
