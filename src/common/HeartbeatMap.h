@@ -88,5 +88,22 @@ class HeartbeatMap {
   bool _check(const heartbeat_handle_d *h, const char *who, time_t now);
 };
 
+class HBHandle {
+  friend class ThreadPool;
+  HeartbeatMap *hbm;
+  heartbeat_handle_d *hb;
+  time_t grace;
+  time_t suicide_grace;
+public:
+  HBHandle(
+    HeartbeatMap *hbm,
+    heartbeat_handle_d *hb,
+    time_t grace,
+    time_t suicide_grace)
+    : hbm(hbm), hb(hb), grace(grace), suicide_grace(suicide_grace) {}
+  void reset_tp_timeout();
+  void suspend_tp_timeout();
+};
+
 }
 #endif

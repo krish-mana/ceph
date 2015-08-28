@@ -781,7 +781,7 @@ Date:   Tue Aug 26 06:42:12 2014 -0700
     os/MemStore.cc: In member function 'void MemStore::_do_transaction(ObjectStore::Transaction&)':
     os/MemStore.cc:956:18: warning: unused variable 'expected_object_size' [-Wunused-variable]
     os/MemStore.cc:957:18: warning: unused variable 'expected_write_size' [-Wunused-variable]
-    os/KeyValueStore.cc: In member function 'unsigned int KeyValueStore::_do_transaction(ObjectStore::Transaction&, KeyValueStore::BufferTransaction&, ThreadPool::TPHandle*)':
+    os/KeyValueStore.cc: In member function 'unsigned int KeyValueStore::_do_transaction(ObjectStore::Transaction&, KeyValueStore::BufferTransaction&, HBHandle*)':
     os/KeyValueStore.cc:1426:18: warning: unused variable 'expected_object_size' [-Wunused-variable]
     os/KeyValueStore.cc:1427:18: warning: unused variable 'expected_write_size' [-Wunused-variable]
 
