@@ -1809,7 +1809,7 @@ void FileStore::queue_op(OpSequencer *osr, Op *o)
   op_wq.queue(osr);
 }
 
-void FileStore::op_queue_reserve_throttle(Op *o, ThreadPool::TPHandle *handle)
+void FileStore::op_queue_reserve_throttle(Op *o, HBHandle *handle)
 {
   // Do not call while holding the journal lock!
   uint64_t max_ops = m_filestore_queue_max_ops;
@@ -1852,7 +1852,7 @@ void FileStore::op_queue_release_throttle(Op *o)
   logger->set(l_os_oq_bytes, throttle_bytes.get_current());
 }
 
-void FileStore::_do_op(OpSequencer *osr, ThreadPool::TPHandle &handle)
+void FileStore::_do_op(OpSequencer *osr, HBHandle &handle)
 {
   wbthrottle.throttle();
   // inject a stall?
@@ -1919,7 +1919,7 @@ struct C_JournaledAhead : public Context {
 
 int FileStore::queue_transactions(Sequencer *posr, list<Transaction*> &tls,
 				  TrackedOpRef osd_op,
-				  ThreadPool::TPHandle *handle)
+				  HBHandle *handle)
 {
   Context *onreadable;
   Context *ondisk;
@@ -2064,7 +2064,7 @@ void FileStore::_journaled_ahead(OpSequencer *osr, Op *o, Context *ondisk)
 int FileStore::_do_transactions(
   list<Transaction*> &tls,
   uint64_t op_seq,
-  ThreadPool::TPHandle *handle)
+  HBHandle *handle)
 {
   int r = 0;
   int trans_num = 0;
@@ -2345,7 +2345,7 @@ int FileStore::_check_replay_guard(int fd, const SequencerPosition& spos)
 
 unsigned FileStore::_do_transaction(
   Transaction& t, uint64_t op_seq, int trans_num,
-  ThreadPool::TPHandle *handle)
+  HBHandle *handle)
 {
   dout(10) << "_do_transaction on " << &t << dendl;
 

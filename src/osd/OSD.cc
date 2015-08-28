@@ -4203,7 +4203,7 @@ bool remove_dir(
   ObjectStore::Sequencer *osr,
   coll_t coll, DeletingStateRef dstate,
   bool *finished,
-  ThreadPool::TPHandle &handle)
+  HBHandle &handle)
 {
   vector<ghobject_t> olist;
   int64_t num = 0;
@@ -4260,7 +4260,7 @@ bool remove_dir(
 
 void OSD::RemoveWQ::_process(
   pair<PGRef, DeletingStateRef> item,
-  ThreadPool::TPHandle &handle)
+  HBHandle &handle)
 {
   PGRef pg(item.first);
   SnapMapper &mapper = pg->snap_mapper;
@@ -6601,7 +6601,7 @@ void OSD::check_osdmap_features(ObjectStore *fs)
 
 bool OSD::advance_pg(
   epoch_t osd_epoch, PG *pg,
-  ThreadPool::TPHandle &handle,
+  HBHandle &handle,
   PG::RecoveryCtx *rctx,
   set<boost::intrusive_ptr<PG> > *new_pgs)
 {
@@ -7212,7 +7212,7 @@ PG::RecoveryCtx OSD::create_context()
 }
 
 void OSD::dispatch_context_transaction(PG::RecoveryCtx &ctx, PG *pg,
-                                       ThreadPool::TPHandle *handle)
+                                       HBHandle *handle)
 {
   if (!ctx.transaction->empty()) {
     ctx.on_applied->add(new ObjectStore::C_DeleteTransaction(ctx.transaction));
@@ -7228,7 +7228,7 @@ void OSD::dispatch_context_transaction(PG::RecoveryCtx &ctx, PG *pg,
 }
 
 void OSD::dispatch_context(PG::RecoveryCtx &ctx, PG *pg, OSDMapRef curmap,
-                           ThreadPool::TPHandle *handle)
+                           HBHandle *handle)
 {
   if (service.get_osdmap()->is_up(whoami) &&
       is_active()) {
@@ -7909,7 +7909,7 @@ bool OSDService::_recover_now(uint64_t *available_pushes)
 
 void OSD::do_recovery(
   PG *pg, epoch_t queued, uint64_t reserved_pushes,
-  ThreadPool::TPHandle &handle)
+  HBHandle &handle)
 {
   uint64_t started = 0;
   if (g_conf->osd_recovery_sleep > 0) {
@@ -8015,7 +8015,7 @@ void OSDService::finish_recovery_op(PG *pg, const hobject_t& soid, bool dequeue)
 // =========================================================
 // OPS
 
-class C_SendMap : public GenContext<ThreadPool::TPHandle&> {
+class C_SendMap : public GenContext<HBHandle&> {
   OSD *osd;
   entity_name_t name;
   ConnectionRef con;
@@ -8028,7 +8028,7 @@ public:
     osd(osd), name(n), con(con), osdmap(osdmap), map_epoch(map_epoch) {
   }
 
-  void finish(ThreadPool::TPHandle& tp) {
+  void finish(HBHandle& tp) {
     OSD::Session *session = static_cast<OSD::Session *>(
         con->get_priv());
     if (session) {
@@ -8253,7 +8253,8 @@ void OSD::ShardedOpWQ::_process(uint32_t thread_index, heartbeat_handle_d *hb ) 
   pair<PGRef, PGQueueable> item = sdata->pqueue.dequeue();
   sdata->pg_for_processing[&*(item.first)].push_back(item.second);
   sdata->sdata_op_ordering_lock.Unlock();
-  ThreadPool::TPHandle tp_handle(osd->cct, hb, timeout_interval, 
+  HBHandle tp_handle(
+    osd->cct->get_heartbeat_map(), hb, timeout_interval, 
     suicide_interval);
 
   (item.first)->lock_suspend_timeout(tp_handle);
@@ -8371,7 +8372,7 @@ void OSD::ShardedOpWQ::_enqueue_front(pair<PGRef, PGQueueable> item) {
  */
 void OSD::dequeue_op(
   PGRef pg, OpRequestRef op,
-  ThreadPool::TPHandle &handle)
+  HBHandle &handle)
 {
   utime_t now = ceph_clock_now(cct);
   op->set_dequeued_time(now);
@@ -8448,7 +8449,7 @@ struct C_CompleteSplits : public Context {
 
 void OSD::process_peering_events(
   const list<PG*> &pgs,
-  ThreadPool::TPHandle &handle
+  HBHandle &handle
   )
 {
   bool need_up_thru = false;

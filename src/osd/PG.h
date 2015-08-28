@@ -254,7 +254,7 @@ public:
   bool deleting;  // true while in removing or OSD is shutting down
 
 
-  void lock_suspend_timeout(ThreadPool::TPHandle &handle);
+  void lock_suspend_timeout(HBHandle &handle);
   void lock(bool no_lockdep = false) const;
   void unlock() const {
     //generic_dout(0) << this << " " << info.pgid << " unlock" << dendl;
@@ -401,7 +401,7 @@ public:
       const pg_info_t &oinfo,      ///< [in] info
       const pg_missing_t &omissing, ///< [in] (optional) missing
       bool sort_bitwise,            ///< [in] local sort bitwise (vs nibblewise)
-      ThreadPool::TPHandle* handle  ///< [in] ThreadPool handle
+      HBHandle* handle  ///< [in] ThreadPool handle
       ); ///< @return whether a new object location was discovered
 
     /// Adds recovery sources in batch
@@ -535,7 +535,7 @@ public:
     C_Contexts *on_applied;
     C_Contexts *on_safe;
     ObjectStore::Transaction *transaction;
-    ThreadPool::TPHandle* handle;
+    HBHandle* handle;
     RecoveryCtx(map<int, map<spg_t, pg_query_t> > *query_map,
 		map<int,
 		    vector<pair<pg_notify_t, pg_interval_map_t> > > *info_map,
@@ -1038,7 +1038,7 @@ public:
    */
   virtual bool start_recovery_ops(
     uint64_t max,
-    ThreadPool::TPHandle &handle,
+    HBHandle &handle,
     uint64_t *ops_begun) = 0;
 
   void purge_strays();
@@ -1222,8 +1222,8 @@ public:
     const hobject_t& soid, list<pair<ScrubMap::object, pg_shard_t> > *ok_peers,
     pg_shard_t bad_peer);
 
-  void scrub(epoch_t queued, ThreadPool::TPHandle &handle);
-  void chunky_scrub(ThreadPool::TPHandle &handle);
+  void scrub(epoch_t queued, HBHandle &handle);
+  void chunky_scrub(HBHandle &handle);
   void scrub_compare_maps();
   /**
    * return true if any inconsistency/missing is repaired, false otherwise
@@ -1234,14 +1234,14 @@ public:
   void _scan_snaps(ScrubMap &map);
   void _scan_rollback_obs(
     const vector<ghobject_t> &rollback_obs,
-    ThreadPool::TPHandle &handle);
+    HBHandle &handle);
   void _request_scrub_map(pg_shard_t replica, eversion_t version,
                           hobject_t start, hobject_t end, bool deep,
 			  uint32_t seed);
   int build_scrub_map_chunk(
     ScrubMap &map,
     hobject_t start, hobject_t end, bool deep, uint32_t seed,
-    ThreadPool::TPHandle &handle);
+    HBHandle &handle);
   /**
    * returns true if [begin, end) is good to scrub at this time
    * a false return value obliges the implementer to requeue scrub when the
@@ -1275,7 +1275,7 @@ public:
 
   void replica_scrub(
     OpRequestRef op,
-    ThreadPool::TPHandle &handle);
+    HBHandle &handle);
   void sub_op_scrub_map(OpRequestRef op);
   void sub_op_scrub_reserve(OpRequestRef op);
   void sub_op_scrub_reserve_reply(OpRequestRef op);
@@ -2315,7 +2315,7 @@ public:
   // abstract bits
   virtual void do_request(
     OpRequestRef& op,
-    ThreadPool::TPHandle &handle
+    HBHandle &handle
   ) = 0;
 
   virtual void do_op(OpRequestRef& op) = 0;
@@ -2323,7 +2323,7 @@ public:
   virtual void do_sub_op_reply(OpRequestRef op) = 0;
   virtual void do_scan(
     OpRequestRef op,
-    ThreadPool::TPHandle &handle
+    HBHandle &handle
   ) = 0;
   virtual void do_backfill(OpRequestRef op) = 0;
   virtual void snap_trimmer(epoch_t epoch_queued) = 0;

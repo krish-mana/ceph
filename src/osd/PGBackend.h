@@ -97,8 +97,8 @@
       * uses to call into the PGBackend
       */
      virtual Context *bless_context(Context *c) = 0;
-     virtual GenContext<ThreadPool::TPHandle&> *bless_gencontext(
-       GenContext<ThreadPool::TPHandle&> *c) = 0;
+     virtual GenContext<HBHandle&> *bless_gencontext(
+       GenContext<HBHandle&> *c) = 0;
 
      virtual void send_message(int to_osd, Message *m) = 0;
      virtual void queue_transaction(
@@ -191,7 +191,7 @@
        const pg_stat_t &stat) = 0;
 
      virtual void schedule_recovery_work(
-       GenContext<ThreadPool::TPHandle&> *c) = 0;
+       GenContext<HBHandle&> *c) = 0;
 
      virtual pg_shard_t whoami_shard() const = 0;
      int whoami() const {
@@ -551,7 +551,7 @@
    virtual bool auto_repair_supported() const { return false; }
    void be_scan_list(
      ScrubMap &map, const vector<hobject_t> &ls, bool deep, uint32_t seed,
-     ThreadPool::TPHandle &handle);
+     HBHandle &handle);
    enum scrub_error_type be_compare_scrub_objects(
      pg_shard_t auth_shard,
      const ScrubMap::object &auth,
@@ -582,7 +582,7 @@
      const hobject_t &poid,
      uint32_t seed,
      ScrubMap::object &o,
-     ThreadPool::TPHandle &handle) { assert(0); }
+     HBHandle &handle) { assert(0); }
 
    static PGBackend *build_pg_backend(
      const pg_pool_t &pool,
@@ -608,10 +608,10 @@ struct PG_SendMessageOnConn: public Context {
 
 struct PG_RecoveryQueueAsync : public Context {
   PGBackend::Listener *pg;
-  GenContext<ThreadPool::TPHandle&> *c;
+  GenContext<HBHandle&> *c;
   PG_RecoveryQueueAsync(
     PGBackend::Listener *pg,
-    GenContext<ThreadPool::TPHandle&> *c) : pg(pg), c(c) {}
+    GenContext<HBHandle&> *c) : pg(pg), c(c) {}
   void finish(int) {
     pg->schedule_recovery_work(c);
   }

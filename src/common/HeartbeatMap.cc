@@ -29,6 +29,17 @@
 
 namespace ceph {
 
+void HBHandle::suspend_tp_timeout()
+{
+  hbm->clear_timeout(hb);
+}
+
+void HBHandle::reset_tp_timeout()
+{
+  hbm->reset_timeout(
+    hb, grace, suicide_grace);
+}
+
 HeartbeatMap::HeartbeatMap(CephContext *cct)
   : m_cct(cct),
     m_rwlock("HeartbeatMap::m_rwlock"),
