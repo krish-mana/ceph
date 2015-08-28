@@ -341,7 +341,7 @@ void ReplicatedPG::begin_peer_recover(
 }
 
 void ReplicatedPG::schedule_recovery_work(
-  GenContext<ThreadPool::TPHandle&> *c)
+  GenContext<HBHandle&> *c)
 {
   osd->recovery_gen_wq.queue(c);
 }
@@ -1362,7 +1362,7 @@ void ReplicatedPG::get_src_oloc(const object_t& oid, const object_locator_t& olo
 
 void ReplicatedPG::do_request(
   OpRequestRef& op,
-  ThreadPool::TPHandle &handle)
+  HBHandle &handle)
 {
   assert(!op_must_wait_for_map(get_osdmap()->get_epoch(), op));
   if (can_discard_request(op)) {
@@ -3073,7 +3073,7 @@ void ReplicatedPG::do_sub_op_reply(OpRequestRef op)
 
 void ReplicatedPG::do_scan(
   OpRequestRef op,
-  ThreadPool::TPHandle &handle)
+  HBHandle &handle)
 {
   MOSDPGScan *m = static_cast<MOSDPGScan*>(op->get_req());
   assert(m->get_type() == MSG_OSD_PG_SCAN);
@@ -9988,7 +9988,7 @@ void PG::MissingLoc::check_recovery_sources(const OSDMapRef osdmap)
 
 bool ReplicatedPG::start_recovery_ops(
   uint64_t max,
-  ThreadPool::TPHandle &handle,
+  HBHandle &handle,
   uint64_t *ops_started)
 {
   uint64_t& started = *ops_started;
@@ -10134,7 +10134,7 @@ bool ReplicatedPG::start_recovery_ops(
  * do one recovery op.
  * return true if done, false if nothing left to do.
  */
-uint64_t ReplicatedPG::recover_primary(uint64_t max, ThreadPool::TPHandle &handle)
+uint64_t ReplicatedPG::recover_primary(uint64_t max, HBHandle &handle)
 {
   assert(is_primary());
 
@@ -10350,7 +10350,7 @@ int ReplicatedPG::prep_object_replica_pushes(
   return 1;
 }
 
-uint64_t ReplicatedPG::recover_replicas(uint64_t max, ThreadPool::TPHandle &handle)
+uint64_t ReplicatedPG::recover_replicas(uint64_t max, HBHandle &handle)
 {
   dout(10) << __func__ << "(" << max << ")" << dendl;
   uint64_t started = 0;
@@ -10494,7 +10494,7 @@ bool ReplicatedPG::all_peer_done() const
  */
 uint64_t ReplicatedPG::recover_backfill(
   uint64_t max,
-  ThreadPool::TPHandle &handle, bool *work_started)
+  HBHandle &handle, bool *work_started)
 {
   dout(10) << "recover_backfill (" << max << ")"
            << " bft=" << backfill_targets
@@ -10891,7 +10891,7 @@ void ReplicatedPG::prep_backfill_object_push(
 
 void ReplicatedPG::update_range(
   BackfillInterval *bi,
-  ThreadPool::TPHandle &handle)
+  HBHandle &handle)
 {
   int local_min = cct->_conf->osd_backfill_scan_min;
   int local_max = cct->_conf->osd_backfill_scan_max;
@@ -10964,7 +10964,7 @@ void ReplicatedPG::update_range(
 
 void ReplicatedPG::scan_range(
   int min, int max, BackfillInterval *bi,
-  ThreadPool::TPHandle &handle)
+  HBHandle &handle)
 {
   assert(is_locked());
   dout(10) << "scan_range from " << bi->begin << dendl;

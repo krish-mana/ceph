@@ -1883,7 +1883,7 @@ private:
   void enqueue_op(PG *pg, OpRequestRef& op);
   void dequeue_op(
     PGRef pg, OpRequestRef op,
-    ThreadPool::TPHandle &handle);
+    HBHandle &handle);
 
   // -- peering queue --
   struct PeeringWQ : public ThreadPool::BatchWorkQueue<PG> {
@@ -1917,7 +1917,7 @@ private:
     void _dequeue(list<PG*> *out);
     void _process(
       const list<PG *> &pgs,
-      ThreadPool::TPHandle &handle) {
+      HBHandle &handle) {
       osd->process_peering_events(pgs, handle);
       for (list<PG *>::const_iterator i = pgs.begin();
 	   i != pgs.end();
@@ -1940,7 +1940,7 @@ private:
 
   void process_peering_events(
     const list<PG*> &pg,
-    ThreadPool::TPHandle &handle);
+    HBHandle &handle);
 
   friend class PG;
   friend class ReplicatedPG;
@@ -1970,7 +1970,7 @@ private:
 
   bool advance_pg(
     epoch_t advance_to, PG *pg,
-    ThreadPool::TPHandle &handle,
+    HBHandle &handle,
     PG::RecoveryCtx *rctx,
     set<boost::intrusive_ptr<PG> > *split_pgs
   );
@@ -2191,9 +2191,9 @@ protected:
   // -- generic pg peering --
   PG::RecoveryCtx create_context();
   void dispatch_context(PG::RecoveryCtx &ctx, PG *pg, OSDMapRef curmap,
-                        ThreadPool::TPHandle *handle = NULL);
+                        HBHandle *handle = NULL);
   void dispatch_context_transaction(PG::RecoveryCtx &ctx, PG *pg,
-                                    ThreadPool::TPHandle *handle = NULL);
+                                    HBHandle *handle = NULL);
   void do_notifies(map<int,
 		       vector<pair<pg_notify_t, pg_interval_map_t> > >&
 		       notify_list,
@@ -2279,7 +2279,7 @@ protected:
       osd->osd_lock.Unlock();
       delete c;
     }
-    void _process(Command *c, ThreadPool::TPHandle &tp) {
+    void _process(Command *c, HBHandle &tp) {
       _process(c);
     }
     void _clear() {
@@ -2297,7 +2297,7 @@ protected:
 
   // -- pg recovery --
   void do_recovery(PG *pg, epoch_t epoch_queued, uint64_t pushes_reserved,
-		   ThreadPool::TPHandle &handle);
+		   HBHandle &handle);
 
   Mutex replay_queue_lock;
   list< pair<spg_t, utime_t > > replay_queue;
@@ -2339,7 +2339,7 @@ protected:
       return item;
     }
     using ThreadPool::WorkQueueVal<pair<PGRef, DeletingStateRef> >::_process;
-    void _process(pair<PGRef, DeletingStateRef>, ThreadPool::TPHandle &);
+    void _process(pair<PGRef, DeletingStateRef>, HBHandle &);
     void _clear() {
       remove_queue.clear();
     }

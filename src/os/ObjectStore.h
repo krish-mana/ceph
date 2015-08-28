@@ -1733,7 +1733,7 @@ public:
   unsigned apply_transactions(Sequencer *osr, list<Transaction*>& tls, Context *ondisk=0);
 
   int queue_transaction_and_cleanup(Sequencer *osr, Transaction* t,
-				    ThreadPool::TPHandle *handle = NULL) {
+				    HBHandle *handle = NULL) {
     list<Transaction *> tls;
     tls.push_back(t);
     return queue_transactions(osr, tls, new C_DeleteTransaction(t),
@@ -1743,7 +1743,7 @@ public:
   int queue_transaction(Sequencer *osr, Transaction *t, Context *onreadable, Context *ondisk=0,
 				Context *onreadable_sync=0,
 				TrackedOpRef op = TrackedOpRef(),
-				ThreadPool::TPHandle *handle = NULL) {
+				HBHandle *handle = NULL) {
     list<Transaction*> tls;
     tls.push_back(t);
     return queue_transactions(osr, tls, onreadable, ondisk, onreadable_sync,
@@ -1754,7 +1754,7 @@ public:
 			 Context *onreadable, Context *ondisk=0,
 			 Context *onreadable_sync=0,
 			 TrackedOpRef op = TrackedOpRef(),
-			 ThreadPool::TPHandle *handle = NULL) {
+			 HBHandle *handle = NULL) {
     assert(!tls.empty());
     tls.back()->register_on_applied(onreadable);
     tls.back()->register_on_commit(ondisk);
@@ -1765,7 +1765,7 @@ public:
   virtual int queue_transactions(
     Sequencer *osr, list<Transaction*>& tls,
     TrackedOpRef op = TrackedOpRef(),
-    ThreadPool::TPHandle *handle = NULL) = 0;
+    HBHandle *handle = NULL) = 0;
 
 
   int queue_transactions(

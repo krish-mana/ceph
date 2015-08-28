@@ -262,11 +262,11 @@ int ReplicatedBackend::objects_read_sync(
   return store->read(coll, ghobject_t(hoid), off, len, *bl, op_flags);
 }
 
-struct AsyncReadCallback : public GenContext<ThreadPool::TPHandle&> {
+struct AsyncReadCallback : public GenContext<HBHandle&> {
   int r;
   Context *c;
   AsyncReadCallback(int r, Context *c) : r(r), c(c) {}
-  void finish(ThreadPool::TPHandle&) {
+  void finish(HBHandle&) {
     c->complete(r);
     c = NULL;
   }
@@ -748,7 +748,7 @@ void ReplicatedBackend::be_deep_scrub(
   const hobject_t &poid,
   uint32_t seed,
   ScrubMap::object &o,
-  ThreadPool::TPHandle &handle)
+  HBHandle &handle)
 {
   dout(10) << __func__ << " " << poid << " seed " << seed << dendl;
   bufferhash h(seed), oh(seed);
@@ -869,14 +869,14 @@ void ReplicatedBackend::_do_push(OpRequestRef op)
   get_parent()->queue_transaction(t);
 }
 
-struct C_ReplicatedBackend_OnPullComplete : GenContext<ThreadPool::TPHandle&> {
+struct C_ReplicatedBackend_OnPullComplete : GenContext<HBHandle&> {
   ReplicatedBackend *bc;
   list<hobject_t> to_continue;
   int priority;
   C_ReplicatedBackend_OnPullComplete(ReplicatedBackend *bc, int priority)
     : bc(bc), priority(priority) {}
 
-  void finish(ThreadPool::TPHandle &handle) {
+  void finish(HBHandle &handle) {
     ReplicatedBackend::RPGHandle *h = bc->_open_recovery_op();
     for (list<hobject_t>::iterator i =
 	   to_continue.begin();

@@ -2748,7 +2748,7 @@ int NewStore::queue_transactions(
     Sequencer *posr,
     list<Transaction*>& tls,
     TrackedOpRef op,
-    ThreadPool::TPHandle *handle)
+    HBHandle *handle)
 {
   Context *onreadable;
   Context *ondisk;

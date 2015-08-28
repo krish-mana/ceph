@@ -85,7 +85,7 @@ class AsyncCompressor {
       }
       return item;
     }
-    void _process(Job *item, ThreadPool::TPHandle &handle) {
+    void _process(Job *item, HBHandle &handle) {
       assert(item->status.read() == WORKING);
       bufferlist out;
       int r;

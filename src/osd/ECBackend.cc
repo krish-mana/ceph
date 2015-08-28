@@ -1165,11 +1165,11 @@ void ECBackend::complete_read_op(ReadOp &rop, RecoveryMessages *m)
   tid_to_read_map.erase(rop.tid);
 }
 
-struct FinishReadOp : public GenContext<ThreadPool::TPHandle&>  {
+struct FinishReadOp : public GenContext<HBHandle&>  {
   ECBackend *ec;
   ceph_tid_t tid;
   FinishReadOp(ECBackend *ec, ceph_tid_t tid) : ec(ec), tid(tid) {}
-  void finish(ThreadPool::TPHandle &handle) {
+  void finish(HBHandle &handle) {
     assert(ec->tid_to_read_map.count(tid));
     int priority = ec->tid_to_read_map[tid].priority;
     RecoveryMessages rm;
@@ -2052,7 +2052,7 @@ void ECBackend::be_deep_scrub(
   const hobject_t &poid,
   uint32_t seed,
   ScrubMap::object &o,
-  ThreadPool::TPHandle &handle) {
+  HBHandle &handle) {
   bufferhash h(-1); // we always used -1
   int r;
   uint64_t stride = cct->_conf->osd_deep_scrub_stride;

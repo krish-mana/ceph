@@ -348,7 +348,7 @@ public:
       fd_queue.pop_front();
       return i;
     }
-    void _process(fsync_item *i, ThreadPool::TPHandle &handle) {
+    void _process(fsync_item *i, HBHandle &handle) {
       store->_txc_process_fsync(i);
     }
     void _clear() {
@@ -418,7 +418,7 @@ public:
       i->osr->wal_apply_lock.Lock();
       return i;
     }
-    void _process(TransContext *i, ThreadPool::TPHandle &handle) {
+    void _process(TransContext *i, HBHandle &handle) {
       store->_wal_apply(i);
       i->osr->wal_apply_lock.Unlock();
     }
@@ -710,7 +710,7 @@ public:
     Sequencer *osr,
     list<Transaction*>& tls,
     TrackedOpRef op = TrackedOpRef(),
-    ThreadPool::TPHandle *handle = NULL);
+    HBHandle *handle = NULL);
 
 private:
   // --------------------------------------------------------
@@ -718,7 +718,7 @@ private:
 
   int _do_transaction(Transaction *t,
 		      TransContext *txc,
-		      ThreadPool::TPHandle *handle);
+		      HBHandle *handle);
 
   int _write(TransContext *txc,
 	     CollectionRef& c,

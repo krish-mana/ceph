@@ -460,7 +460,7 @@ class KeyValueStore : public ObjectStore,
       return osr;
     }
     using ThreadPool::WorkQueue<OpSequencer>::_process;
-    void _process(OpSequencer *osr, ThreadPool::TPHandle &handle) {
+    void _process(OpSequencer *osr, HBHandle &handle) {
       store->_do_op(osr, handle);
     }
     void _process_finish(OpSequencer *osr) {
@@ -474,8 +474,8 @@ class KeyValueStore : public ObjectStore,
   Op *build_op(list<Transaction*>& tls, Context *ondisk, Context *onreadable,
                Context *onreadable_sync, TrackedOpRef osd_op);
   void queue_op(OpSequencer *osr, Op *o);
-  void op_queue_reserve_throttle(Op *o, ThreadPool::TPHandle *handle = NULL);
-  void _do_op(OpSequencer *osr, ThreadPool::TPHandle &handle);
+  void op_queue_reserve_throttle(Op *o, HBHandle *handle = NULL);
+  void _do_op(OpSequencer *osr, HBHandle &handle);
   void op_queue_release_throttle(Op *o);
   void _finish_op(OpSequencer *osr);
 
@@ -540,17 +540,17 @@ class KeyValueStore : public ObjectStore,
 
   int _do_transactions(
     list<Transaction*> &tls, uint64_t op_seq,
-    ThreadPool::TPHandle *handle);
+    HBHandle *handle);
   int do_transactions(list<Transaction*> &tls, uint64_t op_seq) {
     return _do_transactions(tls, op_seq, 0);
   }
   unsigned _do_transaction(Transaction& transaction,
                            BufferTransaction &bt,
-                           ThreadPool::TPHandle *handle);
+                           HBHandle *handle);
 
   int queue_transactions(Sequencer *osr, list<Transaction*>& tls,
                          TrackedOpRef op = TrackedOpRef(),
-                         ThreadPool::TPHandle *handle = NULL);
+                         HBHandle *handle = NULL);
 
 
   // ------------------

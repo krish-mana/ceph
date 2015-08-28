@@ -37,23 +37,7 @@ class ThreadPool : public md_config_obs_t {
   Cond _wait_cond;
   int ioprio_class, ioprio_priority;
 
-public:
-  class TPHandle {
-    friend class ThreadPool;
-    CephContext *cct;
-    heartbeat_handle_d *hb;
-    time_t grace;
-    time_t suicide_grace;
-  public:
-    TPHandle(
-      CephContext *cct,
-      heartbeat_handle_d *hb,
-      time_t grace,
-      time_t suicide_grace)
-      : cct(cct), hb(hb), grace(grace), suicide_grace(suicide_grace) {}
-    void reset_tp_timeout();
-    void suspend_tp_timeout();
-  };
+
 private:
 
   /// Basic interface to a work queue used by the worker threads.
@@ -73,7 +57,7 @@ private:
     /** @brief Process the work item.
      * This function will be called several times in parallel
      * and must therefore be thread-safe. */
-    virtual void _void_process(void *item, TPHandle &handle) = 0;
+    virtual void _void_process(void *item, HBHandle &handle) = 0;
     /** @brief Synchronously finish processing a work item.
      * This function is called after _void_process with the global thread pool lock held,
      * so at most one copy will execute simultaneously for a given thread pool.
@@ -116,7 +100,7 @@ public:
 	return 0;
       }
     }
-    void _void_process(void *p, TPHandle &handle) {
+    void _void_process(void *p, HBHandle &handle) {
       _process(*((list<T*>*)p), handle);
     }
     void _void_process_finish(void *p) {
@@ -126,7 +110,7 @@ public:
 
   protected:
     virtual void _process(const list<T*> &) { assert(0); }
-    virtual void _process(const list<T*> &items, TPHandle &handle) {
+    virtual void _process(const list<T*> &items, HBHandle &handle) {
       _process(items);
     }
 
@@ -202,7 +186,7 @@ public:
       }
       return ((void*)1); // Not used
     }
-    void _void_process(void *, TPHandle &handle) {
+    void _void_process(void *, HBHandle &handle) {
       _lock.Lock();
       assert(!to_process.empty());
       U u = to_process.front();
@@ -257,7 +241,7 @@ public:
       pool->unlock();
     }
     virtual void _process(U) { assert(0); }
-    virtual void _process(U u, TPHandle &) {
+    virtual void _process(U u, HBHandle &) {
       _process(u);
     }
   };
@@ -283,7 +267,7 @@ public:
     void *_void_dequeue() {
       return (void *)_dequeue();
     }
-    void _void_process(void *p, TPHandle &handle) {
+    void _void_process(void *p, HBHandle &handle) {
       _process(static_cast<T *>(p), handle);
     }
     void _void_process_finish(void *p) {
@@ -293,7 +277,7 @@ public:
   protected:
     /// Process a work item. Called from the worker threads.
     virtual void _process(T *t) { assert(0); }
-    virtual void _process(T *t, TPHandle &) {
+    virtual void _process(T *t, HBHandle &) {
       _process(t);
     }
 
@@ -401,7 +385,7 @@ public:
       m_items.pop_front();
       return item;
     }
-    virtual void _void_process(void *item, ThreadPool::TPHandle &handle) {
+    virtual void _void_process(void *item, HBHandle &handle) {
       process(reinterpret_cast<T *>(item));
     }
     virtual void _void_process_finish(void *item) {
@@ -526,39 +510,39 @@ public:
 };
 
 class GenContextWQ :
-  public ThreadPool::WorkQueueVal<GenContext<ThreadPool::TPHandle&>*> {
-  list<GenContext<ThreadPool::TPHandle&>*> _queue;
+  public ThreadPool::WorkQueueVal<GenContext<HBHandle&>*> {
+  list<GenContext<HBHandle&>*> _queue;
 public:
   GenContextWQ(const string &name, time_t ti, ThreadPool *tp)
     : ThreadPool::WorkQueueVal<
-      GenContext<ThreadPool::TPHandle&>*>(name, ti, ti*10, tp) {}
+      GenContext<HBHandle&>*>(name, ti, ti*10, tp) {}
   
-  void _enqueue(GenContext<ThreadPool::TPHandle&> *c) {
+  void _enqueue(GenContext<HBHandle&> *c) {
     _queue.push_back(c);
   }
-  void _enqueue_front(GenContext<ThreadPool::TPHandle&> *c) {
+  void _enqueue_front(GenContext<HBHandle&> *c) {
     _queue.push_front(c);
   }
   bool _empty() {
     return _queue.empty();
   }
-  GenContext<ThreadPool::TPHandle&> *_dequeue() {
+  GenContext<HBHandle&> *_dequeue() {
     assert(!_queue.empty());
-    GenContext<ThreadPool::TPHandle&> *c = _queue.front();
+    GenContext<HBHandle&> *c = _queue.front();
     _queue.pop_front();
     return c;
   }
-  using ThreadPool::WorkQueueVal<GenContext<ThreadPool::TPHandle&>*>::_process;
-  void _process(GenContext<ThreadPool::TPHandle&> *c, ThreadPool::TPHandle &tp) {
+  using ThreadPool::WorkQueueVal<GenContext<HBHandle&>*>::_process;
+  void _process(GenContext<HBHandle&> *c, HBHandle &tp) {
     c->complete(tp);
   }
 };
 
 class C_QueueInWQ : public Context {
   GenContextWQ *wq;
-  GenContext<ThreadPool::TPHandle&> *c;
+  GenContext<HBHandle&> *c;
 public:
-  C_QueueInWQ(GenContextWQ *wq, GenContext<ThreadPool::TPHandle &> *c)
+  C_QueueInWQ(GenContextWQ *wq, GenContext<HBHandle &> *c)
     : wq(wq), c(c) {}
   void finish(int) {
     wq->queue(c);

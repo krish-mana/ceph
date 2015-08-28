@@ -1038,7 +1038,7 @@ int KeyValueStore::umount()
 
 int KeyValueStore::queue_transactions(Sequencer *posr, list<Transaction*> &tls,
                                       TrackedOpRef osd_op,
-                                      ThreadPool::TPHandle *handle)
+                                      HBHandle *handle)
 {
   utime_t start = ceph_clock_now(g_ceph_context);
   Context *onreadable;
@@ -1117,7 +1117,7 @@ void KeyValueStore::queue_op(OpSequencer *osr, Op *o)
   op_wq.queue(osr);
 }
 
-void KeyValueStore::op_queue_reserve_throttle(Op *o, ThreadPool::TPHandle *handle)
+void KeyValueStore::op_queue_reserve_throttle(Op *o, HBHandle *handle)
 {
   uint64_t max_ops = m_keyvaluestore_queue_max_ops;
   uint64_t max_bytes = m_keyvaluestore_queue_max_bytes;
@@ -1150,7 +1150,7 @@ void KeyValueStore::op_queue_release_throttle(Op *o)
   perf_logger->set(l_os_oq_bytes, throttle_bytes.get_current());
 }
 
-void KeyValueStore::_do_op(OpSequencer *osr, ThreadPool::TPHandle &handle)
+void KeyValueStore::_do_op(OpSequencer *osr, HBHandle &handle)
 {
   // FIXME: Suppose the collection of transaction only affect objects in the
   // one PG, so this lock will ensure no other concurrent write operation
@@ -1202,7 +1202,7 @@ void KeyValueStore::_finish_op(OpSequencer *osr)
 // improve concurrent performance. In the future, I'd like to remove apply_lock
 // on "osr" and introduce PG RWLock.
 int KeyValueStore::_do_transactions(list<Transaction*> &tls, uint64_t op_seq,
-  ThreadPool::TPHandle *handle)
+  HBHandle *handle)
 {
   int r = 0;
   int trans_num = 0;
@@ -1228,7 +1228,7 @@ int KeyValueStore::_do_transactions(list<Transaction*> &tls, uint64_t op_seq,
 
 unsigned KeyValueStore::_do_transaction(Transaction& transaction,
                                         BufferTransaction &t,
-                                        ThreadPool::TPHandle *handle)
+                                        HBHandle *handle)
 {
   dout(10) << "_do_transaction on " << &transaction << dendl;
 

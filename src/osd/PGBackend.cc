@@ -312,7 +312,7 @@ PGBackend *PGBackend::build_pg_backend(
  */
 void PGBackend::be_scan_list(
   ScrubMap &map, const vector<hobject_t> &ls, bool deep, uint32_t seed,
-  ThreadPool::TPHandle &handle)
+  HBHandle &handle)
 {
   dout(10) << __func__ << " scanning " << ls.size() << " objects"
            << (deep ? " deeply" : "") << dendl;

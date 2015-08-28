@@ -363,9 +363,9 @@ public:
   Context *bless_context(Context *c) {
     return new BlessedContext(this, c, get_osdmap()->get_epoch());
   }
-  GenContext<ThreadPool::TPHandle&> *bless_gencontext(
-    GenContext<ThreadPool::TPHandle&> *c) {
-    return new BlessedGenContext<ThreadPool::TPHandle&>(
+  GenContext<HBHandle&> *bless_gencontext(
+    GenContext<HBHandle&> *c) {
+    return new BlessedGenContext<HBHandle&>(
       this, c, get_osdmap()->get_epoch());
   }
     
@@ -484,7 +484,7 @@ public:
   }
 
   void schedule_recovery_work(
-    GenContext<ThreadPool::TPHandle&> *c);
+    GenContext<HBHandle&> *c);
 
   pg_shard_t whoami_shard() const {
     return pg_whoami;
@@ -1369,17 +1369,17 @@ protected:
   void queue_for_recovery();
   bool start_recovery_ops(
     uint64_t max,
-    ThreadPool::TPHandle &handle, uint64_t *started);
+    HBHandle &handle, uint64_t *started);
 
-  uint64_t recover_primary(uint64_t max, ThreadPool::TPHandle &handle);
-  uint64_t recover_replicas(uint64_t max, ThreadPool::TPHandle &handle);
+  uint64_t recover_primary(uint64_t max, HBHandle &handle);
+  uint64_t recover_replicas(uint64_t max, HBHandle &handle);
   hobject_t earliest_peer_backfill() const;
   bool all_peer_done() const;
   /**
    * @param work_started will be set to true if recover_backfill got anywhere
    * @returns the number of operations started
    */
-  uint64_t recover_backfill(uint64_t max, ThreadPool::TPHandle &handle,
+  uint64_t recover_backfill(uint64_t max, HBHandle &handle,
 			    bool *work_started);
 
   /**
@@ -1392,13 +1392,13 @@ protected:
    */
   void scan_range(
     int min, int max, BackfillInterval *bi,
-    ThreadPool::TPHandle &handle
+    HBHandle &handle
     );
 
   /// Update a hash range to reflect changes since the last scan
   void update_range(
     BackfillInterval *bi,        ///< [in,out] interval to update
-    ThreadPool::TPHandle &handle ///< [in] tp handle
+    HBHandle &handle ///< [in] tp handle
     );
 
   void prep_backfill_object_push(
@@ -1565,7 +1565,7 @@ public:
 
   void do_request(
     OpRequestRef& op,
-    ThreadPool::TPHandle &handle);
+    HBHandle &handle);
   void do_op(OpRequestRef& op);
   void do_op_replica(OpRequestRef &op);
   bool pg_op_must_wait(MOSDOp *op);
@@ -1574,7 +1574,7 @@ public:
   void do_sub_op_reply(OpRequestRef op);
   void do_scan(
     OpRequestRef op,
-    ThreadPool::TPHandle &handle);
+    HBHandle &handle);
   void do_backfill(OpRequestRef op);
 
   RepGather *trim_object(const hobject_t &coid);

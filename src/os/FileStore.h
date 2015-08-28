@@ -364,7 +364,7 @@ private:
       store->op_queue.pop_front();
       return osr;
     }
-    void _process(OpSequencer *osr, ThreadPool::TPHandle &handle) {
+    void _process(OpSequencer *osr, HBHandle &handle) {
       store->_do_op(osr, handle);
     }
     using ThreadPool::WorkQueue<OpSequencer>::_process;
@@ -376,13 +376,13 @@ private:
     }
   } op_wq;
 
-  void _do_op(OpSequencer *o, ThreadPool::TPHandle &handle);
+  void _do_op(OpSequencer *o, HBHandle &handle);
   void _finish_op(OpSequencer *o);
   Op *build_op(list<Transaction*>& tls,
 	       Context *onreadable, Context *onreadable_sync,
 	       TrackedOpRef osd_op);
   void queue_op(OpSequencer *osr, Op *o);
-  void op_queue_reserve_throttle(Op *o, ThreadPool::TPHandle *handle = NULL);
+  void op_queue_reserve_throttle(Op *o, HBHandle *handle = NULL);
   void op_queue_release_throttle(Op *o);
   void _journaled_ahead(OpSequencer *osr, Op *o, Context *ondisk);
   friend struct C_JournaledAhead;
@@ -474,17 +474,17 @@ public:
 
   int _do_transactions(
     list<Transaction*> &tls, uint64_t op_seq,
-    ThreadPool::TPHandle *handle);
+    HBHandle *handle);
   int do_transactions(list<Transaction*> &tls, uint64_t op_seq) {
     return _do_transactions(tls, op_seq, 0);
   }
   unsigned _do_transaction(
     Transaction& t, uint64_t op_seq, int trans_num,
-    ThreadPool::TPHandle *handle);
+    HBHandle *handle);
 
   int queue_transactions(Sequencer *osr, list<Transaction*>& tls,
 			 TrackedOpRef op = TrackedOpRef(),
-			 ThreadPool::TPHandle *handle = NULL);
+			 HBHandle *handle = NULL);
 
   /**
    * set replay guard xattr on given file
