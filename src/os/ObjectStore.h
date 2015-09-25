@@ -21,6 +21,7 @@
 #include "common/TrackedOp.h"
 #include "common/WorkQueue.h"
 #include "ObjectMap.h"
+#include "common/Future.h"
 
 #include <errno.h>
 #include <sys/stat.h>
