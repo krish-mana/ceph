@@ -73,6 +73,11 @@ int main(int argc, const char **argv)
   bool test_map_pgs_dump = false;
   bool test_random = false;
 
+  bool do_incremental = false;
+  string incremental_path;
+
+  string out;
+
   std::string val;
   std::ostringstream err;
   for (std::vector<const char*>::iterator i = args.begin(); i != args.end(); ) {
@@ -133,6 +138,19 @@ int main(int argc, const char **argv)
         cerr << err.str() << std::endl;
         exit(EXIT_FAILURE);
       }
+    } else if (ceph_argparse_witharg(args, i, &incremental_path, &err,
+				     "--apply-incremental", (char*)NULL)) {
+      if (!err.str().empty()) {
+        cerr << err.str() << std::endl;
+        exit(EXIT_FAILURE);
+      }
+      do_incremental = true;
+    } else if (ceph_argparse_witharg(args, i, &out, &err,
+				     "--out", (char*)NULL)) {
+      if (!err.str().empty()) {
+        cerr << err.str() << std::endl;
+        exit(EXIT_FAILURE);
+      }
     } else {
       ++i;
     }
@@ -178,7 +196,7 @@ int main(int argc, const char **argv)
   
   int r = 0;
   struct stat st;
-  if (!createsimple && !create_from_conf && !clobber) {
+  if (!createsimple && !create_from_conf && !clobber && (fn != "empty")) {
     std::string error;
     r = bl.read_file(fn.c_str(), &error);
     if (r == 0) {
@@ -450,16 +468,36 @@ int main(int argc, const char **argv)
     }
   }
 
+  uint64_t features = 0;
+  if (do_incremental) {
+    string error;
+    bl.clear();
+    r = bl.read_file(incremental_path.c_str(), &error);
+    if (r) {
+      cerr << me << ": error reading incremental map from " << import_crush
+	   << ": " << error << std::endl;
+      exit(1);
+    }
+
+    OSDMap::Incremental inc;
+    bufferlist::iterator p = bl.begin();
+    inc.decode(p);
+    features = inc.encode_features | CEPH_FEATURE_RESERVED;
+
+    int r = osdmap.apply_incremental(inc);
+    assert(r >= 0);
+    modified = true;
+  } else if (modified) {
+    osdmap.inc_epoch();
+  }
+
   if (!print && !print_json && !tree && !modified && 
       export_crush.empty() && import_crush.empty() && 
       test_map_pg.empty() && test_map_object.empty() &&
-      !test_map_pgs && !test_map_pgs_dump) {
+      !test_map_pgs && !test_map_pgs_dump && !do_incremental) {
     cerr << me << ": no action specified?" << std::endl;
     usage();
   }
-
-  if (modified)
-    osdmap.inc_epoch();
 
   if (print) 
     osdmap.print(cout);
@@ -469,16 +507,21 @@ int main(int argc, const char **argv)
     osdmap.print_tree(&cout, NULL);
 
   if (modified) {
+    if (out.size() == 0)
+      out = fn;
     bl.clear();
-    osdmap.encode(bl, CEPH_FEATURES_SUPPORTED_DEFAULT | CEPH_FEATURE_RESERVED);
+
+    if (!do_incremental)
+      features = CEPH_FEATURES_SUPPORTED_DEFAULT | CEPH_FEATURE_RESERVED;
+    osdmap.encode(bl, features);
 
     // write it out
     cout << me << ": writing epoch " << osdmap.get_epoch()
-	 << " to " << fn
+	 << " to " << out 
 	 << std::endl;
-    int r = bl.write_file(fn.c_str());
+    int r = bl.write_file(out.c_str());
     if (r) {
-      cerr << "osdmaptool: error writing to '" << fn << "': "
+      cerr << "osdmaptool: error writing to '" << out << "': "
 	   << cpp_strerror(r) << std::endl;
       return 1;
     }

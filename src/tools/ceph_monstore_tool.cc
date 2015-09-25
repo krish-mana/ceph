@@ -382,7 +382,7 @@ int main(int argc, char **argv) {
 
     bufferlist bl;
     r = 0;
-    if (map_type == "osdmap") {
+    if (map_type == "osdmapfull") {
       r = st.get(map_type, st.combine_strings("full", v), bl);
     } else {
       r = st.get(map_type, v, bl);

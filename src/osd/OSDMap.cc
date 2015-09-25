@@ -589,7 +589,10 @@ void OSDMap::Incremental::decode(bufferlist::iterator& bl)
     int struct_v_size = sizeof(struct_v);
     bl.advance(-struct_v_size);
     decode_classic(bl);
-    encode_features = 0;
+    if (struct_v >= 6)
+      encode_features |= CEPH_FEATURE_PGID64;
+    else
+      encode_features = 0;
     return;
   }
   {
