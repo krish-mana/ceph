@@ -411,6 +411,11 @@ unittest_bit_vector_CXXFLAGS = $(UNITTEST_CXXFLAGS)
 unittest_bit_vector_LDADD = $(UNITTEST_LDADD) $(CEPH_GLOBAL)
 check_TESTPROGRAMS += unittest_bit_vector
 
+unittest_future_SOURCES = test/common/test_future.cc
+unittest_future_CXXFLAGS = $(UNITTEST_CXXFLAGS)
+unittest_future_LDADD = -lm $(UNITTEST_LDADD)
+check_TESTPROGRAMS += unittest_future
+
 unittest_subprocess_SOURCES = test/test_subprocess.cc
 unittest_subprocess_LDADD = $(LIBCOMMON) $(UNITTEST_LDADD)
 unittest_subprocess_CXXFLAGS = $(UNITTEST_CXXFLAGS)

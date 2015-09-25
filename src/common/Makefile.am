@@ -260,7 +260,8 @@ noinst_HEADERS += \
 	common/SubProcess.h \
 	common/valgrind.h \
 	common/TracepointProvider.h \
-	common/event_socket.h
+	common/event_socket.h \
+	common/Future.h
 
 if ENABLE_XIO
 noinst_HEADERS += \
