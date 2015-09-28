@@ -1494,6 +1494,16 @@ struct object_stat_sum_t {
   void decode(bufferlist::iterator& bl);
   static void generate_test_instances(list<object_stat_sum_t*>& o);
 };
+inline ostream& operator<<(ostream& out, const object_stat_sum_t& stat) {
+  out << "object_stat_sum_t(";
+  JSONFormatter f;
+  f.open_object_section("object_stat_sum_t");
+  stat.dump(&f);
+  f.close_section();
+  f.flush(out);
+  out << ")";
+  return out;
+}
 WRITE_CLASS_ENCODER(object_stat_sum_t)
 
 bool operator==(const object_stat_sum_t& l, const object_stat_sum_t& r);
