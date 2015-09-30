@@ -1078,7 +1078,7 @@ protected:
     );
 
   /**
-   * get_object_info
+   * aio_get_object_info
    *
    * Fetches the object info off disk corresponding for soid.
    * This method assumes that soid has already been resolved to a
@@ -1090,11 +1090,24 @@ protected:
    * @param attr [in] OIATTR to use instead of looking at the disk
    * @return -ENOENT if the object does not exist, -EAGAIN if missing
    */
+  Ceph::Future<object_info_t, int> aio_get_object_info(
+    const hobject_t &soid,
+    bufferlist *attr = NULL);
+
   int get_object_info(
     const hobject_t &soid,
     object_info_t *oi,
     bufferlist *attr = NULL
-    );
+    ) {
+    auto ret = aio_get_object_info(soid);
+    ret.wait();
+    if (ret.is_error()) {
+      return ret.get_error();
+    } else {
+      *oi = ret.get_value();
+      return 0;
+    }
+  }
 
   /**
    * find_object_state
@@ -1132,11 +1145,22 @@ protected:
     map<string, bufferlist> *attrs = 0
     );
 
-  ObjectContextRef get_object_context(
-    const hobject_t& soid,
+  Ceph::Future<ObjectContextRef, int> aio_get_object_context(
+    hobject_t soid,
     bool can_create,
     map<string, bufferlist> *attrs = 0
     );
+  ObjectContextRef get_object_context(
+    hobject_t soid,
+    bool can_create,
+    map<string, bufferlist> *attrs = 0
+    ) {
+    auto p = aio_get_object_context(soid, can_create, attrs);
+    p.wait();
+    if (p.is_error())
+      return ObjectContextRef();
+    return p.get_value();
+  }
 
   void context_registry_on_change();
   void object_context_destructor_callback(ObjectContext *obc);

@@ -8715,24 +8715,26 @@ int ReplicatedPG::get_object_snapset(
   return 0;
 }
 
-int ReplicatedPG::get_object_info(
+Ceph::Future<object_info_t, int> ReplicatedPG::aio_get_object_info(
   const hobject_t &soid,
-  object_info_t *oi,
   bufferlist *attr)
 {
-  bufferlist bv;
   if (attr) {
-    bv = *attr;
+    object_info_t oi;
+    oi.decode(*attr);
+    return Ceph::Future<object_info_t, int>::make_ready_value(std::move(oi));
   } else {
-    if (is_missing_object(soid))
-      return -EAGAIN;
-    int r = pgbackend->objects_get_attr(soid, OI_ATTR, &bv);
-    if (r < 0)
-      return r;
+    if (is_missing_object(soid)) {
+      return Ceph::Future<object_info_t, int>::make_ready_error(-EAGAIN);
+    }
+    auto fut = pgbackend->aio_objects_get_attr(soid, OI_ATTR);
+    return fut.then_ignore_error(
+      [](bufferlist &&bl) {
+	object_info_t oi;
+	oi.decode(bl);
+	return std::move(oi);
+      });
   }
-  if (oi)
-    oi->decode(bv);
-  return 0;
 }
 
 int ReplicatedPG::find_object_info_and_get_read_locks(
@@ -8842,10 +8844,14 @@ ObjectContextRef ReplicatedPG::create_object_context(
   return obc;
 }
 
-ObjectContextRef ReplicatedPG::get_object_context(const hobject_t& soid,
-						  bool can_create,
-						  map<string, bufferlist> *attrs)
+Ceph::Future<ObjectContextRef, int> ReplicatedPG::aio_get_object_context(
+  hobject_t soid,
+  bool can_create,
+  map<string, bufferlist> *_attrs)
 {
+  boost::optional<map<string, bufferlist>> attrs;
+  if (_attrs)
+    attrs = (*_attrs);
   assert(
     attrs || !pg_log.get_missing().is_missing(soid) ||
     // or this is a revert... see recover_primary()
@@ -8858,6 +8864,13 @@ ObjectContextRef ReplicatedPG::get_object_context(const hobject_t& soid,
     osd->logger->inc(l_osd_object_ctx_cache_hit);
     dout(10) << __func__ << ": found obc in cache: " << obc
 	     << dendl;
+
+    dout(10) << __func__ << ": " << obc << " " << soid
+	     << " " << obc->rwstate
+	     << " oi: " << obc->obs.oi
+	     << " ssc: " << obc->ssc
+	     << " snapset: " << obc->ssc->snapset << dendl;
+    return Ceph::Future<ObjectContextRef, int>::make_ready_value(std::move(obc));
   } else {
     dout(10) << __func__ << ": obc NOT found in cache: " << soid << dendl;
 
@@ -8866,37 +8879,46 @@ ObjectContextRef ReplicatedPG::get_object_context(const hobject_t& soid,
     bufferlist *ssattr =
       (attrs && attrs->count(SS_ATTR)) ? &((*attrs)[SS_ATTR]) : NULL;
 
-    object_info_t oi(soid);
-    int r = get_object_info(
-      soid,
-      &oi,
-      oiattr);
-    assert(r != -EAGAIN); // caller promises that soid is not missing
-    if (r == -ENOENT && !can_create) {
-      dout(10) << __func__ << ": no obc for soid "
-	       << soid << " and !can_create"
-	       << dendl;
-      return ObjectContextRef();
-    }
-
-    SnapSetContextRef ssc = get_snapset_context(
-      soid,
-      true,
-      ssattr,
-      false);
-    obc = create_object_context(
-      oi,
-      ssc,
-      r == 0,
-      attrs);
+    return aio_get_object_info(soid, oiattr).then(
+      [=](Ceph::FutureState<object_info_t, int> &&res) mutable {
+	if (!res.is_error()) {
+	  SnapSetContextRef ssc = get_snapset_context(soid, true, ssattr);
+	  return Ceph::Future<ObjectContextRef, int>::make_ready_value(
+	    create_object_context(
+	      res.get_value(),
+	      ssc,
+	      true,
+	      attrs ? &*attrs : nullptr));
+	} else {
+	  int r = res.get_error();
+	  assert(r != -EAGAIN);
+	  if (r == -ENOENT && !can_create) {
+	    dout(10) << __func__ << ": no obc for soid "
+		     << soid << " and !can_create"
+		     << dendl;
+	    return Ceph::Future<ObjectContextRef, int>::make_ready_value(
+	      ObjectContextRef());
+	  }  else if (r == -ENOENT && can_create) {
+	    SnapSetContextRef ssc = get_snapset_context(
+	      soid, true, ssattr, false);
+	    object_info_t oi(soid);
+	    ObjectContextRef obc = create_object_context(
+	      oi,
+	      ssc,
+	      false,
+	      attrs ? &*attrs : nullptr);
+	    dout(10) << __func__ << ": " << obc << " " << soid
+		     << " " << obc->rwstate
+		     << " oi: " << obc->obs.oi
+		     << " ssc: " << obc->ssc
+		     << " snapset: " << obc->ssc->snapset << dendl;
+	    return Ceph::Future<ObjectContextRef, int>::make_ready_value(
+	      std::move(obc));
+	  }
+	  assert(0 == "invalid return value");
+	}
+      });
   }
-
-  dout(10) << __func__ << ": " << obc << " " << soid
-	   << " " << obc->rwstate
-	   << " oi: " << obc->obs.oi
-	   << " ssc: " << obc->ssc
-	   << " snapset: " << obc->ssc->snapset << dendl;
-  return obc;
 }
 
 void ReplicatedPG::context_registry_on_change()
