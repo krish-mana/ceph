@@ -191,6 +191,16 @@ int PGBackend::objects_get_attr(
   return r;
 }
 
+Ceph::Future<bufferlist> PGBackend::aio_objects_get_attr(
+  const hobject_t &hoid,
+  const string &attr)
+{
+  return store->aio_getattr(
+    coll,
+    ghobject_t(hoid, ghobject_t::NO_GEN, get_parent()->whoami_shard().shard),
+    attr);
+}
+
 int PGBackend::objects_get_attrs(
   const hobject_t &hoid,
   map<string, bufferlist> *out)

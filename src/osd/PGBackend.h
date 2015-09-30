@@ -530,6 +530,10 @@
      const string &attr,
      bufferlist *out);
 
+   Ceph::Future<bufferlist> aio_objects_get_attr(
+     const hobject_t &hoid,
+     const string &attr);
+
    virtual int objects_get_attrs(
      const hobject_t &hoid,
      map<string, bufferlist> *out);
