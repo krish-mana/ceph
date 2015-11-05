@@ -1781,6 +1781,34 @@ public:
     TrackedOpRef op = TrackedOpRef(),
     HBHandle *handle = NULL) = 0;
 
+  virtual pair<Ceph::Future<>, Ceph::Future<>> execute_transactions_future(
+    Sequencer *osr, list<Transaction*>& tls,
+    TrackedOpRef op = TrackedOpRef(),
+    HBHandle *handle = NULL) {
+    if (tls.empty()) {
+      tls.push_back(new Transaction);
+      tls.back()->nop();
+      tls.back()->register_on_complete(
+	new C_DeleteTransaction(tls.back()));
+    }
+
+    Ceph::Future<> on_commit;
+    Ceph::Promise<> on_commit_p(on_commit.get_promise());
+    Ceph::Future<> on_applied;
+    Ceph::Promise<> on_applied_p(on_applied.get_promise());
+
+    struct RunPromise : public Context {
+      Ceph::Promise<> p;
+      RunPromise(Ceph::Promise<> &&p) : p(std::move(p)) {}
+      void finish(int) {
+	p.fulfill();
+      }
+    };
+    tls.back()->register_on_applied(new RunPromise(std::move(on_applied_p)));
+    tls.back()->register_on_commit(new RunPromise(std::move(on_commit_p)));
+    queue_transactions(osr, tls, op, handle);
+    return std::make_pair(std::move(on_applied), std::move(on_commit));
+  }
 
   int queue_transactions(
     Sequencer *osr,
