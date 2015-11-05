@@ -1656,6 +1656,34 @@ public:
     TrackedOpRef op = TrackedOpRef(),
     HBHandle *handle = NULL) = 0;
 
+  virtual pair<Future<>, Future<> execute_transactions_future(
+    Sequencer *osr, list<Transaction*>& tls,
+    TrackedOpRef op = TrackedOpRef(),
+    HBHandle *handle = NULL) {
+    if (tls.empty()) {
+      tls.push_back(new Transaction);
+      tls.back()->nop();
+      tls.back()->register_on_complete(
+	new C_DeleteTransaction(tls.back()));
+    }
+
+    Future<> on_commit;
+    Promise<> on_commit_p(on_commit.get_promise());
+    Future<> on_applied;
+    Promise<> on_applied_p(on_applied.get_promise());
+
+    struct RunPromise : public Context {
+      Promise<> p;
+      RunPromise(Promise<> &&p) : p(std::move(p)) {}
+      void finish(int) {
+	p.fulfill();
+      }
+    };
+    tls.back()->register_on_applied(new RunPromise(std::move(on_applied_p)));
+    tls.back()->register_on_commit(new RunPromise(std::move(on_commit_p)));
+    queue_transactions(osr, tls, op, handle);
+    return std::make_pair(std::move(on_applied), std::move(on_commit));
+  }
 
   int queue_transactions(
     Sequencer *osr,
