@@ -607,6 +607,18 @@ public:
     // pending xattr updates
     map<ObjectContextRef,
 	map<string, boost::optional<bufferlist> > > pending_attrs;
+
+    list<std::function<void()>> on_applied;
+    list<std::function<void()>> on_complete;
+    template <typename F>
+    void register_on_complete(F &&f) {
+      on_complete.emplace_back(std::move(f));
+    }
+    template <typename F>
+    void register_on_applied(F &&f) {
+      on_applied.emplace_back(std::move(f));
+    }
+
     void apply_pending_attrs() {
       for (map<ObjectContextRef,
 	     map<string, boost::optional<bufferlist> > >::iterator i =
@@ -725,6 +737,7 @@ public:
       }
     }
   };
+  using OpContextUPtr = std::unique_ptr<OpContext>;
   friend struct OpContext;
 
   /*
@@ -754,9 +767,8 @@ public:
     
     eversion_t          pg_local_last_complete;
 
-    bool queue_snap_trimmer;
-
-    Context *on_applied;
+    list<std::function<void()>> on_applied;
+    list<std::function<void()>> on_complete;
     bool log_op_stat;
     
     RepGather(OpContext *c, ObjectContextRef pi, ceph_tid_t rt,
@@ -770,8 +782,8 @@ public:
       //sent_nvram(false),
       sent_disk(false),
       pg_local_last_complete(lc),
-      queue_snap_trimmer(false),
-      on_applied(NULL),
+      on_applied(std::move(c->on_applied)),
+      on_complete(std::move(c->on_complete)),
       log_op_stat(false) { }
 
     RepGather *get() {
@@ -782,7 +794,7 @@ public:
       assert(nref > 0);
       if (--nref == 0) {
 	delete ctx; // must already be unlocked
-	assert(on_applied == NULL);
+	assert(on_applied.empty());
 	delete this;
 	//generic_dout(0) << "deleting " << this << dendl;
       }
@@ -946,11 +958,14 @@ protected:
   void repop_all_committed(RepGather *repop);
   void eval_repop(RepGather*);
   void issue_repop(RepGather *repop);
-  RepGather *new_repop(OpContext *ctx, ObjectContextRef obc, ceph_tid_t rep_tid);
+  RepGather *new_repop(
+    OpContext *ctx,
+    ObjectContextRef obc,
+    ceph_tid_t rep_tid);
   void remove_repop(RepGather *repop);
 
-  RepGather *simple_repop_create(ObjectContextRef obc);
-  void simple_repop_submit(RepGather *repop);
+  OpContextUPtr simple_opc_create(ObjectContextRef obc);
+  void simple_opc_submit(OpContextUPtr &&ctx);
 
   // hot/cold tracking
   HitSetRef hit_set;        ///< currently accumulating HitSet
@@ -963,7 +978,7 @@ protected:
   void hit_set_create();    ///< create a new HitSet
   void hit_set_persist();   ///< persist hit info
   bool hit_set_apply_log(); ///< apply log entries to update in-memory HitSet
-  void hit_set_trim(RepGather *repop, unsigned max); ///< discard old HitSets
+  void hit_set_trim(OpContextUPtr &ctx, unsigned max); ///< discard old HitSets
   void hit_set_in_memory_trim(uint32_t max_in_memory); ///< discard old in memory HitSets
   void hit_set_remove_all();
 
@@ -1601,7 +1616,7 @@ public:
     HBHandle &handle);
   void do_backfill(OpRequestRef op);
 
-  RepGather *trim_object(const hobject_t &coid);
+  OpContextUPtr trim_object(const hobject_t &coid);
   void snap_trimmer(epoch_t e);
 
   int do_replica_safe_read(
@@ -1676,7 +1691,7 @@ private:
   };
   struct SnapTrimmer : public boost::statechart::state_machine< SnapTrimmer, NotTrimming > {
     ReplicatedPG *pg;
-    set<RepGather *> repops;
+    set<hobject_t, hobject_t::BitwiseComparator> in_flight;
     snapid_t snap_to_trim;
     bool need_share_pg_info;
     SnapTrimmer(ReplicatedPG *pg) : pg(pg), need_share_pg_info(false) {}
