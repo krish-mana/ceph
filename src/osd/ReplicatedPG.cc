@@ -2930,6 +2930,97 @@ void ReplicatedPG::execute_ctx(OpContext *ctx)
     }
   }
 
+  // no need to capture PG ref, repop cancel will handle that
+  // Can capture the ctx by pointer, it's owned by the repop
+  ctx->register_on_applied(
+    [m, ctx, this](){
+      // send dup acks, in order
+      if (waiting_for_ack.count(ctx->at_version)) {
+	assert(waiting_for_ack.begin()->first == ctx->at_version);
+	for (list<pair<OpRequestRef, version_t> >::iterator i =
+	       waiting_for_ack[ctx->at_version].begin();
+	     i != waiting_for_ack[ctx->at_version].end();
+	     ++i) {
+	  MOSDOp *m = static_cast<MOSDOp*>(i->first->get_req());
+	  MOSDOpReply *reply = new MOSDOpReply(m, 0, get_osdmap()->get_epoch(), 0, true);
+	  reply->set_reply_versions(ctx->at_version,
+				    i->second);
+	  reply->add_flags(CEPH_OSD_FLAG_ACK);
+	  osd->send_message_osd_client(reply, m->get_connection());
+	}
+	waiting_for_ack.erase(ctx->at_version);
+      }
+
+      if (m && m->wants_ack() && !ctx->sent_ack && !ctx->sent_disk) {
+	// send ack
+	MOSDOpReply *reply = ctx->reply;
+	if (reply)
+	  ctx->reply = NULL;
+	else {
+	  reply = new MOSDOpReply(m, 0, get_osdmap()->get_epoch(), 0, true);
+	  reply->set_reply_versions(ctx->at_version,
+				    ctx->user_at_version);
+	}
+	reply->add_flags(CEPH_OSD_FLAG_ACK);
+	dout(10) << " sending ack: " << *m << " " << reply << dendl;
+	osd->send_message_osd_client(reply, m->get_connection());
+	ctx->sent_ack = true;
+      }
+
+      // note the write is now readable (for rlatency calc).  note
+      // that this will only be defined if the write is readable
+      // _prior_ to being committed; it will not get set with
+      // writeahead journaling, for instance.
+      if (ctx->readable_stamp == utime_t())
+	ctx->readable_stamp = ceph_clock_now(cct);
+    });
+  ctx->register_on_commit(
+    [m, ctx, this](){
+      if (ctx->op)
+	log_op_stats(
+	  ctx->op,
+	  ctx->bytes_written,
+	  ctx->readable_stamp);
+
+      publish_stats_to_osd();
+
+      // send dup commits, in order
+      if (waiting_for_ondisk.count(ctx->at_version)) {
+	assert(waiting_for_ondisk.begin()->first == ctx->at_version);
+	for (list<pair<OpRequestRef, version_t> >::iterator i =
+	       waiting_for_ondisk[ctx->at_version].begin();
+	     i != waiting_for_ondisk[ctx->at_version].end();
+	     ++i) {
+	  osd->reply_op_error(i->first, 0, ctx->at_version,
+			      i->second);
+	}
+	waiting_for_ondisk.erase(ctx->at_version);
+      }
+
+      // clear out acks, we sent the commits above
+      if (waiting_for_ack.count(ctx->at_version)) {
+	assert(waiting_for_ack.begin()->first == ctx->at_version);
+	waiting_for_ack.erase(ctx->at_version);
+      }
+
+      if (m && m->wants_ondisk() && !ctx->sent_disk) {
+	// send commit.
+	MOSDOpReply *reply = ctx->reply;
+	if (reply)
+	  ctx->reply = NULL;
+	else {
+	  reply = new MOSDOpReply(m, 0, get_osdmap()->get_epoch(), 0, true);
+	  reply->set_reply_versions(ctx->at_version,
+				    ctx->user_at_version);
+	}
+	reply->add_flags(CEPH_OSD_FLAG_ACK | CEPH_OSD_FLAG_ONDISK);
+	dout(10) << " sending commit on " << *m << " " << reply << dendl;
+	osd->send_message_osd_client(reply, m->get_connection());
+	ctx->sent_disk = true;
+	ctx->op->mark_commit_sent();
+      }
+    });
+
   // issue replica writes
   ceph_tid_t rep_tid = osd->get_tid();
   RepGather *repop = new_repop(ctx, obc, rep_tid);  // new repop claims our obc refs
@@ -8230,55 +8321,11 @@ void ReplicatedPG::eval_repop(RepGather *repop)
 
   // ondisk?
   if (repop->all_committed) {
+    dout(10) << " commit: " << *repop << dendl;
     for (auto p = repop->on_committed.begin();
 	 p != repop->on_committed.end();
 	 repop->on_committed.erase(p++)) {
       (*p)();
-    }
-
-    if (repop->ctx->op && !repop->log_op_stat) {
-      log_op_stats(
-	repop->ctx->op,
-	repop->ctx->bytes_written,
-	repop->ctx->readable_stamp);
-      repop->log_op_stat = true;
-    }
-    publish_stats_to_osd();
-
-    // send dup commits, in order
-    if (waiting_for_ondisk.count(repop->v)) {
-      assert(waiting_for_ondisk.begin()->first == repop->v);
-      for (list<pair<OpRequestRef, version_t> >::iterator i =
-	     waiting_for_ondisk[repop->v].begin();
-	   i != waiting_for_ondisk[repop->v].end();
-	   ++i) {
-	osd->reply_op_error(i->first, 0, repop->ctx->at_version,
-			    i->second);
-      }
-      waiting_for_ondisk.erase(repop->v);
-    }
-
-    // clear out acks, we sent the commits above
-    if (waiting_for_ack.count(repop->v)) {
-      assert(waiting_for_ack.begin()->first == repop->v);
-      waiting_for_ack.erase(repop->v);
-    }
-
-    if (m && m->wants_ondisk() && !repop->sent_disk) {
-      // send commit.
-      MOSDOpReply *reply = repop->ctx->reply;
-      if (reply)
-	repop->ctx->reply = NULL;
-      else {
-	reply = new MOSDOpReply(m, 0, get_osdmap()->get_epoch(), 0, true);
-	reply->set_reply_versions(repop->ctx->at_version,
-				  repop->ctx->user_at_version);
-      }
-      reply->add_flags(CEPH_OSD_FLAG_ACK | CEPH_OSD_FLAG_ONDISK);
-      dout(10) << " sending commit on " << *repop << " " << reply << dendl;
-      osd->send_message_osd_client(reply, m->get_connection());
-      repop->sent_disk = true;
-      repop->ctx->op->mark_commit_sent();
     }
   }
 
@@ -8289,46 +8336,7 @@ void ReplicatedPG::eval_repop(RepGather *repop)
 	 p != repop->on_applied.end();
 	 repop->on_applied.erase(p++)) {
       (*p)();
-
-    // send dup acks, in order
-    if (waiting_for_ack.count(repop->v)) {
-      assert(waiting_for_ack.begin()->first == repop->v);
-      for (list<pair<OpRequestRef, version_t> >::iterator i =
-	     waiting_for_ack[repop->v].begin();
-	   i != waiting_for_ack[repop->v].end();
-	   ++i) {
-	MOSDOp *m = static_cast<MOSDOp*>(i->first->get_req());
-	MOSDOpReply *reply = new MOSDOpReply(m, 0, get_osdmap()->get_epoch(), 0, true);
-	reply->set_reply_versions(repop->ctx->at_version,
-				  i->second);
-	reply->add_flags(CEPH_OSD_FLAG_ACK);
-	osd->send_message_osd_client(reply, m->get_connection());
-      }
-      waiting_for_ack.erase(repop->v);
     }
-
-    if (m && m->wants_ack() && !repop->sent_ack && !repop->sent_disk) {
-      // send ack
-      MOSDOpReply *reply = repop->ctx->reply;
-      if (reply)
-	repop->ctx->reply = NULL;
-      else {
-	reply = new MOSDOpReply(m, 0, get_osdmap()->get_epoch(), 0, true);
-	reply->set_reply_versions(repop->ctx->at_version,
-				  repop->ctx->user_at_version);
-      }
-      reply->add_flags(CEPH_OSD_FLAG_ACK);
-      dout(10) << " sending ack on " << *repop << " " << reply << dendl;
-      osd->send_message_osd_client(reply, m->get_connection());
-      repop->sent_ack = true;
-    }
-
-    // note the write is now readable (for rlatency calc).  note
-    // that this will only be defined if the write is readable
-    // _prior_ to being committed; it will not get set with
-    // writeahead journaling, for instance.
-    if (repop->ctx->readable_stamp == utime_t())
-      repop->ctx->readable_stamp = ceph_clock_now(cct);
   }
 
   // done.
