@@ -2173,8 +2173,7 @@ void PG::start_recovery_op(const hobject_t& soid)
   assert(recovering_oids.count(soid) == 0);
   recovering_oids.insert(soid);
 #endif
-  // TODOSAM: osd->osd-> not good
-  osd->osd->start_recovery_op(this, soid);
+  osd->start_recovery_op(this, soid);
 }
 
 void PG::finish_recovery_op(const hobject_t& soid, bool dequeue)
@@ -2190,10 +2189,10 @@ void PG::finish_recovery_op(const hobject_t& soid, bool dequeue)
   assert(recovering_oids.count(soid));
   recovering_oids.erase(soid);
 #endif
-  // TODOSAM: osd->osd-> not good
-  osd->osd->finish_recovery_op(this, soid, dequeue);
+  osd->finish_recovery_op(this, soid, dequeue);
 
   if (!dequeue) {
+    queue_recovery();
   }
 }
 
