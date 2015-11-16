@@ -550,7 +550,7 @@ public:
 void ReplicatedBackend::submit_transaction(
   const hobject_t &soid,
   const eversion_t &at_version,
-  PGTransaction *_t,
+  PGTransactionUPtr &&_t,
   const eversion_t &trim_to,
   const eversion_t &trim_rollback_to,
   const vector<pg_log_entry_t> &log_entries,
@@ -562,9 +562,11 @@ void ReplicatedBackend::submit_transaction(
   osd_reqid_t reqid,
   OpRequestRef orig_op)
 {
-  RPGTransaction *t = dynamic_cast<RPGTransaction*>(_t);
+  std::unique_ptr<RPGTransaction> t(
+    dynamic_cast<RPGTransaction*>(_t.release()));
   assert(t);
-  ObjectStore::Transaction *op_t = t->get_transaction();
+  std::unique_ptr<ObjectStore::Transaction> op_t(
+    t->get_transaction());
 
   assert(t->get_temp_added().size() <= 1);
   assert(t->get_temp_cleared().size() <= 1);
@@ -600,8 +602,11 @@ void ReplicatedBackend::submit_transaction(
     log_entries,
     hset_history,
     &op,
-    op_t);
+    *op_t);
 
+  std::unique_ptr<ObjectStore::Transaction> local_t(
+    new ObjectStore::Transaction);
+  local_t->set_use_tbl(op_t->get_use_tbl());
   if (!(t->get_temp_added().empty())) {
     add_temp_objs(t->get_temp_added());
   }
@@ -613,22 +618,24 @@ void ReplicatedBackend::submit_transaction(
     trim_to,
     trim_rollback_to,
     true,
-    op_t);
+    *local_t);
   
   op_t->register_on_applied_sync(on_local_applied_sync);
   op_t->register_on_applied(
     parent->bless_context(
       new C_OSD_OnOpApplied(this, &op)));
   op_t->register_on_applied(
-    new ObjectStore::C_DeleteTransaction(op_t));
+    new ObjectStore::C_DeleteTransaction(op_t.get()));
+  op_t->register_on_applied(
+    new ObjectStore::C_DeleteTransaction(local_t.get()));
   op_t->register_on_commit(
     parent->bless_context(
       new C_OSD_OnOpCommit(this, &op)));
 
   list<ObjectStore::Transaction*> tls;
-  tls.push_back(op_t);
+  tls.push_back(local_t.release());
+  tls.push_back(op_t.release());
   parent->queue_transactions(tls, op.op);
-  delete t;
 }
 
 void ReplicatedBackend::op_applied(
@@ -995,7 +1002,7 @@ Message * ReplicatedBackend::generate_subop(
   const vector<pg_log_entry_t> &log_entries,
   boost::optional<pg_hit_set_history_t> &hset_hist,
   InProgressOp *op,
-  ObjectStore::Transaction *op_t,
+  ObjectStore::Transaction &op_t,
   pg_shard_t peer,
   const pg_info_t &pinfo)
 {
@@ -1017,10 +1024,10 @@ Message * ReplicatedBackend::generate_subop(
 	     << ", pinfo.last_backfill "
 	     << pinfo.last_backfill << ")" << dendl;
     ObjectStore::Transaction t;
-    t.set_use_tbl(op_t->get_use_tbl());
+    t.set_use_tbl(op_t.get_use_tbl());
     ::encode(t, wr->get_data());
   } else {
-    ::encode(*op_t, wr->get_data());
+    ::encode(op_t, wr->get_data());
   }
 
   ::encode(log_entries, wr->logbl);
@@ -1051,7 +1058,7 @@ void ReplicatedBackend::issue_op(
   const vector<pg_log_entry_t> &log_entries,
   boost::optional<pg_hit_set_history_t> &hset_hist,
   InProgressOp *op,
-  ObjectStore::Transaction *op_t)
+  ObjectStore::Transaction &op_t)
 {
 
   if (parent->get_actingbackfill_shards().size() > 1) {
@@ -1200,7 +1207,7 @@ void ReplicatedBackend::sub_op_modify_impl(OpRequestRef op)
     m->pg_trim_to,
     m->pg_trim_rollback_to,
     update_snaps,
-    &(rm->localt));
+    rm->localt);
 
   rm->bytes_written = rm->opt.get_encoded_bytes();
 
