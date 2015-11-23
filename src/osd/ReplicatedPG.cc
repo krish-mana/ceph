@@ -3312,27 +3312,11 @@ ReplicatedPG::OpContextUPtr ReplicatedPG::trim_object(const hobject_t &coid)
   }
   assert(obc->ssc);
 
-  if (!obc->get_snaptrimmer_write()) {
-    dout(10) << __func__ << ": Unable to get a wlock on " << coid << dendl;
-    return NULL;
-  }
-
   hobject_t snapoid(
     coid.oid, coid.get_key(),
     obc->ssc->snapset.head_exists ? CEPH_NOSNAP:CEPH_SNAPDIR, coid.get_hash(),
     info.pgid.pool(), coid.get_namespace());
   ObjectContextRef snapset_obc = get_object_context(snapoid, false);
-
-  if (!snapset_obc->get_snaptrimmer_write()) {
-    dout(10) << __func__ << ": Unable to get a wlock on " << snapoid << dendl;
-    list<OpRequestRef> to_wake;
-    bool requeue_recovery = false;
-    bool requeue_snaptrimmer = false;
-    obc->put_write(&to_wake, &requeue_recovery, &requeue_snaptrimmer);
-    assert(to_wake.empty());
-    assert(!requeue_recovery);
-    return NULL;
-  }
 
   object_info_t &coi = obc->obs.oi;
   set<snapid_t> old_snaps(coi.snaps.begin(), coi.snaps.end());
@@ -3352,8 +3336,31 @@ ReplicatedPG::OpContextUPtr ReplicatedPG::trim_object(const hobject_t &coid)
 
   OpContextUPtr ctx = simple_opc_create(obc);
   ctx->snapset_obc = snapset_obc;
-  ctx->lock_to_release = OpContext::W_LOCK;
-  ctx->release_snapset_obc = true;
+
+  if (!ctx->lock_manager.get_snaptrimmer_write(
+	coid,
+	obc)) {
+    close_op_ctx(ctx.release());
+    dout(10) << __func__ << ": Unable to get a wlock on " << coid << dendl;
+    return NULL;
+  }
+
+  if (!ctx->lock_manager.get_snaptrimmer_write(
+	snapoid,
+	snapset_obc)) {
+    close_op_ctx(ctx.release());
+    dout(10) << __func__ << ": Unable to get a wlock on " << snapoid << dendl;
+    list<OpRequestRef> to_wake;
+    bool requeue_recovery = false;
+    bool requeue_snaptrimmer = false;
+    ctx->lock_manager.put_locks(
+      &to_wake, &requeue_recovery, &requeue_snaptrimmer);
+    assert(to_wake.empty());
+    assert(!requeue_recovery);
+    assert(!requeue_snaptrimmer);
+    return NULL;
+  }
+
   ctx->at_version = get_next_version();
 
   PGBackend::PGTransaction *t = ctx->op_t.get();
@@ -4798,7 +4805,7 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
       ++ctx->num_write;
       {
 	tracepoint(osd, do_osd_op_pre_try_flush, soid.oid.name.c_str(), soid.snap.val);
-	if (ctx->lock_to_release != OpContext::NONE) {
+	if (ctx->lock_type != RWState::RWNONE) {
 	  dout(10) << "cache-try-flush without SKIPRWLOCKS flag set" << dendl;
 	  result = -EINVAL;
 	  break;
@@ -4830,7 +4837,7 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
       ++ctx->num_write;
       {
 	tracepoint(osd, do_osd_op_pre_cache_flush, soid.oid.name.c_str(), soid.snap.val);
-	if (ctx->lock_to_release == OpContext::NONE) {
+	if (ctx->lock_type != RWState::RWNONE) {
 	  dout(10) << "cache-flush with SKIPRWLOCKS flag set" << dendl;
 	  result = -EINVAL;
 	  break;
@@ -6624,15 +6631,21 @@ void ReplicatedPG::finish_ctx(OpContext *ctx, int log_op_type, bool maintain_ssc
       if (!ctx->snapset_obc)
 	ctx->snapset_obc = get_object_context(snapoid, true);
       bool got = false;
-      if (ctx->lock_to_release == OpContext::W_LOCK) {
-	got = ctx->snapset_obc->get_write_greedy(ctx->op);
+      if (ctx->lock_type != RWState::RWWRITE) {
+	got = ctx->lock_manager.get_write_greedy(
+	  snapoid,
+	  ctx->snapset_obc,
+	  ctx->op);
       } else {
-	assert(ctx->lock_to_release == OpContext::E_LOCK);
-	got = ctx->snapset_obc->get_excl(ctx->op);
+	assert(ctx->lock_type == RWState::RWEXCL);
+	got = ctx->lock_manager.get_lock_type(
+	  RWState::RWEXCL,
+	  snapoid,
+	  ctx->snapset_obc,
+	  ctx->op);
       }
       assert(got);
       dout(20) << " got greedy write on snapset_obc " << *ctx->snapset_obc << dendl;
-      ctx->release_snapset_obc = true;
       if (pool.info.require_rollback() && !ctx->snapset_obc->obs.exists) {
 	ctx->log.back().mod_desc.create();
       } else if (!pool.info.require_rollback()) {
@@ -7587,7 +7600,12 @@ void ReplicatedPG::finish_promote(int r, CopyResults *results,
     tctx->new_snapset.clone_overlap.erase(soid.snap);
     tctx->new_snapset.clone_size.erase(soid.snap);
 
-    tctx->lock_to_release = OpContext::W_LOCK;
+    // take RWWRITE lock for duration of our local write.  ignore starvation.
+    if (tctx->lock_manager.take_write_lock(
+	  head,
+	  obc)) {
+      assert(0 == "problem!");
+    }
     dout(20) << __func__ << " took lock on obc, " << *(obc->rwstate) << dendl;
 
     finish_ctx(tctx.get(), pg_log_entry_t::PROMOTE);
@@ -7682,10 +7700,11 @@ void ReplicatedPG::finish_promote(int r, CopyResults *results,
   dout(20) << __func__ << " new_snapset " << tctx->new_snapset << dendl;
 
   // take RWWRITE lock for duration of our local write.  ignore starvation.
-  if (!obc->rwstate->take_write_lock()) {
+  if (tctx->lock_manager.take_write_lock(
+	obc->obs.oi.soid,
+	obc)) {
     assert(0 == "problem!");
   }
-  tctx->lock_to_release = OpContext::W_LOCK;
   dout(20) << __func__ << " took lock on obc, " << *(obc->rwstate) << dendl;
 
   finish_ctx(tctx.get(), pg_log_entry_t::PROMOTE);
@@ -8082,30 +8101,35 @@ int ReplicatedPG::try_flush_mark_clean(FlushOpRef fop)
     }
   }
 
+  dout(10) << __func__ << " clearing DIRTY flag for " << oid << dendl;
+  OpContextUPtr ctx = simple_opc_create(fop->obc);
+
   // successfully flushed; can we clear the dirty bit?
   // try to take the lock manually, since we don't
   // have a ctx yet.
-  if (obc->get_write(fop->op)) {
+  if (ctx->lock_manager.get_lock_type(
+	RWState::RWWRITE,
+	oid,
+	obc,
+	fop->op)) {
     dout(20) << __func__ << " took write lock" << dendl;
   } else if (fop->op) {
     dout(10) << __func__ << " waiting on write lock" << dendl;
+    close_op_ctx(ctx.release());
     requeue_op(fop->op);
     requeue_ops(fop->dup_ops);
     return -EAGAIN;    // will retry
   } else {
     dout(10) << __func__ << " failed write lock, no op; failing" << dendl;
+    close_op_ctx(ctx.release());
     osd->logger->inc(l_osd_tier_try_flush_fail);
     cancel_flush(fop, false);
     return -ECANCELED;
   }
 
-  dout(10) << __func__ << " clearing DIRTY flag for " << oid << dendl;
-  OpContextUPtr ctx = simple_opc_create(fop->obc);
-
   ctx->register_on_finish(*(fop->on_flush));
   fop->on_flush = boost::none;
 
-  ctx->lock_to_release = OpContext::W_LOCK;  // we took it above
   ctx->at_version = get_next_version();
 
   ctx->new_obs = obc->obs;
@@ -11829,13 +11853,18 @@ bool ReplicatedPG::agent_maybe_evict(ObjectContextRef& obc)
       return false;
   }
 
-  if (!obc->get_write(OpRequestRef())) {
+  dout(10) << __func__ << " evicting " << obc->obs.oi << dendl;
+  OpContextUPtr ctx = simple_opc_create(obc);
+
+  if (!ctx->lock_manager.get_lock_type(
+	RWState::RWWRITE,
+	obc->obs.oi.soid,
+	obc,
+	OpRequestRef())) {
+    close_op_ctx(ctx.release());
     dout(20) << __func__ << " skip (cannot get lock) " << obc->obs.oi << dendl;
     return false;
   }
-
-  dout(10) << __func__ << " evicting " << obc->obs.oi << dendl;
-  OpContextUPtr ctx = simple_opc_create(obc);
 
   osd->agent_start_evict_op();
   ctx->register_on_finish(
@@ -11843,7 +11872,6 @@ bool ReplicatedPG::agent_maybe_evict(ObjectContextRef& obc)
       osd->agent_finish_evict_op();
     });
 
-  ctx->lock_to_release = OpContext::W_LOCK;
   ctx->at_version = get_next_version();
   assert(ctx->new_obs.exists);
   int r = _delete_oid(ctx.get(), true);

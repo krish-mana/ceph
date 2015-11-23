@@ -3678,10 +3678,10 @@ ostream& operator<<(ostream& out, const object_info_t& oi);
 class ObcLockManager {
   struct ObjectLockState {
     ObjectContextRef obc;
-    ObjectContext::RWState::State type;
+    RWState::State type;
     ObjectLockState(
       ObjectContextRef obc,
-      ObjectContext::RWState::State type)
+      RWState::State type)
       : obc(obc), type(type) {}
   };
   map<hobject_t, ObjectLockState, hobject_t::BitwiseComparator> locks;
@@ -3690,7 +3690,7 @@ public:
   ObcLockManager(ObcLockManager &&) = default;
   ObcLockManager(const ObcLockManager &) = delete;
   bool get_lock_type(
-    ObjectContext::RWState::State type,
+    RWState::State type,
     const hobject_t &hoid,
     ObjectContextRef obc,
     OpRequestRef op) {
@@ -3707,10 +3707,10 @@ public:
     const hobject_t &hoid,
     ObjectContextRef obc) {
     assert(locks.find(hoid) == locks.end());
-    if (obc->rwstate.take_write_lock()) {
+    if (obc->rwstate->take_write_lock()) {
       locks.insert(
 	make_pair(
-	  hoid, ObjectLockState(obc, ObjectContext::RWState::RWWRITE)));
+	  hoid, ObjectLockState(obc, RWState::RWWRITE)));
       return true;
     } else {
       return false;
@@ -3724,7 +3724,7 @@ public:
     if (obc->get_snaptrimmer_write()) {
       locks.insert(
 	make_pair(
-	  hoid, ObjectLockState(obc, ObjectContext::RWState::RWWRITE)));
+	  hoid, ObjectLockState(obc, RWState::RWWRITE)));
       return true;
     } else {
       return false;
@@ -3739,7 +3739,7 @@ public:
     if (obc->get_write_greedy(op)) {
       locks.insert(
 	make_pair(
-	  hoid, ObjectLockState(obc, ObjectContext::RWState::RWWRITE)));
+	  hoid, ObjectLockState(obc, RWState::RWWRITE)));
       return true;
     } else {
       return false;
