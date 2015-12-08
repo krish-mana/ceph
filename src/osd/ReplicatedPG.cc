@@ -8479,8 +8479,8 @@ ReplicatedPG::RepGather *ReplicatedPG::new_repop(
 void ReplicatedPG::remove_repop(RepGather *repop)
 {
   dout(20) << __func__ << " " << *repop << dendl;
-  if (repop->ctx->obc)
-    dout(20) << " obc " << *repop->ctx->obc << dendl;
+  assert(repop->ctx->obc);
+  dout(20) << " obc " << *repop->ctx->obc << dendl;
   if (repop->ctx->clone_obc)
     dout(20) << " clone_obc " << *repop->ctx->clone_obc << dendl;
   if (repop->ctx->snapset_obc)
@@ -8492,7 +8492,9 @@ void ReplicatedPG::remove_repop(RepGather *repop)
     (*p)();
   }
 
-  release_op_ctx_locks(repop->ctx);
+  release_object_locks(
+    repop->ctx->obc->obs.oi.soid.get_head(),
+    repop->ctx->lock_manager);
   repop_map.erase(repop->rep_tid);
   repop->put();
 
