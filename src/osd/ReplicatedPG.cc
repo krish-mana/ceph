@@ -3026,14 +3026,16 @@ void ReplicatedPG::execute_ctx(OpContext *ctx)
 	ctx->op ? ctx->op->get_req()->get_connection() :
 	ConnectionRef());
     });
+  ctx->register_on_finish(
+    [ctx, this]() {
+      delete ctx;
+    });
 
   // issue replica writes
   ceph_tid_t rep_tid = osd->get_tid();
-  RepGather *repop = new_repop(ctx, obc, rep_tid);  // new repop claims our obc refs
-  // note: repop now owns ctx AND ctx->op
+  RepGather *repop = new_repop(ctx, obc, rep_tid);
 
-  issue_repop(repop);
-
+  issue_repop(repop, ctx);
   eval_repop(repop);
   repop->put();
 }
@@ -8336,9 +8338,6 @@ void ReplicatedPG::op_applied(const eversion_t &applied_version)
 void ReplicatedPG::eval_repop(RepGather *repop)
 {
   MOSDOp *m = NULL;
-  if (repop->ctx->op)
-    m = static_cast<MOSDOp *>(repop->ctx->op->get_req());
-
   if (m)
     dout(10) << "eval_repop " << *repop
 	     << " wants=" << (m->wants_ack() ? "a":"") << (m->wants_ondisk() ? "d":"")
@@ -8397,9 +8396,8 @@ void ReplicatedPG::eval_repop(RepGather *repop)
   }
 }
 
-void ReplicatedPG::issue_repop(RepGather *repop)
+void ReplicatedPG::issue_repop(RepGather *repop, OpContext *ctx)
 {
-  OpContext *ctx = repop->ctx;
   const hobject_t& soid = ctx->obs->oi.soid;
   if (ctx->op &&
     ((static_cast<MOSDOp *>(
@@ -8425,11 +8423,11 @@ void ReplicatedPG::issue_repop(RepGather *repop)
     }
   }
 
-  repop->ctx->apply_pending_attrs();
+  ctx->apply_pending_attrs();
 
   if (pool.info.require_rollback()) {
-    for (vector<pg_log_entry_t>::iterator i = repop->ctx->log.begin();
-	 i != repop->ctx->log.end();
+    for (vector<pg_log_entry_t>::iterator i = ctx->log.begin();
+	 i != ctx->log.end();
 	 ++i) {
       assert(i->mod_desc.can_rollback());
       assert(!i->mod_desc.empty());
@@ -8440,18 +8438,18 @@ void ReplicatedPG::issue_repop(RepGather *repop)
   Context *on_all_applied = new C_OSD_RepopApplied(this, repop);
   pgbackend->submit_transaction(
     soid,
-    repop->ctx->at_version,
-    std::move(repop->ctx->op_t),
+    ctx->at_version,
+    std::move(ctx->op_t),
     pg_trim_to,
     min_last_complete_ondisk,
-    repop->ctx->log,
-    repop->ctx->updated_hset_history,
-    NULL,
+    ctx->log,
+    ctx->updated_hset_history,
+    nullptr,
     on_all_applied,
     on_all_commit,
     repop->rep_tid,
-    repop->ctx->reqid,
-    repop->ctx->op);
+    ctx->reqid,
+    ctx->op);
 }
 
 ReplicatedPG::RepGather *ReplicatedPG::new_repop(
@@ -8463,7 +8461,7 @@ ReplicatedPG::RepGather *ReplicatedPG::new_repop(
   else
     dout(10) << "new_repop rep_tid " << rep_tid << " (no op)" << dendl;
 
-  RepGather *repop = new RepGather(ctx, obc, rep_tid, info.last_complete);
+  RepGather *repop = new RepGather(ctx, rep_tid, info.last_complete);
 
   repop->start = ceph_clock_now(cct);
 
@@ -8479,12 +8477,6 @@ ReplicatedPG::RepGather *ReplicatedPG::new_repop(
 void ReplicatedPG::remove_repop(RepGather *repop)
 {
   dout(20) << __func__ << " " << *repop << dendl;
-  assert(repop->ctx->obc);
-  dout(20) << " obc " << *repop->ctx->obc << dendl;
-  if (repop->ctx->clone_obc)
-    dout(20) << " clone_obc " << *repop->ctx->clone_obc << dendl;
-  if (repop->ctx->snapset_obc)
-    dout(20) << " snapset_obc " << *repop->ctx->snapset_obc << dendl;
 
   for (auto p = repop->on_finish.begin();
        p != repop->on_finish.end();
@@ -8493,8 +8485,8 @@ void ReplicatedPG::remove_repop(RepGather *repop)
   }
 
   release_object_locks(
-    repop->ctx->obc->obs.oi.soid.get_head(),
-    repop->ctx->lock_manager);
+    repop->hoid.get_head(),
+    repop->lock_manager);
   repop_map.erase(repop->rep_tid);
   repop->put();
 
@@ -8517,7 +8509,7 @@ void ReplicatedPG::simple_opc_submit(OpContextUPtr ctx)
 {
   RepGather *repop = new_repop(ctx.release(), ctx->obc, ctx->reqid.tid);
   dout(20) << __func__ << " " << repop << dendl;
-  issue_repop(repop);
+  issue_repop(repop, ctx.get());
   eval_repop(repop);
   repop->put();
 }
@@ -9595,10 +9587,10 @@ void ReplicatedPG::apply_and_flush_repops(bool requeue)
     repop->on_success.clear();
 
     if (requeue) {
-      if (repop->ctx->op) {
-	dout(10) << " requeuing " << *repop->ctx->op->get_req() << dendl;
-	rq.push_back(repop->ctx->op);
-	repop->ctx->op = OpRequestRef();
+      if (repop->op) {
+	dout(10) << " requeuing " << *repop->op->get_req() << dendl;
+	rq.push_back(repop->op);
+	repop->op = OpRequestRef();
       }
 
       // also requeue any dups, interleaved into position
