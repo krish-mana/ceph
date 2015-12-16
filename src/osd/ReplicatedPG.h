@@ -679,10 +679,10 @@ public:
     const OpContext& operator=(const OpContext& other);
 
     OpContext(OpRequestRef _op, osd_reqid_t _reqid, vector<OSDOp>& _ops,
-	      ObjectContextRef& obc,
+	      ObjectContextRef obc,
 	      ReplicatedPG *_pg) :
       op(_op), reqid(_reqid), ops(_ops),
-      obs(&obc->obs),
+      obs(obc ? &obc->obs : nullptr),
       snapset(0),
       new_obs(obs->oi, obs->exists),
       modify(false), user_modify(false), undirty(false), cache_evict(false),
@@ -698,25 +698,14 @@ public:
       async_read_result(0),
       inflightreads(0),
       lock_type(RWState::RWNONE) {
-      if (obc->ssc) {
+      if (obc && obc->ssc) {
 	new_snapset = obc->ssc->snapset;
 	snapset = &obc->ssc->snapset;
       }
     }
     OpContext(OpRequestRef _op, osd_reqid_t _reqid,
               vector<OSDOp>& _ops, ReplicatedPG *_pg) :
-      op(_op), reqid(_reqid), ops(_ops), obs(NULL), snapset(0),
-      modify(false), user_modify(false), undirty(false), cache_evict(false),
-      ignore_cache(false), ignore_log_op_stats(false),
-      bytes_written(0), user_at_version(0),
-      current_osd_subop_num(0),
-      data_off(0), reply(NULL), pg(_pg),
-      num_read(0),
-      num_write(0),
-      copy_cb(NULL),
-      async_read_result(0),
-      inflightreads(0),
-      lock_type(RWState::RWNONE) {}
+      OpContext(_op, _reqid, _ops, ObjectContextRef(), _pg) {}
     void reset_obs(ObjectContextRef obc) {
       new_obs = ObjectState(obc->obs.oi, obc->obs.exists);
       if (obc->ssc) {
