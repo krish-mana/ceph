@@ -119,13 +119,25 @@ of a versioning or copy-on-write capability for modifying a portion of
 an object.
 
 When a prepare operation is performed, the new data is written into a
-temporary object (either we extend the existing temporary object
-concept to allow for objects which can outlive an interval, or we use
-the generation counter in ghobject to place it next to the main object
-as with deletes -- I suggest the latter course). The PG log for the
+temporary object. The PG log for the
 operation will contain a reference to the temporary object so that it
 can be located for recovery purposes as well as a record of all of the
-shards which are involved in the operation. It will be good to provide a hint about the object lifetime to ObjectStore.
+shards which are involved in the operation. 
+
+In order to avoid fragmentation (and hence, future read performance), 
+creation of the temporary object needs special attention. The name of
+the temporary object affects its location within the KV store. Right
+now its unclear whether it's desirable for the name to locate near the
+base object or whether a separate subset of keyspace should be used for 
+temporary objects. Sam believes that colocation with the base object is preferred
+(he suggests using the generation counter of the ghobject for temporaries).
+Whereas Allen believes that using a separate subset of keyspace is desirable
+since these keys are ephemeral and we don't want to actually colocate them
+with the base object keys. Perhaps some modeling here can help resolve this
+issue. The data of the temporary object wants to be located as close to the
+data of the base object as possible. This may be best performed by adding a
+new ObjectStore creation primitive that takes the base object as an 
+addtional parameter that is a hint to the allocator.
 
 The apply operation moves the data from the temporary object into the
 correct position within the base object and deletes the associated
