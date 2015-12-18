@@ -23,7 +23,8 @@
 #include "common/Mutex.h"
 #include "common/Cond.h"
 #include "common/Thread.h"
-#include "common/PrioritizedQueue.h"
+//#include "common/PrioritizedQueue.h"
+#include "common/WeightedPriorityQueue.h"
 
 class CephContext;
 class DispatchQueue;
@@ -68,7 +69,8 @@ class DispatchQueue {
   mutable Mutex lock;
   Cond cond;
 
-  PrioritizedQueue<QueueItem, uint64_t> mqueue;
+  //PrioritizedQueue<QueueItem, uint64_t> mqueue;
+  WeightedPriorityQueue<QueueItem, uint64_t> mqueue;
 
   set<pair<double, Message*> > marrival;
   map<Message *, set<pair<double, Message*> >::iterator> marrival_map;
