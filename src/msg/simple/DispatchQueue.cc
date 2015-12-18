@@ -83,7 +83,7 @@ void DispatchQueue::enqueue(Message *m, int priority, uint64_t id)
   Mutex::Locker l(lock);
   ldout(cct,20) << "queue " << m << " prio " << priority << dendl;
   add_arrival(m);
-  if (priority >= CEPH_MSG_PRIO_LOW) {
+  if (priority >= CEPH_MSG_PRIO_HIGH) {
     mqueue.enqueue_strict(
         id, priority, QueueItem(m));
   } else {
@@ -125,7 +125,7 @@ void DispatchQueue::run_local_delivery()
     } else {
       Mutex::Locker l(lock);
       add_arrival(m);
-      if (priority >= CEPH_MSG_PRIO_LOW) {
+      if (priority >= CEPH_MSG_PRIO_HIGH) {
         mqueue.enqueue_strict(
             0, priority, QueueItem(m));
       } else {
