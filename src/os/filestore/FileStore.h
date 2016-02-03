@@ -341,7 +341,7 @@ private:
 
   atomic_t next_osr_id;
   deque<OpSequencer*> op_queue;
-  Throttle throttle_ops, throttle_bytes;
+  BackoffThrottle throttle_ops, throttle_bytes;
   const int m_ondisk_finisher_num;
   const int m_apply_finisher_num;
   vector<Finisher*> ondisk_finishers;
@@ -710,6 +710,7 @@ private:
   virtual const char** get_tracked_conf_keys() const;
   virtual void handle_conf_change(const struct md_config_t *conf,
 			  const std::set <std::string> &changed);
+  int set_throttle_params();
   float m_filestore_commit_timeout;
   bool m_filestore_journal_parallel;
   bool m_filestore_journal_trailing;

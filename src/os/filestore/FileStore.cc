@@ -519,8 +519,8 @@ FileStore::FileStore(const std::string &base, const std::string &jdev, osflagbit
   fdcache(g_ceph_context),
   wbthrottle(g_ceph_context),
   next_osr_id(0),
-  throttle_ops(g_ceph_context, "filestore_ops", g_conf->filestore_queue_max_ops),
-  throttle_bytes(g_ceph_context, "filestore_bytes", g_conf->filestore_queue_max_bytes),
+  throttle_ops(g_conf->filestore_caller_concurrency),
+  throttle_bytes(g_conf->filestore_caller_concurrency),
   m_ondisk_finisher_num(g_conf->filestore_ondisk_finisher_threads),
   m_apply_finisher_num(g_conf->filestore_apply_finisher_threads),
   op_tp(g_ceph_context, "FileStore::op_tp", "tp_fstore_op", g_conf->filestore_op_threads, "filestore_op_threads"),
@@ -1271,6 +1271,10 @@ int FileStore::mount()
 
   dout(5) << "basedir " << basedir << " journal " << journalpath << dendl;
 
+  ret = set_throttle_params();
+  if (ret != 0)
+    goto done;
+
   // make sure global base dir exists
   if (::access(basedir.c_str(), R_OK | W_OK)) {
     ret = -errno;
@@ -1835,12 +1839,14 @@ void FileStore::op_queue_reserve_throttle(Op *o, ThreadPool::TPHandle *handle)
 
   if (handle)
     handle->suspend_tp_timeout();
+  /*
   if (throttle_ops.should_wait(1) ||
     (throttle_bytes.get_current()      // let single large ops through!
     && throttle_bytes.should_wait(o->bytes))) {
     dout(2) << "waiting " << throttle_ops.get_current() + 1 << " > " << max_ops << " ops || "
       << throttle_bytes.get_current() + o->bytes << " > " << max_bytes << dendl;
   }
+  */
   throttle_ops.get();
   throttle_bytes.get(o->bytes);
   if (handle)
@@ -5434,7 +5440,15 @@ const char** FileStore::get_tracked_conf_keys() const
     "filestore_min_sync_interval",
     "filestore_max_sync_interval",
     "filestore_queue_max_ops",
+    "filestore_queue_ops_low_threshhold",
+    "filestore_queue_ops_high_threshhold",
+    "filestore_queue_ops_expected_delay",
+    "filestore_queue_ops_max_delay",
     "filestore_queue_max_bytes",
+    "filestore_queue_bytes_low_threshhold",
+    "filestore_queue_bytes_high_threshhold",
+    "filestore_queue_bytes_expected_delay",
+    "filestore_queue_bytes_max_delay",
     "filestore_queue_committing_max_ops",
     "filestore_queue_committing_max_bytes",
     "filestore_commit_timeout",
@@ -5467,6 +5481,16 @@ void FileStore::handle_conf_change(const struct md_config_t *conf,
   if (changed.count("filestore_min_sync_interval") ||
       changed.count("filestore_max_sync_interval") ||
       changed.count("filestore_queue_max_ops") ||
+      changed.count("filestore_queue_ops_low_threshhold") ||
+      changed.count("filestore_queue_ops_high_threshhold") ||
+      changed.count("filestore_queue_ops_expected_delay") ||
+      changed.count("filestore_queue_ops_max_delay") ||
+      changed.count("filestore_queue_max_bytes") ||
+      changed.count("filestore_queue_bytes_low_threshhold") ||
+      changed.count("filestore_queue_bytes_high_threshhold") ||
+      changed.count("filestore_queue_bytes_expected_delay") ||
+      changed.count("filestore_queue_bytes_max_delay") ||
+      changed.count("filestore_queue_max_ops") ||
       changed.count("filestore_queue_max_bytes") ||
       changed.count("filestore_queue_committing_max_ops") ||
       changed.count("filestore_queue_committing_max_bytes") ||
@@ -5489,8 +5513,8 @@ void FileStore::handle_conf_change(const struct md_config_t *conf,
     m_filestore_sloppy_crc = conf->filestore_sloppy_crc;
     m_filestore_sloppy_crc_block_size = conf->filestore_sloppy_crc_block_size;
     m_filestore_max_alloc_hint_size = conf->filestore_max_alloc_hint_size;
-    throttle_ops.reset_max(conf->filestore_queue_max_ops);
-    throttle_bytes.reset_max(conf->filestore_queue_max_bytes);
+
+    set_throttle_params();
   }
   if (changed.count("filestore_commit_timeout")) {
     Mutex::Locker l(sync_entry_timeo_lock);
@@ -5504,6 +5528,33 @@ void FileStore::handle_conf_change(const struct md_config_t *conf,
       dump_stop();
     }
   }
+}
+
+int FileStore::set_throttle_params()
+{
+  stringstream ss;
+  bool valid = throttle_bytes.set_params(
+    g_conf->filestore_queue_low_threshhold,
+    g_conf->filestore_queue_high_threshhold,
+    g_conf->filestore_queue_bytes_expected_delay_per_byte,
+    g_conf->filestore_queue_bytes_max_delay_per_byte,
+    g_conf->filestore_queue_max_bytes,
+    &ss);
+
+  valid &= throttle_ops.set_params(
+    g_conf->filestore_queue_low_threshhold,
+    g_conf->filestore_queue_high_threshhold,
+    g_conf->filestore_queue_ops_expected_delay_per_op,
+    g_conf->filestore_queue_ops_max_delay_per_op,
+    g_conf->filestore_queue_max_ops,
+    &ss);
+
+  if (!valid) {
+    derr << "tried to set invalid params: "
+	 << ss.str()
+	 << dendl;
+  }
+  return valid ? 0 : -EINVAL;
 }
 
 void FileStore::dump_start(const std::string& file)

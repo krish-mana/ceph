@@ -1021,6 +1021,16 @@ OPTION(filestore_journal_writeahead, OPT_BOOL, false)
 OPTION(filestore_journal_trailing, OPT_BOOL, false)
 OPTION(filestore_queue_max_ops, OPT_INT, 50)
 OPTION(filestore_queue_max_bytes, OPT_INT, 100 << 20)
+
+OPTION(filestore_caller_concurrency, OPT_INT, 10)
+OPTION(filestore_queue_low_threshhold, OPT_FLOAT, 0.2)
+OPTION(filestore_queue_high_threshhold, OPT_FLOAT, 0.8)
+OPTION(filestore_queue_ops_expected_delay_per_op, OPT_FLOAT, 0.0001)
+OPTION(filestore_queue_ops_max_delay_per_op, OPT_FLOAT, .01)
+
+OPTION(filestore_queue_bytes_expected_delay_per_byte, OPT_FLOAT, 0.0001)
+OPTION(filestore_queue_bytes_max_delay_per_byte, OPT_FLOAT, 1)
+
 OPTION(filestore_queue_committing_max_ops, OPT_INT, 500)        // this is ON TOP of filestore_queue_max_*
 OPTION(filestore_queue_committing_max_bytes, OPT_INT, 100 << 20) //  "
 OPTION(filestore_op_threads, OPT_INT, 2)
