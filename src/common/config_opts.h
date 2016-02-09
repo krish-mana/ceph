@@ -1018,6 +1018,8 @@ OPTION(filestore_collect_device_partition_information, OPT_BOOL, true)
 // worse, but large sequential writes are faster. When enabled, large
 // sequential writes are slower, but fragmentation is reduced.
 OPTION(filestore_xfs_extsize, OPT_BOOL, false)
+OPTION(filestore_do_fast_sync, OPT_BOOL, false)
+OPTION(filestore_do_force_sync, OPT_BOOL, false)
 
 OPTION(filestore_journal_parallel, OPT_BOOL, false)
 OPTION(filestore_journal_writeahead, OPT_BOOL, false)
