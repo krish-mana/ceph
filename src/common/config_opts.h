@@ -1051,8 +1051,13 @@ OPTION(journal_block_align, OPT_BOOL, true)
 OPTION(journal_write_header_frequency, OPT_U64, 0)
 OPTION(journal_max_write_bytes, OPT_INT, 10 << 20)
 OPTION(journal_max_write_entries, OPT_INT, 100)
-OPTION(journal_queue_max_ops, OPT_INT, 300)
-OPTION(journal_queue_max_bytes, OPT_INT, 32 << 20)
+
+OPTION(journal_throttle_concurrency, OPT_INT, 10)
+OPTION(journal_throttle_low_threshhold, OPT_FLOAT, 0.2)
+OPTION(journal_throttle_high_threshhold, OPT_FLOAT, 0.8)
+OPTION(journal_throttle_expected_delay_per_byte, OPT_FLOAT, 0.00000001)
+OPTION(journal_throttle_max_delay_per_byte, OPT_FLOAT, 0.000001)
+
 OPTION(journal_align_min_size, OPT_INT, 64 << 10)  // align data payloads >= this.
 OPTION(journal_replay_from, OPT_INT, 0)
 OPTION(journal_zero_on_create, OPT_BOOL, false)

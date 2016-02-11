@@ -909,7 +909,7 @@ int FileJournal::prepare_multi_write(bufferlist& bl, uint64_t& orig_ops, uint64_
           // throw out what we have so far
           full_state = FULL_FULL;
           while (!writeq_empty()) {
-            put_throttle(1, peek_write().orig_len);
+            complete_write(1, peek_write().orig_len);
             pop_write();
           }
           print_header(header);
@@ -1304,7 +1304,7 @@ void FileJournal::write_thread_entry()
       if (write_stop) {
 	dout(20) << "write_thread_entry full and stopping, throw out queue and finish up" << dendl;
 	while (!writeq_empty()) {
-	  put_throttle(1, peek_write().orig_len);
+	  complete_write(1, peek_write().orig_len);
 	  pop_write();
 	}
 	print_header(header);
@@ -1331,7 +1331,7 @@ void FileJournal::write_thread_entry()
 #else
     do_write(bl);
 #endif
-    put_throttle(orig_ops, orig_bytes);
+    complete_write(orig_ops, orig_bytes);
   }
 
   dout(10) << "write_thread_entry finish" << dendl;
@@ -1652,16 +1652,14 @@ void FileJournal::submit_entry(uint64_t seq, bufferlist& e, uint32_t orig_len,
 	  << " (" << oncommit << ")" << dendl;
   assert(e.length() > 0);
 
-  throttle_ops.take(1);
-  throttle_bytes.take(orig_len);
   if (osd_op)
     osd_op->mark_event("commit_queued_for_journal_write");
   if (logger) {
-    logger->set(l_os_jq_max_ops, throttle_ops.get_max());
-    logger->set(l_os_jq_max_bytes, throttle_bytes.get_max());
-    logger->set(l_os_jq_ops, throttle_ops.get_current());
-    logger->set(l_os_jq_bytes, throttle_bytes.get_current());
+    logger->inc(l_os_jq_bytes, orig_len);
+    logger->inc(l_os_jq_ops, 1);
   }
+
+  throttle.register_throttle_seq(seq, e.length());
 
   {
     Mutex::Locker l1(writeq_lock);
@@ -1700,19 +1698,37 @@ void FileJournal::pop_write()
 {
   assert(write_lock.is_locked());
   Mutex::Locker locker(writeq_lock);
+  if (logger) {
+    logger->dec(l_os_jq_bytes, writeq.front().orig_len);
+    logger->dec(l_os_jq_ops, 1);
+  }
   writeq.pop_front();
 }
 
 void FileJournal::batch_pop_write(list<write_item> &items)
 {
   assert(write_lock.is_locked());
-  Mutex::Locker locker(writeq_lock);
-  writeq.swap(items);
+  {
+    Mutex::Locker locker(writeq_lock);
+    writeq.swap(items);
+  }
+  for (auto &&i : items) {
+    if (logger) {
+      logger->dec(l_os_jq_bytes, i.orig_len);
+      logger->dec(l_os_jq_ops, 1);
+    }
+  }
 }
 
 void FileJournal::batch_unpop_write(list<write_item> &items)
 {
   assert(write_lock.is_locked());
+  for (auto &&i : items) {
+    if (logger) {
+      logger->inc(l_os_jq_bytes, i.orig_len);
+      logger->inc(l_os_jq_ops, 1);
+    }
+  }
   Mutex::Locker locker(writeq_lock);
   writeq.splice(writeq.begin(), items);
 }
@@ -1768,6 +1784,8 @@ void FileJournal::do_discard(int64_t offset, int64_t end)
 
 void FileJournal::committed_thru(uint64_t seq)
 {
+  throttle.flush(seq);
+
   Mutex::Locker locker(write_lock);
 
   if (seq < last_committed_seq) {
@@ -1826,7 +1844,7 @@ void FileJournal::committed_thru(uint64_t seq)
     dout(15) << " dropping committed but unwritten seq " << peek_write().seq
 	     << " len " << peek_write().bl.length()
 	     << dendl;
-    put_throttle(1, peek_write().orig_len);
+    complete_write(1, peek_write().orig_len);
     pop_write();
   }
 
@@ -1836,29 +1854,25 @@ void FileJournal::committed_thru(uint64_t seq)
 }
 
 
-void FileJournal::put_throttle(uint64_t ops, uint64_t bytes)
+void FileJournal::complete_write(uint64_t ops, uint64_t bytes)
 {
-  uint64_t new_ops = throttle_ops.put(ops);
-  uint64_t new_bytes = throttle_bytes.put(bytes);
-  dout(5) << "put_throttle finished " << ops << " ops and "
-	   << bytes << " bytes, now "
-	   << new_ops << " ops and " << new_bytes << " bytes"
-	   << dendl;
+  dout(5) << __func__ << " finished " << ops << " ops and "
+	  << bytes << " bytes" << dendl;
 
   if (logger) {
     logger->inc(l_os_j_ops, ops);
     logger->inc(l_os_j_bytes, bytes);
-    logger->set(l_os_jq_ops, new_ops);
-    logger->set(l_os_jq_bytes, new_bytes);
-    logger->set(l_os_jq_max_ops, throttle_ops.get_max());
-    logger->set(l_os_jq_max_bytes, throttle_bytes.get_max());
   }
 }
 
 int FileJournal::make_writeable()
 {
   dout(10) << __func__ << dendl;
-  int r = _open(true);
+  int r = set_throttle_params();
+  if (r < 0)
+    return r;
+
+  r = _open(true);
   if (r < 0)
     return r;
 
@@ -1869,8 +1883,39 @@ int FileJournal::make_writeable()
   read_pos = 0;
 
   must_write_header = true;
+
   start_writer();
   return 0;
+}
+
+int FileJournal::set_throttle_params()
+{
+  stringstream ss;
+  bool valid = throttle.set_params(
+    g_conf->journal_throttle_low_threshhold,
+    g_conf->journal_throttle_high_threshhold,
+    g_conf->journal_throttle_expected_delay_per_byte,
+    g_conf->journal_throttle_max_delay_per_byte,
+    header.max_size - get_top(),
+    &ss);
+
+  if (!valid) {
+    derr << "tried to set invalid params: "
+	 << ss.str()
+	 << dendl;
+  }
+  return valid ? 0 : -EINVAL;
+}
+
+const char** FileJournal::get_tracked_conf_keys() const
+{
+  static const char *KEYS[] = {
+    "journal_throttle_low_threshhold",
+    "journal_throttle_high_threshhold",
+    "journal_throttle_expected_delay_per_byte",
+    "journal_throttle_max_delay_per_byte",
+    NULL};
+  return KEYS;
 }
 
 void FileJournal::wrap_read_bl(
@@ -1935,6 +1980,12 @@ bool FileJournal::read_entry(
     &ss);
   if (result == SUCCESS) {
     journalq.push_back( pair<uint64_t,off64_t>(seq, pos));
+    uint64_t amount_to_take =
+      next_pos > pos ?
+      next_pos - pos :
+      (header.max_size - pos) + (next_pos - get_top());
+    throttle.take(amount_to_take);
+    throttle.register_throttle_seq(next_seq, amount_to_take);
     if (next_seq > seq) {
       return false;
     } else {
@@ -2052,12 +2103,9 @@ FileJournal::read_entry_result FileJournal::do_read_entry(
   return SUCCESS;
 }
 
-void FileJournal::throttle()
+void FileJournal::reserve_throttle_and_backoff(uint64_t count)
 {
-  if (throttle_ops.wait(g_conf->journal_queue_max_ops))
-    dout(2) << "throttle: waited for ops" << dendl;
-  if (throttle_bytes.wait(g_conf->journal_queue_max_bytes))
-    dout(2) << "throttle: waited for bytes" << dendl;
+  throttle.get(count);
 }
 
 void FileJournal::get_header(
