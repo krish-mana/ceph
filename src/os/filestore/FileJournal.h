@@ -24,6 +24,8 @@ using std::deque;
 #include "common/Mutex.h"
 #include "common/Thread.h"
 #include "common/Throttle.h"
+#include "JournalThrottle.h"
+
 
 #ifdef HAVE_LIBAIO
 # include <libaio.h>
@@ -34,7 +36,9 @@ using std::deque;
  *
  * Lock ordering is write_lock > aio_lock > (completions_lock | finisher_lock)
  */
-class FileJournal : public Journal {
+class FileJournal :
+  public Journal,
+  public md_config_obs_t {
 public:
   /// Protected by finisher_lock
   struct completion_item {
@@ -294,9 +298,22 @@ private:
 
 
   // throttle
-  Throttle throttle_ops, throttle_bytes;
+  int set_throttle_params();
+  void handle_conf_change(
+    const struct md_config_t *conf,
+    const std::set <std::string> &changed) override {
+    string prefix = "journal_";
+    for (auto &&i : changed) {
+      if (i.substr(0, prefix.size()) == prefix) {
+	set_throttle_params();
+	return;
+      }
+    }
+  }
+  const char** get_tracked_conf_keys() const override;
 
-  void put_throttle(uint64_t ops, uint64_t bytes);
+  void complete_write(uint64_t ops, uint64_t bytes);
+  JournalThrottle throttle;
 
   // write thread
   Mutex write_lock;
@@ -396,8 +413,7 @@ private:
     full_state(FULL_NOTFULL),
     fd(-1),
     writing_seq(0),
-    throttle_ops(g_ceph_context, "journal_ops", g_conf->journal_queue_max_ops),
-    throttle_bytes(g_ceph_context, "journal_bytes", g_conf->journal_queue_max_bytes),
+    throttle(g_conf->filestore_caller_concurrency),
     write_lock("FileJournal::write_lock", false, true, false, g_ceph_context),
     write_stop(true),
     aio_stop(true),
@@ -414,10 +430,13 @@ private:
         aio = false;
       }
 #endif
+
+      g_conf->add_observer(this);
   }
   ~FileJournal() {
     assert(fd == -1);
     delete[] zero_buf;
+    g_conf->remove_observer(this);
   }
 
   int check();
@@ -432,7 +451,7 @@ private:
 
   void flush();
 
-  void throttle();
+  void reserve_throttle_and_backoff(uint64_t count);
 
   bool is_writeable() {
     return read_pos == 0;
