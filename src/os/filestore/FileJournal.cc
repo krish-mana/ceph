@@ -884,6 +884,13 @@ int FileJournal::prepare_multi_write(bufferlist& bl, uint64_t& orig_ops, uint64_
       int r = prepare_single_write(*it, bl, queue_pos, orig_ops, orig_bytes);
       if (r == 0) { // prepare ok, delete it
          items.erase(it++);
+#ifdef HAVE_LIBAIO
+	 {
+	   Mutex::Locker locker(aio_lock);
+	   assert(aio_write_queue_ops > 0);
+	   aio_write_queue_ops--;
+	 }
+#endif
       }
       if (r == -ENOSPC) {
         // the journal maybe full, insert the left item to writeq
@@ -1270,7 +1277,7 @@ void FileJournal::write_thread_entry()
       while (aio_num > 0) {
 	int exp = MIN(aio_num * 2, 24);
 	long unsigned min_new = 1ull << exp;
-	long unsigned cur = throttle_bytes.get_current();
+	uint64_t cur = aio_write_queue_ops;
 	dout(20) << "write_thread_entry aio throttle: aio num " << aio_num << " bytes " << aio_bytes
 		 << " ... exp " << exp << " min_new " << min_new
 		 << " ... pending " << cur << dendl;
@@ -1657,14 +1664,22 @@ void FileJournal::submit_entry(uint64_t seq, bufferlist& e, uint32_t orig_len,
   }
 
   {
-    Mutex::Locker l1(writeq_lock);  // ** lock **
-    Mutex::Locker l2(completions_lock);  // ** lock **
+    Mutex::Locker l1(writeq_lock);
+#ifdef HAVE_LIBAIO
+    Mutex::Locker l2(aio_lock);
+#endif
+    Mutex::Locker l3(completions_lock);
     completions.push_back(
       completion_item(
 	seq, oncommit, ceph_clock_now(g_ceph_context), osd_op));
     if (writeq.empty())
       writeq_cond.Signal();
     writeq.push_back(write_item(seq, e, orig_len, osd_op));
+
+#ifdef HAVE_LIBAIO
+    aio_write_queue_ops++;
+    aio_cond.Signal();
+#endif
   }
 }
 
