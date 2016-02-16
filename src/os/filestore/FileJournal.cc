@@ -1261,7 +1261,7 @@ void FileJournal::write_thread_entry()
     }
 
 #ifdef HAVE_LIBAIO
-    if (aio) {
+    if (aio && g_conf->journal_aio_throttle) {
       Mutex::Locker locker(aio_lock);
       // should we back off to limit aios in flight?  try to do this
       // adaptively so that we submit larger aios once we have lots of
