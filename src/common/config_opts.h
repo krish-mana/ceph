@@ -1067,9 +1067,6 @@ OPTION(journal_zero_on_create, OPT_BOOL, false)
 OPTION(journal_ignore_corruption, OPT_BOOL, false) // assume journal is not corrupt
 OPTION(journal_discard, OPT_BOOL, false) //using ssd disk as journal, whether support discard nouse journal-data.
 OPTION(journal_dynamic_throttle_start_delay, OPT_DOUBLE, 0.00001) //in seconds
-OPTION(journal_aio_throttle, OPT_BOOL, true)
-OPTION(journal_minimum_aio_size, OPT_U64, 16 << 10)
-OPTION(journal_aio_limit, OPT_INT, 64)
 
 OPTION(rados_mon_op_timeout, OPT_DOUBLE, 0) // how many seconds to wait for a response from the monitor before returning an error from a rados operation. 0 means on limit.
 OPTION(rados_osd_op_timeout, OPT_DOUBLE, 0) // how many seconds to wait for a response from osds before returning an error from a rados operation. 0 means no limit.

@@ -905,9 +905,7 @@ int FileJournal::prepare_multi_write(bufferlist& bl, uint64_t& orig_ops, uint64_
           // throw out what we have so far
           full_state = FULL_FULL;
           while (!writeq_empty()) {
-            if (g_conf->journal_aio_throttle) {
               m_journal_current_queue_bytes.sub(peek_write().orig_len);
-            }
             pop_write();
           }
           print_header(header);
@@ -1259,7 +1257,7 @@ void FileJournal::write_thread_entry()
     }
 
 #ifdef HAVE_LIBAIO
-    if (aio && g_conf->journal_aio_throttle) {
+    if (aio) {
       Mutex::Locker locker(aio_lock);
       // should we back off to limit aios in flight?  try to do this
       // adaptively so that we submit larger aios once we have lots of
@@ -1272,16 +1270,17 @@ void FileJournal::write_thread_entry()
       // but should be fine given that we will have plenty of aios in
       // flight if we hit this limit to ensure we keep the device
       // saturated.
-      while (aio_num > g_conf->journal_aio_limit) {
-	long unsigned min_aio_bytes = g_conf->journal_minimum_aio_size;
 	long unsigned cur = m_journal_current_queue_bytes.read();
+      while (aio_num > 0) {
+	int exp = MIN(aio_num * 2, 24);
+	long unsigned min_new = 1ull << exp;
 	dout(20) << "write_thread_entry aio throttle: aio num " << aio_num << " bytes " << aio_bytes
-		 << " min_aio_bytes " << min_aio_bytes
+		 << " ... exp " << exp << " min_new " << min_new
 		 << " ... pending " << cur << dendl;
-	if (cur >= min_aio_bytes)
+	if (cur >= min_new)
 	  break;
-	dout(0) << "write_thread_entry deferring until more aios complete: "
-		 << aio_num << " aios with " << aio_bytes << " bytes needs " << min_aio_bytes
+	dout(20) << "write_thread_entry deferring until more aios complete: "
+		 << aio_num << " aios with " << aio_bytes << " bytes needs " << min_new
 		 << " bytes to start a new aio (currently " << cur << " pending)" << dendl;
 	aio_cond.Wait(aio_lock);
 	dout(20) << "write_thread_entry woke up" << dendl;
@@ -1310,9 +1309,7 @@ void FileJournal::write_thread_entry()
       if (write_stop) {
 	dout(20) << "write_thread_entry full and stopping, throw out queue and finish up" << dendl;
 	while (!writeq_empty()) {
-          if (g_conf->journal_aio_throttle) {
             m_journal_current_queue_bytes.sub(peek_write().orig_len);
-          }
 	  pop_write();
 	}
 	print_header(header);
@@ -1339,9 +1336,7 @@ void FileJournal::write_thread_entry()
 #else
     do_write(bl);
 #endif
-    if (g_conf->journal_aio_throttle) {
       m_journal_current_queue_bytes.sub(orig_bytes);
-    }
   }
 
   dout(10) << "write_thread_entry finish" << dendl;
@@ -1661,9 +1656,7 @@ void FileJournal::submit_entry(uint64_t seq, bufferlist& e, uint32_t orig_len,
 	  << " len " << e.length()
 	  << " (" << oncommit << ")" << dendl;
   assert(e.length() > 0);
-  if (g_conf->journal_aio_throttle) {
     m_journal_current_queue_bytes.add(orig_len);
-  }
 
   if (osd_op)
     osd_op->mark_event("commit_queued_for_journal_write");
@@ -1823,9 +1816,7 @@ void FileJournal::committed_thru(uint64_t seq)
     dout(15) << " dropping committed but unwritten seq " << peek_write().seq
 	     << " len " << peek_write().bl.length()
 	     << dendl;
-    if (g_conf->journal_aio_throttle) {
       m_journal_current_queue_bytes.sub(peek_write().orig_len);
-    }
     pop_write();
   }
 
