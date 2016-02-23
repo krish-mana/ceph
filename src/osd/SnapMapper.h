@@ -52,9 +52,6 @@ public:
       const std::set<std::string> &to_remove) {
       t->omap_rmkeys(cid, hoid, to_remove);
     }
-    void clear() override {
-      t->omap_clear(cid, hoid);
-    }
     void add_callback(
       Context *c) {
       t->register_on_applied(c);
