@@ -9831,9 +9831,7 @@ void ReplicatedPG::on_change(ObjectStore::Transaction *t)
   apply_and_flush_repops(is_primary());
 
   pgbackend->on_change_cleanup(t);
-  if (scrubber.store) {
-    scrubber.store->cleanup(t);
-  }
+  scrubber.cleanup_store(t);
   pgbackend->on_change();
 
   // clear snap_trimmer state

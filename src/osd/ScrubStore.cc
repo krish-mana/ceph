@@ -104,9 +104,6 @@ void Store::flush(ObjectStore::Transaction* t)
 
 void Store::cleanup(ObjectStore::Transaction* t)
 {
-  assert(t);
-  OSDriver::OSTransaction txn = driver.get_transaction(t);
-  backend.clear(&txn);
   t->remove(coll, hoid);
 }
 
