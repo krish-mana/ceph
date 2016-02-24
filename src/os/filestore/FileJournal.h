@@ -268,7 +268,7 @@ private:
   Cond write_finish_cond;
   io_context_t aio_ctx;
   list<aio_info> aio_queue;
-  int aio_num, aio_bytes;
+  unsigned aio_num, aio_bytes;
   uint64_t aio_write_queue_ops;
   uint64_t aio_write_queue_bytes;
   /// End protected by aio_lock

@@ -1264,33 +1264,22 @@ void FileJournal::write_thread_entry()
     }
 
 #ifdef HAVE_LIBAIO
-    if (aio) {
+    if (aio &&
+        (g_conf->journal_aio_throttle_limit ||
+	 g_conf->journal_aio_throttle_threshhold)) {
       Mutex::Locker locker(aio_lock);
-      // should we back off to limit aios in flight?  try to do this
-      // adaptively so that we submit larger aios once we have lots of
-      // them in flight.
-      //
-      // NOTE: our condition here is based on aio_num (protected by
-      // aio_lock) and throttle_bytes (part of the write queue).  when
-      // we sleep, we *only* wait for aio_num to change, and do not
-      // wake when more data is queued.  this is not strictly correct,
-      // but should be fine given that we will have plenty of aios in
-      // flight if we hit this limit to ensure we keep the device
-      // saturated.
-      while (aio_num > 0) {
-	int exp = MIN(aio_num * 2, 24);
-	long unsigned min_new = 1ull << exp;
-	uint64_t cur = aio_write_queue_bytes;
-	dout(20) << "write_thread_entry aio throttle: aio num " << aio_num << " bytes " << aio_bytes
-		 << " ... exp " << exp << " min_new " << min_new
-		 << " ... pending " << cur << dendl;
-	if (cur >= min_new)
-	  break;
-	dout(20) << "write_thread_entry deferring until more aios complete: "
-		 << aio_num << " aios with " << aio_bytes << " bytes needs " << min_new
-		 << " bytes to start a new aio (currently " << cur << " pending)" << dendl;
+      // See config_opts.h for journal_aio_throttle_*
+      while ((g_conf->journal_aio_throttle_limit &&
+	      (aio_num >= g_conf->journal_aio_throttle_limit)) ||
+	     (g_conf->journal_aio_throttle_threshhold &&
+	      (aio_num >= g_conf->journal_aio_throttle_threshhold) &&
+	      (aio_write_queue_bytes < g_conf->journal_max_write_bytes) &&
+	      (aio_write_queue_ops < g_conf->journal_max_write_entries))) {
+	dout(20) << "write_thread_entry aio throttle: aio num "
+		 << aio_num << " bytes " << aio_bytes
+		 << " ... pending " << aio_write_queue_ops << " ops "
+		 << aio_write_queue_bytes << " bytes" << dendl;
 	aio_cond.Wait(aio_lock);
-	dout(20) << "write_thread_entry woke up" << dendl;
       }
     }
 #endif
@@ -1563,7 +1552,9 @@ void FileJournal::check_aio_completion()
       new_journaled_seq = p->seq;
       completed_something = true;
     }
+    assert(aio_num > 0);
     aio_num--;
+    assert(aio_bytes >= p->len);
     aio_bytes -= p->len;
     aio_queue.erase(p++);
     signal = true;
