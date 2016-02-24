@@ -1071,8 +1071,21 @@ OPTION(journal_force_aio, OPT_BOOL, false)
 OPTION(journal_max_corrupt_search, OPT_U64, 10<<20)
 OPTION(journal_block_align, OPT_BOOL, true)
 OPTION(journal_write_header_frequency, OPT_U64, 0)
-OPTION(journal_max_write_bytes, OPT_INT, 10 << 20)
-OPTION(journal_max_write_entries, OPT_INT, 100)
+OPTION(journal_max_write_bytes, OPT_U64, 10 << 20)
+OPTION(journal_max_write_entries, OPT_U64, 100)
+
+/* journal aio throttles
+ *
+ * The journal will issue aios unconditionally until the number outstanding
+ * hits journal_aio_throttle_threshhold.  Above that, it will only
+ * allow more aios to be started if the queue contains at least
+ * journal_max_write_bytes or journal_max_write_entries until there are
+ * journal_aio_throttle_limit, at which point it blocks until some
+ * aios complete.
+ */
+OPTION(journal_aio_throttle_threshhold, OPT_U64, 16)
+OPTION(journal_aio_throttle_limit, OPT_U64, 32)
+
 
 /// Target range for journal fullness
 OPTION(journal_throttle_low_threshhold, OPT_DOUBLE, 0.5)
