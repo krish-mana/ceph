@@ -3901,7 +3901,6 @@ struct ScrubMap {
 WRITE_CLASS_ENCODER(ScrubMap::object)
 WRITE_CLASS_ENCODER(ScrubMap)
 
-
 struct OSDOp {
   ceph_osd_op op;
   sobject_t soid;

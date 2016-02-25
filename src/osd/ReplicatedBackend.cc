@@ -307,6 +307,26 @@ void ReplicatedBackend::objects_read_async(
       new AsyncReadCallback(r, on_complete)));
 }
 
+void ReplicatedBackend::objects_read_async_use_aio(
+  ObjectStore::Sequencer *osr,
+  const hobject_t &hoid,
+  const list<pair<boost::tuple<uint64_t, uint64_t, uint32_t>,
+		  boost::tuple<bufferlist*, Context*, bool> > > &to_read)
+{
+  int r = 0;
+  for (list<pair<boost::tuple<uint64_t, uint64_t, uint32_t>,
+		 boost::tuple<bufferlist*, Context*, bool> > >::const_iterator
+       i = to_read.begin();
+       i != to_read.end() && r >= 0;
+       ++i) {
+    int _s = store->async_read_dispatch(osr, i->second.get<1>(), coll,
+                                        ghobject_t(hoid), i->first.get<0>(),
+                                        i->first.get<1>(), i->second.get<0>(),
+                                        i->first.get<2>(), i->second.get<2>());
+    if (_s < 0)
+      r = _s;
+  }
+}
 
 class RPGTransaction : public PGBackend::PGTransaction {
   coll_t coll;

@@ -163,6 +163,15 @@ public:
                Context *on_complete,
                bool fast_read = false);
 
+  bool async_read_capable() override {
+    return store->async_read_capable();
+  }
+  void objects_read_async_use_aio(
+    ObjectStore::Sequencer *osr,
+    const hobject_t &hoid,
+    const list<pair<boost::tuple<uint64_t, uint64_t, uint32_t>,
+		    boost::tuple<bufferlist*, Context*, bool> > > &to_read) override;
+
 private:
   // push
   struct PushInfo {

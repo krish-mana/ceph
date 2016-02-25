@@ -100,20 +100,95 @@ struct OnReadComplete : public Context {
   void finish(int r) {
     if (r < 0)
       opcontext->async_read_result = r;
+    pg->lock();
     opcontext->finish_read(pg);
+    pg->unlock();
   }
   ~OnReadComplete() {}
+};
+
+struct OnSparseReadComplete : public Context {
+  ReplicatedPG* pg;
+  ReplicatedPG::OpContext *ctx;
+  OSDOp& osd_op;
+  map<uint64_t, uint64_t> extentmap;
+  list<bufferlist*> data_bl_list;
+  uint64_t last;
+  uint32_t total_read;
+  atomic_t readcount;
+
+  OnSparseReadComplete(
+    ReplicatedPG* pg_arg,
+    ReplicatedPG::OpContext *ctx_arg,
+    OSDOp& osd_op_arg) :
+    pg(pg_arg), ctx(ctx_arg), osd_op(osd_op_arg), total_read(0), readcount(0) {}
+
+  void finish(int r) {
+    int result;
+    pg->lock();
+
+    if (r > 0) {
+      result = 0;
+      total_read += r;
+    } else
+      result = r;
+
+    bufferlist data_bl;
+    list<bufferlist*>::iterator bl_iter;
+
+    for (bl_iter = data_bl_list.begin(); bl_iter != data_bl_list.end(); ++bl_iter) {
+      data_bl.claim_append(**bl_iter);
+    }
+    result = pg->sparse_read_finish(ctx, osd_op, data_bl, last, total_read, extentmap);
+    if (result < 0)
+      ctx->async_read_result = result;
+    ctx->finish_read(pg);
+    pg->unlock();
+  }
+
+  ~OnSparseReadComplete() {
+    while (!data_bl_list.empty()) {
+      delete data_bl_list.back();
+      data_bl_list.pop_back();
+    }
+    extentmap.clear();
+  }
+};
+
+struct OnSparseReadIOComplete : public Context {
+  OnSparseReadComplete* parent;
+
+  OnSparseReadIOComplete(
+    OnSparseReadComplete* parent_arg) :
+    parent(parent_arg) {}
+
+  void finish(int r) {
+    if (parent->readcount.dec() == 0)
+      parent->complete(r);
+  }
+
+  ~OnSparseReadIOComplete() {}
 };
 
 // OpContext
 void ReplicatedPG::OpContext::start_async_reads(ReplicatedPG *pg)
 {
   inflightreads = 1;
-  pg->pgbackend->objects_read_async(
-    obc->obs.oi.soid,
-    pending_async_reads,
-    new OnReadComplete(pg, this), pg->get_pool().fast_read);
-  pending_async_reads.clear();
+  if (!pending_async_reads.empty()) {
+    pg->pgbackend->objects_read_async(
+      obc->obs.oi.soid,
+      pending_async_reads,
+      new OnReadComplete(pg, this), pg->get_pool().fast_read);
+    pending_async_reads.clear();
+  }
+
+  if (!pending_async_reads_aio.empty()) {
+      pg->pgbackend->objects_read_async_use_aio(
+	pg->osr.get(),
+	obc->obs.oi.soid,
+	pending_async_reads_aio);
+      pending_async_reads_aio.clear();
+  }
 }
 void ReplicatedPG::OpContext::finish_read(ReplicatedPG *pg)
 {
@@ -121,10 +196,61 @@ void ReplicatedPG::OpContext::finish_read(ReplicatedPG *pg)
   --inflightreads;
   if (async_reads_complete()) {
     assert(pg->in_progress_async_reads.size());
-    assert(pg->in_progress_async_reads.front().second == this);
-    pg->in_progress_async_reads.pop_front();
+    pg->in_progress_async_reads.remove(make_pair(this->op, this));
     pg->complete_read_ctx(async_read_result, this);
   }
+}
+
+int ReplicatedPG::sparse_read_finish(OpContext* ctx, OSDOp& osd_op, bufferlist& data_bl,
+                                     uint64_t last, uint32_t total_read,
+                                     map<uint64_t, uint64_t>& extentmap)
+{
+  int result = 0;
+  ceph_osd_op& op = osd_op.op;
+  ObjectState& obs = ctx->new_obs;
+  object_info_t& oi = obs.oi;
+  const hobject_t& soid = oi.soid;
+
+  // verify trailing hole?
+  if (cct->_conf->osd_verify_sparse_read_holes) {
+    uint64_t end = MIN(op.extent.offset + op.extent.length, oi.size);
+    if (last < end) {
+      bufferlist t;
+      uint64_t len = end - last;
+      result = pgbackend->objects_read_sync(soid, last, len, op.flags, &t);
+      if (!t.is_zero()) {
+        osd->clog->error() << coll << " " << soid << " sparse-read found data in hole "
+                          << last << "~" << len << "\n";
+      }
+    }
+  }
+
+  // Why SPARSE_READ need checksum? In fact, librbd always use sparse-read.
+  // Maybe at first, there is no much whole objects. With continued use, more and more whole object exist.
+  // So from this point, for spare-read add checksum make sense.
+  if (total_read == oi.size && oi.is_data_digest()) {
+    uint32_t crc = data_bl.crc32c(-1);
+    if (oi.data_digest != crc) {
+      osd->clog->error() << info.pgid << std::hex
+        << " full-object read crc 0x" << crc
+        << " != expected 0x" << oi.data_digest
+        << std::dec << " on " << soid;
+      // FIXME fall back to replica or something?
+      result = -EIO;
+    }
+  }
+
+  op.extent.length = total_read;
+
+  ::encode(extentmap, osd_op.outdata); // re-encode since it might be modified
+  ::encode_destructively(data_bl, osd_op.outdata);
+
+  dout(10) << " sparse_read got " << total_read << " bytes from object " << soid << dendl;
+
+  ctx->delta_stats.num_rd_kb += SHIFT_ROUND_UP(op.extent.length, 10);
+  ctx->delta_stats.num_rd++;
+
+  return result;
 }
 
 class CopyFromCallback: public ReplicatedPG::CopyCallback {
@@ -2882,7 +3008,7 @@ void ReplicatedPG::execute_ctx(OpContext *ctx)
     if (result == 0)
       do_osd_op_effects(ctx, m->get_connection());
 
-    if (ctx->pending_async_reads.empty()) {
+    if (ctx->pending_async_reads.empty() && ctx->pending_async_reads_aio.empty()) {
       complete_read_ctx(result, ctx);
     } else {
       in_progress_async_reads.push_back(make_pair(op, ctx));
@@ -3923,7 +4049,7 @@ bool ReplicatedPG::maybe_create_new_object(OpContext *ctx)
   return false;
 }
 
-int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
+int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops, bool allow_async)
 {
   int result = 0;
   SnapSetContext *ssc = ctx->obc->ssc;
@@ -4061,6 +4187,16 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 				&osd_op.outdata, maybe_crc, oi.size, osd,
 				soid, op.flags))));
 	  dout(10) << " async_read noted for " << soid << dendl;
+	} else if (allow_async && (op.extent.length > 256) &&  pgbackend->async_read_capable()) {
+	  async = true;
+
+	  ctx->pending_async_reads_aio.push_back(
+	    make_pair(
+	      boost::make_tuple(op.extent.offset, op.extent.length, op.flags),
+	      boost::make_tuple(&osd_op.outdata,
+				new OnReadComplete(this, ctx),
+				true)));
+
 	} else {
 	  int r = pgbackend->objects_read_sync(
 	    soid, op.extent.offset, op.extent.length, op.flags, &osd_op.outdata);
@@ -4154,6 +4290,11 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	  result = r;
           break;
 	}
+
+	OnSparseReadComplete *on_sparse_read = nullptr;
+	if (allow_async && pgbackend->async_read_capable())
+	  on_sparse_read = new OnSparseReadComplete(this, ctx, osd_op);
+
         map<uint64_t, uint64_t> m;
         bufferlist::iterator iter = bl.begin();
         ::decode(m, iter);
@@ -4173,6 +4314,21 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	    }
 	  }
 
+	  if (on_sparse_read != nullptr) {
+	    // Read data into allocated bufferlist, then combine into osd_op.outdata
+	    // on async completion.
+	    bufferlist *newbl = new bufferlist;
+	    on_sparse_read->data_bl_list.push_back(newbl);
+
+	    ctx->pending_async_reads_aio.push_back(
+	      make_pair(
+		boost::make_tuple(miter->first, miter->second, op.flags),
+		boost::make_tuple(newbl,
+				  new OnSparseReadIOComplete(on_sparse_read),
+				  true)));
+	    continue;
+	  }
+
           bufferlist tmpbl;
 	  r = pgbackend->objects_read_sync(soid, miter->first, miter->second, op.flags, &tmpbl);
           if (r < 0)
@@ -4185,7 +4341,14 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	  data_bl.claim_append(tmpbl);
 	  last = miter->first + r;
         }
-        
+
+	// For Async Reads, update count of backend reads that will be issued.
+	if (on_sparse_read != nullptr) {
+	  on_sparse_read->readcount.set(ctx->pending_async_reads_aio.size());
+	  on_sparse_read->extentmap = m;
+	  break;
+	}
+
         if (r < 0) {
           result = r;
           break;
@@ -6384,7 +6547,7 @@ hobject_t ReplicatedPG::get_temp_recovery_object(eversion_t version, snapid_t sn
 int ReplicatedPG::prepare_transaction(OpContext *ctx)
 {
   assert(!ctx->ops.empty());
-  
+
   const hobject_t& soid = ctx->obs->oi.soid;
 
   // valid snap context?
@@ -6394,17 +6557,17 @@ int ReplicatedPG::prepare_transaction(OpContext *ctx)
   }
 
   // prepare the actual mutation
-  int result = do_osd_ops(ctx, ctx->ops);
+  int result = do_osd_ops(ctx, ctx->ops, true);
   if (result < 0)
     return result;
 
-  // read-op?  done?
+    // read-op?  done?
   if (ctx->op_t->empty() && !ctx->modify) {
     unstable_stats.add(ctx->delta_stats);
     return result;
   }
 
-  // check for full
+    // check for full
   if ((ctx->delta_stats.num_bytes > 0 ||
        ctx->delta_stats.num_objects > 0) &&  // FIXME: keys?
       (pool.info.has_flag(pg_pool_t::FLAG_FULL) ||
