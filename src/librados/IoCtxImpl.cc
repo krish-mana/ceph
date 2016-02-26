@@ -89,21 +89,19 @@ struct C_aio_linger_cancel : public Context {
   }
 };
 
-struct C_aio_linger_Complete : public Context {
+struct C_aio_notify_Complete : public Context {
   AioCompletionImpl *c;
   Objecter::LingerOp *linger_op;
-  bool cancel;
 
-  C_aio_linger_Complete(AioCompletionImpl *_c, Objecter::LingerOp *_linger_op, bool _cancel)
-    : c(_c), linger_op(_linger_op), cancel(_cancel)
+  C_aio_notify_Complete(AioCompletionImpl *_c, Objecter::LingerOp *_linger_op)
+    : c(_c), linger_op(_linger_op)
   {
     c->get();
   }
 
   virtual void finish(int r) {
-    if (cancel || r < 0)
-      c->io->client->finisher.queue(new C_aio_linger_cancel(c->io->objecter,
-                                                            linger_op));
+    c->io->client->finisher.queue(new C_aio_linger_cancel(c->io->objecter,
+                                                          linger_op));
 
     c->lock.Lock();
     c->rval = r;
@@ -1296,33 +1294,6 @@ int librados::IoCtxImpl::watch(const object_t& oid,
   return r;
 }
 
-int librados::IoCtxImpl::aio_watch(const object_t& oid,
-                                   AioCompletionImpl *c,
-                                   uint64_t *handle,
-                                   librados::WatchCtx *ctx,
-                                   librados::WatchCtx2 *ctx2)
-{
-  Objecter::LingerOp *linger_op = objecter->linger_register(oid, oloc, 0);
-  c->io = this;
-  Context *oncomplete = new C_aio_linger_Complete(c, linger_op, false);
-
-  ::ObjectOperation wr;
-  version_t objver;
-
-  *handle = linger_op->get_cookie();
-  linger_op->watch_context = new WatchInfo(this, oid, ctx, ctx2);
-
-  prepare_assert_ops(&wr);
-  wr.watch(*handle, CEPH_OSD_WATCH_OP_WATCH);
-  bufferlist bl;
-  objecter->linger_watch(linger_op, wr,
-                         snapc, ceph::real_clock::now(), bl,
-                         oncomplete, &objver);
-
-  return 0;
-}
-
-
 int librados::IoCtxImpl::notify_ack(
   const object_t& oid,
   uint64_t notify_id,
@@ -1345,6 +1316,7 @@ int librados::IoCtxImpl::watch_check(uint64_t cookie)
 int librados::IoCtxImpl::unwatch(uint64_t cookie)
 {
   Objecter::LingerOp *linger_op = reinterpret_cast<Objecter::LingerOp*>(cookie);
+  bufferlist inbl, outbl;
   C_SaferCond onfinish;
   version_t ver = 0;
 
@@ -1359,22 +1331,6 @@ int librados::IoCtxImpl::unwatch(uint64_t cookie)
   int r = onfinish.wait();
   set_sync_op_version(ver);
   return r;
-}
-
-int librados::IoCtxImpl::aio_unwatch(uint64_t cookie, AioCompletionImpl *c)
-{
-  c->io = this;
-  Objecter::LingerOp *linger_op = reinterpret_cast<Objecter::LingerOp*>(cookie);
-  Context *oncomplete = new C_aio_linger_Complete(c, linger_op, true);
-  version_t ver = 0;
-
-  ::ObjectOperation wr;
-  prepare_assert_ops(&wr);
-  wr.watch(cookie, CEPH_OSD_WATCH_OP_UNWATCH);
-  objecter->mutate(linger_op->target.base_oid, oloc, wr,
-		   snapc, ceph::real_clock::now(client->cct), 0, NULL,
-		   oncomplete, &ver);
-  return 0;
 }
 
 int librados::IoCtxImpl::notify(const object_t& oid, bufferlist& bl,
@@ -1437,7 +1393,7 @@ int librados::IoCtxImpl::aio_notify(const object_t& oid, AioCompletionImpl *c,
 
   c->io = this;
 
-  Context *oncomplete = new C_aio_linger_Complete(c, linger_op, true);
+  Context *oncomplete = new C_aio_notify_Complete(c, linger_op);
   C_notify_Finish *onnotify = new C_notify_Finish(client->cct, oncomplete,
                                                   objecter, linger_op,
                                                   preply_bl, preply_buf,

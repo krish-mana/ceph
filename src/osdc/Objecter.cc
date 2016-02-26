@@ -597,6 +597,7 @@ struct C_DoWatchError : public Context {
 
     info->finished_async();
     info->put();
+    objecter->_linger_callback_finish();
   }
 };
 
@@ -621,6 +622,7 @@ void Objecter::_linger_reconnect(LingerOp *info, int r)
       info->last_error = r;
       if (info->watch_context) {
 	finisher->queue(new C_DoWatchError(this, info, r));
+	_linger_callback_queue();
       }
     }
     wl.unlock();
@@ -685,6 +687,7 @@ void Objecter::_linger_ping(LingerOp *info, int r, mono_time sent,
       info->last_error = r;
       if (info->watch_context) {
 	finisher->queue(new C_DoWatchError(this, info, r));
+	_linger_callback_queue();
       }
     }
   } else {
@@ -867,6 +870,7 @@ void Objecter::handle_watch_notify(MWatchNotify *m)
       info->last_error = -ENOTCONN;
       if (info->watch_context) {
 	finisher->queue(new C_DoWatchError(this, info, -ENOTCONN));
+	_linger_callback_queue();
       }
     }
   } else if (!info->is_watch) {
@@ -887,6 +891,7 @@ void Objecter::handle_watch_notify(MWatchNotify *m)
     }
   } else {
     finisher->queue(new C_DoWatchNotify(this, info, m));
+    _linger_callback_queue();
   }
 }
 
@@ -920,6 +925,7 @@ void Objecter::_do_watch_notify(LingerOp *info, MWatchNotify *m)
   info->finished_async();
   info->put();
   m->put();
+  _linger_callback_finish();
 }
 
 bool Objecter::ms_dispatch(Message *m)

@@ -32,7 +32,6 @@ struct md_config_t;
 class Message;
 class MLog;
 class Messenger;
-class AioCompletionImpl;
 
 class librados::RadosClient : public Dispatcher
 {
@@ -83,7 +82,6 @@ public:
   void shutdown();
 
   int watch_flush();
-  int async_watch_flush(AioCompletionImpl *c);
 
   uint64_t get_instance_id();
 
