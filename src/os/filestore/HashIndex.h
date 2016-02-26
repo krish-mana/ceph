@@ -177,7 +177,8 @@ protected:
     const ghobject_t &oid,
     vector<string> *path,
     string *mangled_name,
-    int *hardlink
+    int *hardlink,
+    struct stat *st
     );
 
   /**

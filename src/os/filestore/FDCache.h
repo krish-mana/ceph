@@ -38,11 +38,18 @@ public:
   class FD {
   public:
     const int fd;
-    explicit FD(int _fd) : fd(_fd) {
+    const ino_t inode_id;
+    explicit FD(
+      int _fd,
+      ino_t inode_id)
+      : fd(_fd), inode_id(inode_id) {
       assert(_fd >= 0);
     }
     int operator*() const {
       return fd;
+    }
+    ino_t get_inode() const {
+      return inode_id;
     }
     ~FD() {
       VOID_TEMP_FAILURE_RETRY(::close(fd));
@@ -77,9 +84,9 @@ public:
     return registry[registry_id].lookup(hoid);
   }
 
-  FDRef add(const ghobject_t &hoid, int fd, bool *existed) {
+  FDRef add(const ghobject_t &hoid, int fd, ino_t inode_id, bool *existed) {
     int registry_id = hoid.hobj.get_hash() % registry_shards;
-    return registry[registry_id].add(hoid, new FD(fd), existed);
+    return registry[registry_id].add(hoid, new FD(fd, inode_id), existed);
   }
 
   /// clear cached fd for hoid, subsequent lookups will get an empty FD

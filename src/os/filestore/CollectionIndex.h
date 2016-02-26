@@ -145,7 +145,8 @@ protected:
   virtual int lookup(
     const ghobject_t &oid, ///< [in] Object to lookup
     IndexedPath *path,	   ///< [out] Path to object
-    int *hardlink          ///< [out] number of hard links of this object. *hardlink=0 mean object no-exist.
+    int *hardlink,         ///< [out] number of hard links of this object. *hardlink=0 mean object no-exist.
+    struct stat *st = NULL ///< [out] st
     ) = 0;
 
   /**

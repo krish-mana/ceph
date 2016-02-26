@@ -274,7 +274,8 @@ int FileStore::lfn_open(const coll_t& cid,
   IndexedPath path2;
   IndexedPath *path = &path2;
 
-  r = (*index)->lookup(oid, path, &exist);
+  struct stat st;
+  r = (*index)->lookup(oid, path, &exist, &st);
   if (r < 0) {
     derr << "could not find " << oid << " in index: "
       << cpp_strerror(-r) << dendl;
@@ -309,12 +310,12 @@ int FileStore::lfn_open(const coll_t& cid,
 
   if (!replaying) {
     bool existed;
-    *outfd = fdcache.add(oid, fd, &existed);
+    *outfd = fdcache.add(oid, fd, st.st_ino, &existed);
     if (existed) {
       TEMP_FAILURE_RETRY(::close(fd));
     }
   } else {
-    *outfd = FDRef(new FDCache::FD(fd));
+    *outfd = FDRef(new FDCache::FD(fd, st.st_ino));
   }
 
   if (need_lock) {
@@ -1851,7 +1852,7 @@ void FileStore::_do_op(OpSequencer *osr, ThreadPool::TPHandle &handle)
   Op *o = osr->peek_queue();
   apply_manager.op_apply_start(o->op);
   dout(5) << "_do_op " << o << " seq " << o->op << " " << *osr << "/" << osr->parent << " start" << dendl;
-  int r = _do_transactions(o->tls, o->op, &handle);
+  int r = _do_transactions(o->tls, o->op, &handle, osr);
   apply_manager.op_apply_finish(o->op);
   dout(10) << "_do_op " << o << " seq " << o->op << " r = " << r
 	   << ", finisher " << o->onreadable << " " << o->onreadable_sync << dendl;
@@ -2074,14 +2075,15 @@ void FileStore::_journaled_ahead(OpSequencer *osr, Op *o, Context *ondisk)
 int FileStore::_do_transactions(
   vector<Transaction> &tls,
   uint64_t op_seq,
-  ThreadPool::TPHandle *handle)
+  ThreadPool::TPHandle *handle,
+  OpSequencer *osr)
 {
   int trans_num = 0;
 
   for (vector<Transaction>::iterator p = tls.begin();
        p != tls.end();
        ++p, trans_num++) {
-    _do_transaction(*p, op_seq, trans_num, handle);
+    _do_transaction(*p, op_seq, trans_num, handle, osr);
     if (handle)
       handle->reset_tp_timeout();
   }
@@ -2349,7 +2351,8 @@ int FileStore::_check_replay_guard(int fd, const SequencerPosition& spos)
 
 void FileStore::_do_transaction(
   Transaction& t, uint64_t op_seq, int trans_num,
-  ThreadPool::TPHandle *handle)
+  ThreadPool::TPHandle *handle,
+  OpSequencer *osr)
 {
   dout(10) << "_do_transaction on " << &t << dendl;
 

@@ -102,7 +102,7 @@ int LFNIndex::unlink(const ghobject_t &oid)
   WRAP_RETRY(
   vector<string> path;
   string short_name;
-  r = _lookup(oid, &path, &short_name, NULL);
+  r = _lookup(oid, &path, &short_name, NULL, NULL);
   if (r < 0) {
     goto out;
   }
@@ -115,12 +115,13 @@ int LFNIndex::unlink(const ghobject_t &oid)
 
 int LFNIndex::lookup(const ghobject_t &oid,
 		     IndexedPath *out_path,
-		     int *hardlink)
+                     int *hardlink,
+                     struct stat *st)
 {
   WRAP_RETRY(
   vector<string> path;
   string short_name;
-  r = _lookup(oid, &path, &short_name, hardlink);
+  r = _lookup(oid, &path, &short_name, hardlink, st);
   if (r < 0)
     goto out;
   string full_path = get_full_path(path, short_name);
@@ -295,7 +296,7 @@ int LFNIndex::remove_object(const vector<string> &from,
   string short_name;
   int r, exist;
   maybe_inject_failure();
-  r = get_mangled_name(from, oid, &short_name, &exist);
+  r = get_mangled_name(from, oid, &short_name, &exist, NULL);
   maybe_inject_failure();
   if (r < 0)
     return r;
@@ -306,9 +307,10 @@ int LFNIndex::remove_object(const vector<string> &from,
 
 int LFNIndex::get_mangled_name(const vector<string> &from,
 			       const ghobject_t &oid,
-			       string *mangled_name, int *hardlink)
+                               string *mangled_name, int *hardlink,
+                               struct stat *st)
 {
-  return lfn_get_name(from, oid, mangled_name, 0, hardlink);
+  return lfn_get_name(from, oid, mangled_name, 0, hardlink, st);
 }
 
 int LFNIndex::move_subdir(
@@ -339,7 +341,7 @@ int LFNIndex::move_object(
   string to_path;
   string to_name;
   int exists;
-  int r = dest.lfn_get_name(path, obj.second, &to_name, &to_path, &exists);
+  int r = dest.lfn_get_name(path, obj.second, &to_name, &to_path, &exists, NULL);
   if (r < 0)
     return r;
   if (!exists) {
@@ -712,11 +714,15 @@ string LFNIndex::lfn_generate_object_name_poolless(const ghobject_t &oid)
 int LFNIndex::lfn_get_name(const vector<string> &path,
 			   const ghobject_t &oid,
 			   string *mangled_name, string *out_path,
-			   int *hardlink)
+                           int *hardlink,
+                           struct stat *st)
 {
   string subdir_path = get_full_path_subdir(path);
   string full_name = lfn_generate_object_name(oid);
   int r;
+  struct stat _st;
+  if (!st)
+    st = &_st;
 
   if (!lfn_must_hash(full_name)) {
     if (mangled_name)
@@ -724,17 +730,16 @@ int LFNIndex::lfn_get_name(const vector<string> &path,
     if (out_path)
       *out_path = get_full_path(path, full_name);
     if (hardlink) {
-      struct stat buf;
       string full_path = get_full_path(path, full_name);
       maybe_inject_failure();
-      r = ::stat(full_path.c_str(), &buf);
+      r = ::stat(full_path.c_str(), st);
       if (r < 0) {
 	if (errno == ENOENT)
 	  *hardlink = 0;
 	else
 	  return -errno;
       } else {
-	*hardlink = buf.st_nlink;
+	*hardlink = st->st_nlink;
       }
     }
     return 0;
@@ -776,9 +781,8 @@ int LFNIndex::lfn_get_name(const vector<string> &path,
       if (out_path)
 	*out_path = candidate_path;
       if (hardlink) {
-	struct stat st;
-	r = ::stat(candidate_path.c_str(), &st);
-	*hardlink = st.st_nlink;
+	r = ::stat(candidate_path.c_str(), st);
+	*hardlink = st->st_nlink;
       }
       return 0;
     }
@@ -786,11 +790,10 @@ int LFNIndex::lfn_get_name(const vector<string> &path,
 		       buf, sizeof(buf));
     if (r > 0) {
       // only consider alt name if nlink > 1
-      struct stat st;
-      int rc = ::stat(candidate_path.c_str(), &st);
+      int rc = ::stat(candidate_path.c_str(), st);
       if (rc < 0)
 	return -errno;
-      if (st.st_nlink <= 1) {
+      if (st->st_nlink <= 1) {
 	// left over from incomplete unlink, remove
 	maybe_inject_failure();
 	dout(20) << __func__ << " found extra alt attr for " << candidate_path
@@ -810,7 +813,7 @@ int LFNIndex::lfn_get_name(const vector<string> &path,
 	if (out_path)
 	  *out_path = candidate_path;
 	if (hardlink)
-	  *hardlink = st.st_nlink;
+	  *hardlink = st->st_nlink;
 	return 0;
       }
     }

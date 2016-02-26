@@ -467,13 +467,15 @@ public:
 
   int _do_transactions(
     vector<Transaction> &tls, uint64_t op_seq,
-    ThreadPool::TPHandle *handle);
+    ThreadPool::TPHandle *handle,
+    OpSequencer *osr);
   int do_transactions(vector<Transaction> &tls, uint64_t op_seq) {
-    return _do_transactions(tls, op_seq, 0);
+    return _do_transactions(tls, op_seq, 0, 0);
   }
   void _do_transaction(
     Transaction& t, uint64_t op_seq, int trans_num,
-    ThreadPool::TPHandle *handle);
+    ThreadPool::TPHandle *handle,
+    OpSequencer *osr);
 
   int queue_transactions(Sequencer *osr, vector<Transaction>& tls,
 			 TrackedOpRef op = TrackedOpRef(),

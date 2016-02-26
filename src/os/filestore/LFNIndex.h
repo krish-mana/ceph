@@ -175,7 +175,8 @@ public:
   int lookup(
     const ghobject_t &oid,
     IndexedPath *path,
-    int *hardlink
+    int *hardlink,
+    struct stat *st
     );
 
   /// @see CollectionIndex;
@@ -235,7 +236,8 @@ protected:
     const ghobject_t &oid,///< [in] Object for lookup.
     vector<string> *path, ///< [out] Path to the object.
     string *mangled_name, ///< [out] Mangled filename.
-    int *exists		  ///< [out] True if the object exists.
+    int *exists,	  ///< [out] True if the object exists.
+    struct stat *st       ///< [out] stat
     ) = 0;
 
   /// Pre-hash the collection with the given pg number and
@@ -326,7 +328,8 @@ protected:
     const vector<string> &from, ///< [in] Subdirectory
     const ghobject_t &oid,	///< [in] Object
     string *mangled_name,	///< [out] Filename
-    int *hardlink		///< [out] hardlink for this file, hardlink=0 mean no-exist
+    int *hardlink,              ///< [out] hardlink for this file, hardlink=0 mean no-exist
+    struct stat *st             ///< [out] out st
     );
 
   /// do move subdir from from to dest
@@ -433,7 +436,8 @@ private:
     const ghobject_t &oid,
     string *mangled_name,
     string *full_path,
-    int *hardlink
+    int *hardlink,
+    struct stat *st = NULL
     );
 
   /// Adjusts path contents when oid is created at name mangled_name.
