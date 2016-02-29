@@ -230,7 +230,7 @@ TEST(TestFileJournal, WriteManyVecs) {
     first.append("small");
     vector<ObjectStore::Transaction> tls;
     int orig_len = j.prepare_entry(tls, &first);
-    j.reserve_throttle_and_backoff(bl.length());
+    j.reserve_throttle_and_backoff(first.length());
     j.submit_entry(1, first, orig_len, gb.new_sub());
 
     bufferlist bl;
