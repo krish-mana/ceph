@@ -563,13 +563,6 @@
    virtual bool async_read_capable() {
      return false;
    }
-   virtual void objects_read_async_use_aio(
-     ObjectStore::Sequencer *osr,
-     const hobject_t &hoid,
-     const list<pair<boost::tuple<uint64_t, uint64_t, uint32_t>,
-		     boost::tuple<bufferlist*, Context*, bool> > > &to_read) {
-     assert(0);
-   }
 
    virtual bool scrub_supported() = 0;
    virtual bool auto_repair_supported() const = 0;

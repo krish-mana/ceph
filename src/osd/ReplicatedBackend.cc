@@ -284,49 +284,57 @@ void ReplicatedBackend::objects_read_async(
 {
   // There is no fast read implementation for replication backend yet
   assert(!fast_read);
-
-  int r = 0;
-  for (list<pair<boost::tuple<uint64_t, uint64_t, uint32_t>,
-		 pair<bufferlist*, Context*> > >::const_iterator i =
-	   to_read.begin();
-       i != to_read.end() && r >= 0;
-       ++i) {
-    int _r = store->read(ch, ghobject_t(hoid), i->first.get<0>(),
-			 i->first.get<1>(), *(i->second.first),
-			 i->first.get<2>());
-    if (i->second.second) {
-      get_parent()->schedule_recovery_work(
-	get_parent()->bless_gencontext(
-	  new AsyncReadCallback(_r, i->second.second)));
+  if (async_read_capable) {
+    int r = 0;
+    struct CBOnDelete {
+      list<Context *> per_offset_cbs;
+      Context *cb;
+      CBOnDelete(Context *cb) : cb(cb) {}
+      ~CBOnDelete() {
+	for (auto &&offset_cb : per_offset_cbs) {
+	  offset_cb->complete(0);
+	}
+	cb->complete(0);
+      }
+    };
+    auto cbondelete = std::make_shared<CBOnDelete>(on_complete);
+    for (auto i = to_read.begin();
+	 i != to_read.end() && r >= 0;
+	 ++i) {
+      cbondelete.per_offset_cbs.push_back(i->second.get<2>());
+      int _s = store->async_read_dispatch(osr, i->second.get<1>(), coll,
+	ghobject_t(hoid), i->first.get<0>(),
+	i->first.get<1>(), i->second.get<0>(),
+	i->first.get<2>(),
+	get_parent()->bless_context(
+	  new ContainerContext<decltype(cbondelete)>(cbondelete)));
+      if (_s < 0)
+	r = _s;
     }
-    if (_r < 0)
-      r = _r;
+  } else {
+    int r = 0;
+    for (list<pair<boost::tuple<uint64_t, uint64_t, uint32_t>,
+	   pair<bufferlist*, Context*> > >::const_iterator i =
+	   to_read.begin();
+	 i != to_read.end() && r >= 0;
+	 ++i) {
+      int _r = store->read(ch, ghobject_t(hoid), i->first.get<0>(),
+	i->first.get<1>(), *(i->second.first),
+	i->first.get<2>());
+      if (i->second.second) {
+	get_parent()->schedule_recovery_work(
+	  get_parent()->bless_gencontext(
+	    new AsyncReadCallback(_r, i->second.second)));
+      }
+      if (_r < 0)
+	r = _r;
+    }
+    get_parent()->schedule_recovery_work(
+      get_parent()->bless_gencontext(
+	new AsyncReadCallback(r, on_complete)));
   }
-  get_parent()->schedule_recovery_work(
-    get_parent()->bless_gencontext(
-      new AsyncReadCallback(r, on_complete)));
 }
 
-void ReplicatedBackend::objects_read_async_use_aio(
-  ObjectStore::Sequencer *osr,
-  const hobject_t &hoid,
-  const list<pair<boost::tuple<uint64_t, uint64_t, uint32_t>,
-		  boost::tuple<bufferlist*, Context*, bool> > > &to_read)
-{
-  int r = 0;
-  for (list<pair<boost::tuple<uint64_t, uint64_t, uint32_t>,
-		 boost::tuple<bufferlist*, Context*, bool> > >::const_iterator
-       i = to_read.begin();
-       i != to_read.end() && r >= 0;
-       ++i) {
-    int _s = store->async_read_dispatch(osr, i->second.get<1>(), coll,
-                                        ghobject_t(hoid), i->first.get<0>(),
-                                        i->first.get<1>(), i->second.get<0>(),
-                                        i->first.get<2>(), i->second.get<2>());
-    if (_s < 0)
-      r = _s;
-  }
-}
 
 class RPGTransaction : public PGBackend::PGTransaction {
   coll_t coll;

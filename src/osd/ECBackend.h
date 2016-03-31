@@ -148,6 +148,10 @@ public:
     Context *on_complete,
     bool fast_read = false);
 
+  bool async_read_capable() override {
+    return true;
+  }
+
 private:
   friend struct ECRecoveryHandle;
   uint64_t get_recovery_chunk_size() const {

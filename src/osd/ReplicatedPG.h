@@ -471,10 +471,6 @@ public:
 
   LogClientTemp clog_error() { return osd->clog->error(); }
 
-  int sparse_read_finish(OpContext* ctx, OSDOp& osd_op, bufferlist& bl,
-			 uint64_t last, uint32_t total_read,
-			 map<uint64_t, uint64_t>& extentmap);
-
   /*
    * Capture all object state associated with an in-progress read or write.
    */
@@ -585,9 +581,6 @@ public:
     // pending async reads <off, len, op_flags> -> <outbl, outr>
     list<pair<boost::tuple<uint64_t, uint64_t, unsigned>,
 	      pair<bufferlist*, Context*> > > pending_async_reads;
-    // pending async reads that use ObjectStore's AIO interface
-    list<pair<boost::tuple<uint64_t, uint64_t, uint32_t>,
-	      boost::tuple<bufferlist*, Context*, bool> > > pending_async_reads_aio;
     int async_read_result;
     unsigned inflightreads;
     friend struct OnReadComplete;
@@ -673,7 +666,6 @@ public:
       }
       assert(on_finish == NULL);
     }
-
     void finish(int r) {
       if (on_finish) {
 	on_finish->complete(r);
@@ -1482,7 +1474,7 @@ public:
 
   RepGather *trim_object(const hobject_t &coid);
   void snap_trimmer(epoch_t e);
-  int do_osd_ops(OpContext *ctx, vector<OSDOp>& ops, bool allow_async=false);
+  int do_osd_ops(OpContext *ctx, vector<OSDOp>& ops);
 
   int _get_tmap(OpContext *ctx, bufferlist *header, bufferlist *vals);
   int do_tmap2omap(OpContext *ctx, unsigned flags);
