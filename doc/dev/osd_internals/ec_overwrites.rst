@@ -154,6 +154,11 @@ to the data of the base object as possible. This may be best performed
 by adding a new ObjectStore creation primitive that takes the base
 object as an addtional parameter that is a hint to the allocator.
 
+Sam: I think that the short lived thing may be a red herring.  We'll
+be updating the donor and primary objects atomically, so it seems like
+we'd want them adjacent in the key space, regardless of the donor's
+lifecycle.
+
 The apply operation moves the data from the temporary object into the
 correct position within the base object and deletes the associated
 temporary object. This operation is done using a specialized
