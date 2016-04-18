@@ -40,18 +40,19 @@ essentially the current EC code.
 READ-MODIFY-WRITE
 -----------------
 
-The primary determines which of the K-W blocks are to be unmodified, and reads
-them from the shards. Once all of the data is received it is combined
-with the received new data and new parity blocks are computed. The
-modified blocks are sent to their respective shards and written. The
-RADOS operation is acknowledged.
+The primary determines which of the K-W blocks are to be unmodified,
+and reads them from the shards. Once all of the data is received it is
+combined with the received new data and new parity blocks are
+computed. The modified blocks are sent to their respective shards and
+written. The RADOS operation is acknowledged.
 
 PARITY-DELTA-WRITE
 ------------------
 
-The primary reads the current values of the "W" blocks and then uses the new values of the "W" blocks
-to compute parity-deltas for each of the parity blocks.
-The W blocks and the parity delta-blocks are sent to their respective shards.
+The primary reads the current values of the "W" blocks and then uses
+the new values of the "W" blocks to compute parity-deltas for each of
+the parity blocks.  The W blocks and the parity delta-blocks are sent
+to their respective shards.
 
 The choice of whether to use a read-modify-write or a
 parity-delta-write is complex policy issue that is TBD in the details
@@ -60,8 +61,8 @@ associated with a parity-delta vs. a regular parity-generation
 operation. However, it is believed that the parity-delta scheme is
 likely to be the preferred choice, when available.
 
-The internal interface to the erasure coding library plug-ins
-needs to be extended to support the ability to query if parity-delta
+The internal interface to the erasure coding library plug-ins needs to
+be extended to support the ability to query if parity-delta
 computation is possible for a selected algorithm as well as an
 interface to the actual parity-delta computation algorithm when
 available.
@@ -73,15 +74,16 @@ Regardless of the algorithm chosen above, writing of the data is a two
 phase process: prepare and apply. The primary sends the prepare
 operation to each OSD along with the data for that specific OSD (some
 OSDs will not have any data -- they are said to “witness” the
-operation) -- here data means user data and parity data. Each OSD receives the prepare operation, performs it and
-then sends an acknowledgement (ACK) to the primary. The primary waits
-until a sufficient number of the OSDs have returned an ACK (sufficient
-is described below) and then generates an acknowledgement of the
-client’s original write request operation and issues an apply
-operation to each OSD. Once the apply is received, the operation is
-committed -- any future recovery operation must NOT attempt to undo
-this write operation. Conversely, any operation that has received a
-prepare but no corresponding apply can be rolled back.
+operation) -- here data means user data and parity data. Each OSD
+receives the prepare operation, performs it and then sends an
+acknowledgement (ACK) to the primary. The primary waits until a
+sufficient number of the OSDs have returned an ACK (sufficient is
+described below) and then generates an acknowledgement of the client’s
+original write request operation and issues an apply operation to each
+OSD. Once the apply is received, the operation is committed -- any
+future recovery operation must NOT attempt to undo this write
+operation. Conversely, any operation that has received a prepare but
+no corresponding apply can be rolled back.
 
 As an optimization, the primary can delay the issuance of an apply
 operation for an arbitrary period of time leading to the obvious
@@ -94,19 +96,31 @@ As described above, all OSD shards in the PG have some participation
 in each write operation. While this is conceptually correct, the
 implementation is somewhat different for performance reasons. It is
 believed that many write operations will modify data in only a small
-number of PG shards and that optimization of this case is important. As described above,
-each witness OSD has the transmission of its corresponding prepare and
-apply operations delayed (buffered) at the primary until either an
-artificial limit is reached OR an operation that actually involves
-that OSD is transmitted.  The amount of buffering is a tradeoff
-between efficiency of applying a larger set of updates at once and the
-amount of unstable data which must be buffered on the primary for
-reads. The buffering of operations must NOT permit reordering of them.
-Essentially, this is just a lazy transmission algorithm similar to Nagle's algorithm for TCP. 
+number of PG shards and that optimization of this case is
+important. As described above, each witness OSD has the transmission
+of its corresponding prepare and apply operations delayed (buffered)
+at the primary until either an artificial limit is reached OR an
+operation that actually involves that OSD is transmitted.  The amount
+of buffering is a tradeoff between efficiency of applying a larger set
+of updates at once and the amount of unstable data which must be
+buffered on the primary for reads. The buffering of operations must
+NOT permit reordering of them.  Essentially, this is just a lazy
+transmission algorithm similar to Nagle's algorithm for TCP.
 
 Stripe Cache
 ------------
-One application pattern that is important to optimize is the small block sequential write operation (think of the journal of a journaling file system or a database transaction log). Regardless of the chosen redundancy algorithm, it is advantageous for the primary to retain/buffer recently read/written portions of a stripe in order to reduce network traffic. The dynamic contents of this cache may be used in the determination of whether a read-modify-write or a parity-delta-write is performed. The sizing of this cache is TBD, but we should plan on allowing at least a few full stripes per active client. Limiting the cache occupancy on a per-client basis will reduce the noisy neighbor problem.
+
+One application pattern that is important to optimize is the small
+block sequential write operation (think of the journal of a journaling
+file system or a database transaction log). Regardless of the chosen
+redundancy algorithm, it is advantageous for the primary to
+retain/buffer recently read/written portions of a stripe in order to
+reduce network traffic. The dynamic contents of this cache may be used
+in the determination of whether a read-modify-write or a
+parity-delta-write is performed. The sizing of this cache is TBD, but
+we should plan on allowing at least a few full stripes per active
+client. Limiting the cache occupancy on a per-client basis will reduce
+the noisy neighbor problem.
 
 Recovery and Rollback Details
 =============================
@@ -124,31 +138,32 @@ operation will contain a reference to the temporary object so that it
 can be located for recovery purposes as well as a record of all of the
 shards which are involved in the operation. 
 
-In order to avoid fragmentation (and hence, future read performance), 
+In order to avoid fragmentation (and hence, future read performance),
 creation of the temporary object needs special attention. The name of
 the temporary object affects its location within the KV store. Right
 now its unclear whether it's desirable for the name to locate near the
-base object or whether a separate subset of keyspace should be used for 
-temporary objects. Sam believes that colocation with the base object is preferred
-(he suggests using the generation counter of the ghobject for temporaries).
-Whereas Allen believes that using a separate subset of keyspace is desirable
-since these keys are ephemeral and we don't want to actually colocate them
-with the base object keys. Perhaps some modeling here can help resolve this
-issue. The data of the temporary object wants to be located as close to the
-data of the base object as possible. This may be best performed by adding a
-new ObjectStore creation primitive that takes the base object as an 
-addtional parameter that is a hint to the allocator.
+base object or whether a separate subset of keyspace should be used
+for temporary objects. Sam believes that colocation with the base
+object is preferred (he suggests using the generation counter of the
+ghobject for temporaries).  Whereas Allen believes that using a
+separate subset of keyspace is desirable since these keys are
+ephemeral and we don't want to actually colocate them with the base
+object keys. Perhaps some modeling here can help resolve this
+issue. The data of the temporary object wants to be located as close
+to the data of the base object as possible. This may be best performed
+by adding a new ObjectStore creation primitive that takes the base
+object as an addtional parameter that is a hint to the allocator.
 
 The apply operation moves the data from the temporary object into the
 correct position within the base object and deletes the associated
 temporary object. This operation is done using a specialized
 ObjectStore primitive. In the current ObjectStore interface, this can
 be done using the clonerange function followed by a delete, but can be
-done more efficiently with a specialized move primitive.  Implementation of the
-specialized primitive on FileStore can be done by copying the
-data. Some file systems have extensions that might also be able to
-implement this operation (like a defrag API that swaps chunks between
-files). It is expected that NewStore will be able to 
+done more efficiently with a specialized move primitive.
+Implementation of the specialized primitive on FileStore can be done
+by copying the data. Some file systems have extensions that might also
+be able to implement this operation (like a defrag API that swaps
+chunks between files). It is expected that NewStore will be able to
 support this efficiently and natively (It has been noted that this
 sequence requires that temporary object allocations, which tend to be
 small, be efficiently converted into blocks for main objects and that
@@ -184,7 +199,8 @@ operations for witnessing OSDs creates new situations that peering
 must handle. In particular the logic for determining the authoritative
 last_update value (and hence the selection of the OSD which has the
 authoritative log) must be modified to account for the valid but
-missing (i.e., delayed/buffered) pglog entries to which the authoritative OSD was only a witness to.
+missing (i.e., delayed/buffered) pglog entries to which the
+authoritative OSD was only a witness to.
 
 Because a partial write might complete without persisting a log entry
 on every replica, we have to do a bit more work to determine an
@@ -234,4 +250,14 @@ configurable at pool creation with sensible defaults.
 
 RADOS Client Acknowledgement Generation
 =======================================
-Now that the recovery scheme is understood, we can discuss the generation of of the RADOS operation acknowledgement (ACK) by the primary ("sufficient" from above). It is NOT required that the primary wait for all shards to complete their respective prepare operations. Using our example where the RADOS operations writes only "W" chunks of the stripe, the primary will generate and send W+M prepare operations (possibly including a send-to-self). The primary need only wait for enough shards to be written to ensure recovery of the data, Thus after writing W + M chunks you can afford the lost of M chunks. Hence the primary can generate the RADOS ACK after W+M-M => W of those prepare operations are completed.
+Now that the recovery scheme is understood, we can discuss the
+generation of of the RADOS operation acknowledgement (ACK) by the
+primary ("sufficient" from above). It is NOT required that the primary
+wait for all shards to complete their respective prepare
+operations. Using our example where the RADOS operations writes only
+"W" chunks of the stripe, the primary will generate and send W+M
+prepare operations (possibly including a send-to-self). The primary
+need only wait for enough shards to be written to ensure recovery of
+the data, Thus after writing W + M chunks you can afford the lost of M
+chunks. Hence the primary can generate the RADOS ACK after W+M-M => W
+of those prepare operations are completed.
