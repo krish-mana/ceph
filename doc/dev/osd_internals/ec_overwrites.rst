@@ -195,6 +195,32 @@ During peering, it is now obvious that an unapplied prepare operation
 can easily be rolled back simply by deleting the associated temporary
 object and removing that entry from the in-memory data structure.
 
+PG Log Entry modifications
+--------------------------
+
+The natural place to record the temp object name is in the pg log
+entry reflecting the write.  PG Log Entries already have a system for
+describing at a high level the operation being committed to allow it
+to be rolled back: ObjectModDesc.  Each log entry has a rollback and
+cleanup visitor methods which read the ObjectModDesc and fill in the
+operations needed to either rollback the operation or cleanup after it
+(once it has been committed).  The cleanup operation is essentially
+there to remove the renamed objects we keep around in case of needing
+to rollback a delete.  Each call to ECBackend passes the pg's
+min_last_complete_ondisk as a safe value up to which the operations
+can be trimmed.  We can expand cleanup to be a roll-forward operation,
+and add in overwrites as some additional primitives to ObjectModDesc.
+Note: it's not entirely clear how that primitive works, the
+roll-forward information and what is actually written to the temp
+object depend on how the backend is doing the update and probably
+needs to include the checksum update.  PGTransaction takes an
+ObjectModDesc ref?
+
+Another change that will be required is expanding both object_info_t
+and pg_log_entry_t to include a mapping shard_id_t->eversion_t
+indicating the minimum valid version a particular shard can hold of
+the object at the object_info and pg_log_entry's logical object
+version. (See open questions section)
 
 Peering/Recovery modifications
 ------------------------------
@@ -255,6 +281,7 @@ configurable at pool creation with sensible defaults.
 
 RADOS Client Acknowledgement Generation
 =======================================
+
 Now that the recovery scheme is understood, we can discuss the
 generation of of the RADOS operation acknowledgement (ACK) by the
 primary ("sufficient" from above). It is NOT required that the primary
@@ -266,3 +293,75 @@ need only wait for enough shards to be written to ensure recovery of
 the data, Thus after writing W + M chunks you can afford the lost of M
 chunks. Hence the primary can generate the RADOS ACK after W+M-M => W
 of those prepare operations are completed.
+
+Outstanding Questions
+=====================
+
+Inconsistent object_info_t versions
+-----------------------------------
+
+A natural consequence of only writing the blocks which actually
+changed is that we don't want to update the object_info_t of the
+objects which didn't.  I actually think it would pose a problem to do
+so: pg ghobject namespaces are generally large, and unless the osd is
+seeing a bunch of overwrites on a small set of objects, I'd expect
+each write to be far enough apart in the backing ghobject_t->data
+mapping to each constitute a random metadata update.  Thus, we have to
+accept that not every shard will have the current version in its
+object_info_t.  We can't even bound how old the version on a
+particular shard will happen to be.  In particular, the primary does
+not necessarily have the current version.  One could argue that the
+parity shards would always have the current version, but not every
+code necessarily has designated parity shards which see every write
+(certainly LRC, iirc shec, and even with a more pedestrian code, it
+might be desirable to rotate the shards based on object hash).  Even
+if you chose to designate a shard as witnessing all writes, the pg
+might be degraded with that particular shard missing.  This is a bit
+tricky, currently reads and writes implicitely return the most recent
+version of the object written.  On reads, we'd have to read K shards
+to answer that question.  We can get around that by adding a "don't
+tell me the current version" flag.  Writes are more problematic: we
+need an object_info from the most recent write in order to form the
+new object_info and log_entry.
+
+A truly terrifying option would be to eliminate version and
+prior_version entirely from the object_info_t.  There are a few
+specific purposes it serves:
+(1) On OSD startup, we prime the missing set by scanning backwards
+		from last_update to last_complete comparing the stored object's
+		object_info_t to the version of most recent log entry.
+(2) During backfill, we compare versions between primary and target
+		to avoid some pushes.
+
+We use it elsewhere as well
+(1) While pushing and pulling objects, we verify the version.
+(2) We return it on reads and writes and allow the librados user to
+		assert it atomically on writesto allow the user to deal with write
+		races (used extensively by rbd).
+
+We can avoid (1) by maintaining the missing set explicitely.  It's
+already possible for there to be a missing object without a corresponding
+log entry (Consider the case where the most recent write is to an object
+which has not been updated in weeks.  If that write becomes divergent,
+the written object needs to be marked missing based on the prior_version
+which is not in the log.)  THe PGLog already has a way of handling those
+edge cases (see divergent_priors).  We'd simply expand that to contain
+the entire missing set and maintain it atomically with the log and the
+objects.  This isn't really an unreasonable option, the addiitonal keys
+would be fewer than the existing log keys + divergent_priors and aren't
+updated in the fast write path anyway.
+
+The second case is a bit trickier.  It's really an optimization for
+the case where a pg became not in the acting set long enough for the
+logs to no longer overlap but not long enough for the PG to have
+healed and removed the old copy.  Unfortunately, this describes the
+case where a node was taken down for maintenance with noout set. It's
+probably not acceptable to re-backfill the whole OSD in such a case.
+
+Thus, it would be desirable to have a way to quickly determine whether
+an object shard is up to date.  I don't yet have a way of making
+hashes solve this problem for me: at first glance, they seem to pose
+the same problem as versions in that the primary needs to know the
+current set of hashes before issuing a write (so it can include it in
+the object_info_t).
+
