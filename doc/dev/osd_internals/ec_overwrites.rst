@@ -340,16 +340,17 @@ We use it elsewhere as well
 		races (used extensively by rbd).
 
 We can avoid (1) by maintaining the missing set explicitely.  It's
-already possible for there to be a missing object without a corresponding
-log entry (Consider the case where the most recent write is to an object
-which has not been updated in weeks.  If that write becomes divergent,
-the written object needs to be marked missing based on the prior_version
-which is not in the log.)  THe PGLog already has a way of handling those
-edge cases (see divergent_priors).  We'd simply expand that to contain
-the entire missing set and maintain it atomically with the log and the
-objects.  This isn't really an unreasonable option, the addiitonal keys
-would be fewer than the existing log keys + divergent_priors and aren't
-updated in the fast write path anyway.
+already possible for there to be a missing object without a
+corresponding log entry (Consider the case where the most recent write
+is to an object which has not been updated in weeks.  If that write
+becomes divergent, the written object needs to be marked missing based
+on the prior_version which is not in the log.)  THe PGLog already has
+a way of handling those edge cases (see divergent_priors).  We'd
+simply expand that to contain the entire missing set and maintain it
+atomically with the log and the objects.  This isn't really an
+unreasonable option, the addiitonal keys would be fewer than the
+existing log keys + divergent_priors and aren't updated in the fast
+write path anyway.
 
 The second case is a bit trickier.  It's really an optimization for
 the case where a pg became not in the acting set long enough for the
@@ -365,3 +366,22 @@ the same problem as versions in that the primary needs to know the
 current set of hashes before issuing a write (so it can include it in
 the object_info_t).
 
+If the deep scrub machinery uses a crypto hash and a merkle tree, we
+could always choose to query the merkel tree tower from the modified
+block to the root along with the block from any replica we read from
+(with parity-delta and replica splay optimization, the replica does
+it).  The update sent to the affected shards would then overwrite the
+hashes of the known shard hashes on each target, but leave the
+unmodified ones with whatever the shard previously knew.  Thus, by
+gathering K of those mappings and taking the highest version in each
+slot, we know the current hash of each shard.  The log entry could
+store the top level hash for each object?  That could be used during
+backfill to solve the problem I think?  Hmm, if this suffices for
+backfill, we can put the same information in the log entry and
+reconstruct the missing set with it?  Wait, no, missing set
+reconstruction is strictly local, so can't query K shards.
+
+What about object_info updates and xattrs?  We could bump the version
+for those since all replicas need to witness them anyway (actually,
+they don't, but it's not worth optimizing for?), but not pure data
+writes (distinguish in the log entry?).
