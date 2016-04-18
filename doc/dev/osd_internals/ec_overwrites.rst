@@ -215,9 +215,22 @@ to the client -- and the last entry gives us our last_update.
 Deep scrub support
 ------------------
 
-The current implementation keeps a running checksum
-of all shards on each shard in a special xattr.  This works great for
-append only, but it doesn’t work if we allow overwrites.  TBD
+The simple answer here is probably our best bet.  EC pools can't use
+the omap namespace at all right now.  The simplest solution would be
+to take a prefix of the omap space and pack N M byte L bit checksums
+into each key/value.  The prefixing seems like a sensible precaution
+against eventually wanting to store something else in the omap space.
+It seems like any write will need to read at least the blocks
+containing the modified range.  However, with a code able to compute
+parity deltas, we may not need to read a whole stripe.  Even without
+that, we don't want to have to write to blocks not participating in
+the write.  Thus, each shard should store checksums only for itself.
+It seems like you'd be able to store checksums for all shards on the
+parity blocks, but there may not be distinguished parity blocks which
+are modified on all writes (LRC or shec provide two examples).  L
+should probably have a fixed number of options (16, 32, 64?) and be
+configurable per-pool at pool creation.  N, M should be likewise be
+configurable at pool creation with sensible defaults.
 
 RADOS Client Acknowledgement Generation
 =======================================
