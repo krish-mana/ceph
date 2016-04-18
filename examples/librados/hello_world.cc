@@ -44,7 +44,7 @@ int main(int argc, const char **argv)
    * use that.
    */
   {
-    ret = rados.conf_parse_argv(argc, argv);
+    int ret = rados.conf_parse_argv(argc, argv);
     if (ret < 0) {
       // This really can't happen, but we need to check to be a good citizen.
       std::cerr << "failed to parse config options! error " << ret << std::endl;
