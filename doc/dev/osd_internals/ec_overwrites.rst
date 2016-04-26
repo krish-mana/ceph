@@ -384,4 +384,9 @@ reconstruction is strictly local, so can't query K shards.
 What about object_info updates and xattrs?  We could bump the version
 for those since all replicas need to witness them anyway (actually,
 they don't, but it's not worth optimizing for?), but not pure data
-writes (distinguish in the log entry?).
+writes (distinguish in the log entry?).  prior_version seems not to be
+meaninful in such a design though.  I seem to remember that some
+operations are unrollbackable even in an EC pool -- we wouldn't
+necessarily have a valid value to put into the missing set.  I suppose
+we could remove a bunch of information from the missing set.  No have
+or need, just in or out.
