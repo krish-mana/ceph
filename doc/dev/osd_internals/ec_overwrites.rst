@@ -357,36 +357,30 @@ the case where a pg became not in the acting set long enough for the
 logs to no longer overlap but not long enough for the PG to have
 healed and removed the old copy.  Unfortunately, this describes the
 case where a node was taken down for maintenance with noout set. It's
-probably not acceptable to re-backfill the whole OSD in such a case.
+probably not acceptable to re-backfill the whole OSD in such a case,
+so we need to be able to quickly determine whether a particular shard
+is up to date given a valid acting set of other shards.
 
-Thus, it would be desirable to have a way to quickly determine whether
-an object shard is up to date.  I don't yet have a way of making
-hashes solve this problem for me: at first glance, they seem to pose
-the same problem as versions in that the primary needs to know the
-current set of hashes before issuing a write (so it can include it in
-the object_info_t).
+Let ordinary writes which do not change the object size not touch the
+object_info at all.  That means that the object_info version won't
+match the pg log entry version.  Include in the pg_log_entry_t the
+current object_info version as well as which shards participated (as
+mentioned above).  In addition to the object_info_t attr, record on
+each shard s a vector recording for each other shard s' the most
+recent write which spanned both s and s'.  Operationally, we maintain
+an attr on each shard containing that vector.  A write touching S
+updates the version stamp entry for each shard in S on each shard in
+S's attribute (and leaves the rest alone).  If we have a valid acting
+set during backfill, we must have a witness of every write which
+completed -- so taking the max of each entry over all of the acting
+set shards must give us the current version for each shard.  During
+recovery, we set the attribute on the recovery target to that max
+vector (Question: with LRC, we may not need to touch much of the
+acting set to recover a particular shard -- can we just use the max of
+the shards we used to recovery, or do we need to grab the version
+vector from the rest of the acting set as well?  I'm not sure, not a
+big deal anyway, I think).
 
-If the deep scrub machinery uses a crypto hash and a merkle tree, we
-could always choose to query the merkel tree tower from the modified
-block to the root along with the block from any replica we read from
-(with parity-delta and replica splay optimization, the replica does
-it).  The update sent to the affected shards would then overwrite the
-hashes of the known shard hashes on each target, but leave the
-unmodified ones with whatever the shard previously knew.  Thus, by
-gathering K of those mappings and taking the highest version in each
-slot, we know the current hash of each shard.  The log entry could
-store the top level hash for each object?  That could be used during
-backfill to solve the problem I think?  Hmm, if this suffices for
-backfill, we can put the same information in the log entry and
-reconstruct the missing set with it?  Wait, no, missing set
-reconstruction is strictly local, so can't query K shards.
-
-What about object_info updates and xattrs?  We could bump the version
-for those since all replicas need to witness them anyway (actually,
-they don't, but it's not worth optimizing for?), but not pure data
-writes (distinguish in the log entry?).  prior_version seems not to be
-meaninful in such a design though.  I seem to remember that some
-operations are unrollbackable even in an EC pool -- we wouldn't
-necessarily have a valid value to put into the missing set.  I suppose
-we could remove a bunch of information from the missing set.  No have
-or need, just in or out.
+The above lets us perform blind writes without knowing the current
+object version (log entry version, that is) while still allowing us to
+avoid backfilling up to date objects.
