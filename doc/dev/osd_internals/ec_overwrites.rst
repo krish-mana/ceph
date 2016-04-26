@@ -279,6 +279,12 @@ should probably have a fixed number of options (16, 32, 64?) and be
 configurable per-pool at pool creation.  N, M should be likewise be
 configurable at pool creation with sensible defaults.
 
+We need to handle online upgrade.  I think the right answer is that
+the first overwrite to an object with an append only checksum
+removes the append only checksum and writes in whatever stripe
+checksums actually got written.  The next deep scrub then writes
+out the full checksum omap entries.
+
 RADOS Client Acknowledgement Generation
 =======================================
 
@@ -412,6 +418,7 @@ validating the behavior of turning it on for an existing ec pool
 overwrite ec pools, so that test will simply be expanded as we go).
 The flag should be gated by the experimental feature flag since we
 won't want to support this as a valid configuration -- testing only.
+We need to upgrade append only ones in place during deep scrub.
 
 Similarly, we can implement the unstable extent cache with the current
 implementation, it even lets us cut out the readable ack the replicas
