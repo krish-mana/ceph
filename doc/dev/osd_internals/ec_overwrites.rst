@@ -294,11 +294,8 @@ the data, Thus after writing W + M chunks you can afford the lost of M
 chunks. Hence the primary can generate the RADOS ACK after W+M-M => W
 of those prepare operations are completed.
 
-Outstanding Questions
-=====================
-
 Inconsistent object_info_t versions
------------------------------------
+===================================
 
 A natural consequence of only writing the blocks which actually
 changed is that we don't want to update the object_info_t of the
@@ -334,10 +331,19 @@ specific purposes it serves:
 		to avoid some pushes.
 
 We use it elsewhere as well
-(1) While pushing and pulling objects, we verify the version.
-(2) We return it on reads and writes and allow the librados user to
+(3) While pushing and pulling objects, we verify the version.
+(4) We return it on reads and writes and allow the librados user to
 		assert it atomically on writesto allow the user to deal with write
 		races (used extensively by rbd).
+
+Case (3) isn't actually essential, just convenient.  Oh well.  (4)
+is more annoying. Writes are easy since we know the version.  Reads
+are tricky because we may not need to read from all of the replicas.
+Simplest solution is to add a flag to rados operations to just not
+return the user version on read.  We can also just not support the
+user version assert on ec for now (I think?  Only user is rgw bucket
+indices iirc, and those will always be on replicated because they use
+omap).
 
 We can avoid (1) by maintaining the missing set explicitely.  It's
 already possible for there to be a missing object without a
@@ -383,4 +389,82 @@ big deal anyway, I think).
 
 The above lets us perform blind writes without knowing the current
 object version (log entry version, that is) while still allowing us to
-avoid backfilling up to date objects.
+avoid backfilling up to date objects.  The only catch is that our
+backfill scans will can all replicas, not just the primary and the
+backfill targets.
+
+Implementation Strategy
+=======================
+
+It goes without saying that it would be unwise to attempt to do all of
+this in one massive PR.  It's also not a good idea to merge code which
+isn't being tested.  To that end, it's worth thinking a bit about
+which bits can be tested on their own (perhaps with a bit of temporary
+scaffolding).
+
+We can implement the overwrite friendly checksumming scheme easily
+enough with the current implementation.  We'll want to enable it on a
+per-pool basis (probably using a flag which we'll later repurpose for
+actual overwrite support).  We can enable it in some of the ec
+thrashing tests in the suite.  We can also add a simple test
+validating the behavior of turning it on for an existing ec pool
+(later, we'll want to be able to convert append-only ec pools to
+overwrite ec pools, so that test will simply be expanded as we go).
+The flag should be gated by the experimental feature flag since we
+won't want to support this as a valid configuration -- testing only.
+
+Similarly, we can implement the unstable extent cache with the current
+implementation, it even lets us cut out the readable ack the replicas
+send to the primary after the commit which lets it release the lock.
+Same deal, implement, gate with experimental flag, add to some of the
+automated tests.  I don't really see a reason not to use the same flag
+as above.
+
+We can certainly implement the move-range primitive with unit tests
+before there are any users.  Adding coverage to the existing
+objectstore tests would suffice here.
+
+Explicit missing set can be implemented now, same deal as above --
+might as well even use the same feature bit.
+
+The TPC protocol outlined above can actually be implemented an append
+only EC pool.  Same deal as above, can even use the same feature bit.
+
+The RADOS flag to suppress the read op user version return can be
+implemented immediately.  Mostly just needs unit tests.
+
+The version vector problem is an interesting one.  For append only EC
+pools, it would be pointless since all writes increase the size and
+therefore update the object_info.  We could do it for replicated pools
+though.  It's a bit silly since all "shards" see all writes, but it
+would still let us implement and partially test the augmented backfill
+code as well as the extra pg log entry fields -- this depends on the
+explicit pg log entry branch having already merged.  It's not entirely
+clear to me that this one is worth doing seperately.  It's enough code
+that I'd really prefer to get it done independently, but it's also a
+fair amount of scaffolding that will be later discarded.
+
+PGLog entries need to be able to record the participants and log
+comparison needs to be modified to extend logs with entries they
+wouldn't have witnessed.  This logic should be abstracted behind
+PGLog so it can be unittested -- that would let us test it somewhat
+before the actual ec overwrites code merges.
+
+Whatever needs to happen to the ec plugin interface can probably be
+done independently of the rest of this (pending resolution of
+questions below).
+
+The actual nuts and bolts of performing the ec overwrite it seems to
+me can't be productively tested (and therefore implemented) until the
+above are complete, so best to get all of the supporting code in
+first.
+
+Open Questions
+==============
+
+Is there a code we should be using that would let us compute a parity
+delta without rereading and reencoding the full stripe?  If so, is it
+the kind of thing we need to design for now, or can it be reasonably
+put off?
+
+What needs to happen to the EC plugin interface?
