@@ -399,6 +399,11 @@ avoid backfilling up to date objects.  The only catch is that our
 backfill scans will can all replicas, not just the primary and the
 backfill targets.
 
+It would be worth adding into scrub the ability to check the
+consistency of the gathered version vectors -- probably by just
+taking 3 random valid subsets and verifying that they generate
+the same authoritative version vector.
+
 Implementation Strategy
 =======================
 
