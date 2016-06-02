@@ -439,8 +439,6 @@ install(FILES include/rados/librados.h
   DESTINATION include/rados)
 install(TARGETS librados DESTINATION lib)
 
-add_subdirectory(libradosstriper)
-
 add_executable(ceph_scratchtool tools/scratchtool.c)
 target_link_libraries(ceph_scratchtool librados global)
 install(TARGETS ceph_scratchtool DESTINATION bin/debug)
@@ -476,7 +474,7 @@ set(rados_srcs
   tools/rados/PoolDump.cc
   common/obj_bencher.cc)
 add_executable(rados ${rados_srcs})
-target_link_libraries(rados librados global ${BLKID_LIBRARIES} ${CMAKE_DL_LIBS} libradosstriper)
+target_link_libraries(rados librados global ${BLKID_LIBRARIES} ${CMAKE_DL_LIBS})
 
 if (WITH_CEPHFS)
   set(cephfs_journal_tool_srcs
